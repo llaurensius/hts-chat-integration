@@ -17,10 +17,13 @@ Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk
   - Pelanggan dapat mengirim foto kendala via WhatsApp yang langsung diunduh dan tampil di antrean chat web (didukung hingga kapasitas 50MB).
   - Agen Helpdesk dapat mengunggah gambar lampiran penjelasan kembali ke WhatsApp pelanggan.
 - **🛡️ Akses Berbasis Peran (Role-Based Access Control - RBAC):**
-  - **L1 (Dispatcher):** Berkomunikasi langsung dengan pelanggan, menugaskan tiket ke tim L2, sakelar bot, dan menutup tiket resmi.
+  - **L1 (Dispatcher):** Berkomunikasi langsung dengan pelanggan via WhatsApp, dua mode chat (balas WhatsApp vs catatan internal ke L2), sakelar bot, dan menutup tiket resmi.
   - **L2 (Teknisi):** Mode *View-Only* obrolan pelanggan, kolom *Catatan Internal* (hanya dibaca tim), tombol *Tandai Selesai*, dan *Kembalikan / Lepas*.
   - **ADMIN:** Akses penuh gabungan (L1 + L2), **Manajemen Pengguna**, **Kontak Tim L2**, dan **Pembersihan Rekap Aduan**.
   - **SPV:** Monitoring antrean dan akses laporan rekapitulasi.
+- **💬 Dual-Mode Chat L1 (Balas WhatsApp Pelanggan vs Catatan Internal ke L2):**
+  - Mengadopsi standar Zendesk: L1 dapat berpindah tab antara mengirim balasan resmi ke nomor WhatsApp pelanggan (💬) atau mengirim instruksi/tanggapan rahasia ke teknisi L2 (🔒).
+  - Catatan internal L1 100% aman (tidak terkirim ke WhatsApp) dan disiarkan secara real-time ke layar seluruh teknisi.
 - **👥 Pendelegasian Smart Multi-Assign (Satu atau Banyak Tim Sekaligus):**
   - L1 dapat mencentang lebih dari satu tim teknisi sekaligus (`Network`, `Server`, dan/atau `Mechanical & Electrical (M&E)`).
   - **Smart Assign Diffing:** Menambah/mengubah tim tidak mereset tim yang sudah aktif bertugas atau yang telah selesai.

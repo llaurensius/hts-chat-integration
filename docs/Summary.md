@@ -72,6 +72,9 @@ Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**
    - Mengambil nama kontak tersimpan di buku kontak HP Helpdesk (via Evolution API `findContacts`) secara otomatis saat pesan masuk.
    - Dispatcher L1 dan Admin dapat mengubah nama pelapor dan instansi/SKPD langsung dari header chat atau panel detail tiket (tombol pensil ✏️).
    - Nama hasil editan tersimpan permanen (`is_custom_name = true`) dan disiarkan seketika via WebSocket (`customer_updated`) serta otomatis masuk ke Laporan Rekapitulasi dan Export CSV.
+8. **Dua Mode Pengiriman Chat L1 (Dual Tab Zendesk Style: Balas WhatsApp vs Catatan Internal):**
+   - Dispatcher L1 kini dapat berpindah mode antara membalas langsung ke nomor WhatsApp pelapor (💬 tab warna biru) dan mengirim catatan internal rahasia ke teknisi L2 (🔒 tab warna kuning/amber).
+   - Catatan internal dari L1 **100% rahasia**, tidak dikirim ke WhatsApp pelapor, dan otomatis bertag identitas `🏷️ Catatan Internal - Dispatcher L1 (Nama Petugas)`.
 
 ---
 

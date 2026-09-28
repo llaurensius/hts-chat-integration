@@ -28,13 +28,24 @@ Dispatcher L1 bertindak sebagai pengelola utama alur komunikasi aduan pelanggan 
 3. Klik **"Simpan Penugasan"**.
 4. WhatsApp Blast otomatis dikirimkan **hanya ke tim yang baru ditambahkan** untuk mencegah spam notifikasi berulang.
 
-### Tahap 3: Memantau Progres Penanganan Tim L2
+### Tahap 3: Berkomunikasi Dua Mode (Balas WhatsApp vs Catatan Internal ke L2)
+Di bagian bawah obrolan aktif, Dispatcher L1 memiliki dua tab mode pengiriman (gaya *Zendesk*):
+1. **Tab 💬 Balas Pelanggan (WhatsApp) [Default]:**
+   - Masukkan pesan balasan atau klik ikon klip kertas (📎) untuk melampirkan gambar.
+   - Pesan langsung terkirim ke nomor WhatsApp pelapor (gelembung biru).
+2. **Tab 🔒 Catatan Internal (Tim L1 & L2):**
+   - Klik tab ini saat ingin membalas laporan teknisi L2 atau memberikan instruksi khusus tim teknis.
+   - Kotak ketik otomatis berganti warna kuning/amber dengan penanda rahasia.
+   - Pesan yang dikirim bertindak sebagai catatan internal internal (`is_internal: true`), disiarkan secara real-time ke layar teknisi L2 terkait, dan **100% RAHASIA (TIDAK terkirim ke WhatsApp pelapor)**.
+   - Muncul di log obrolan dengan badge: `🏷️ Catatan Internal - Dispatcher L1 (Nama Petugas)`.
+
+### Tahap 4: Memantau Progres Penanganan Tim L2
 - Pada header obrolan tiket, Dispatcher dapat melihat status real-time masing-masing tim:
   - Label Hijau: `✓ Network: Selesai`
   - Label Oranye: `⏳ Server: Sedang Dikerjakan`
 - Jika seluruh tim telah menyelesaikan kendala, tiket otomatis berstatus **`RESOLVED`** (berlabel biru di antrean).
 
-### Tahap 4: Menutup Tiket Secara Resmi (Official Closure)
+### Tahap 5: Menutup Tiket Secara Resmi (Official Closure)
 1. Hubungi kembali pelanggan via chat untuk memastikan layanan telah berfungsi normal.
 2. Klik tombol **"Selesaikan"** di header atas.
 3. Modal penutupan tiket akan terbuka:
@@ -43,7 +54,7 @@ Dispatcher L1 bertindak sebagai pengelola utama alur komunikasi aduan pelanggan 
    - **Wajib Mengisi Kesimpulan Penanganan:** Minimal 10 karakter (contoh: *"Penggantian router core dan restart server selesai tuntas. Jalur internet normal kembali"*).
 4. Klik **"Tutup Tiket"**. Tiket resmi berstatus `CLOSED` dan otomatis dipindahkan ke menu **Rekap Hasil Aduan**.
 
-### Tahap 5: Pengaturan Auto-Reply Bot
+### Tahap 6: Pengaturan Auto-Reply Bot
 1. Klik menu **"Auto-Reply Bot"** (ikon robot 🤖) di sidebar kiri.
 2. Gunakan sakelar toggle untuk mengaktifkan (🟢 Hijau) atau menonaktifkan (⚪ Abu-abu) balasan otomatis bot.
 3. Ubah teks pesan template sambutan sesuai kebutuhan operasional (gunakan variabel `{nomor_tiket}` untuk menyisipkan ID tiket otomatis).

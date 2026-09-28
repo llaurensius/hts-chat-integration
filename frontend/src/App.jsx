@@ -101,6 +101,7 @@ function Dashboard() {
   const [replyText, setReplyText] = useState('');
   const [internalNoteText, setInternalNoteText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [chatMode, setChatMode] = useState('public'); // 'public' (balas WA pelapor) | 'internal' (catatan internal L1 ke L2)
   
   // State Close Ticket & Categories
   const [showCloseModal, setShowCloseModal] = useState(false);
@@ -906,9 +907,13 @@ function Dashboard() {
                       const senderCat = msg.sender?.category?.name;
                       const senderName = msg.sender?.name;
 
-                      let badgeTitle = 'Catatan Internal L2';
+                      let badgeTitle = 'Catatan Internal';
                       if (isSystem) {
                         badgeTitle = 'Notifikasi Sistem';
+                      } else if (msg.sender?.role === 'L1') {
+                        badgeTitle = `Catatan Internal - Dispatcher L1${senderName ? ` (${senderName})` : ''}`;
+                      } else if (msg.sender?.role === 'ADMIN') {
+                        badgeTitle = `Catatan Internal - Administrator${senderName ? ` (${senderName})` : ''}`;
                       } else if (senderCat) {
                         badgeTitle = `Catatan Internal - Tim ${senderCat}${senderName ? ` (${senderName})` : ''}`;
                       } else if (senderName) {
@@ -962,30 +967,105 @@ function Dashboard() {
 
                 {/* Kotak Ketik Balasan (RBAC) */}
                 {isL1 ? (
-                  <div className="p-4 bg-white border-t border-gray-200 flex items-center">
-                    <form onSubmit={handleSend} className="flex items-center space-x-2 w-full">
-                      <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors relative">
-                        <Paperclip className="w-5 h-5" />
-                        {selectedFile && <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full"></span>}
+                  <div className="bg-white border-t border-gray-200">
+                    {/* Tab Switcher: Mode Kirim */}
+                    <div className="flex border-b border-gray-100 px-4 pt-2 gap-2 bg-gray-50/70">
+                      <button
+                        type="button"
+                        onClick={() => setChatMode('public')}
+                        className={`pb-2 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all ${
+                          chatMode === 'public'
+                            ? 'border-blue-600 text-blue-600 bg-white rounded-t-lg shadow-sm'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Balas Pelanggan (WhatsApp)</span>
                       </button>
-                      <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        className="hidden" 
-                        onChange={(e) => setSelectedFile(e.target.files[0])}
-                        accept="image/*"
-                      />
-                      <input 
-                        type="text" 
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder={selectedFile ? `Kirim gambar ${selectedFile.name}...` : "Ketik balasan ke pelapor..."}
-                        className="flex-1 py-2.5 px-4 border border-gray-300 rounded-full focus:outline-none focus:border-blue-500 bg-gray-50 text-sm"
-                      />
-                      <button type="submit" disabled={!replyText.trim() && !selectedFile} className="p-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-md">
-                        <Send className="w-5 h-5" />
+                      <button
+                        type="button"
+                        onClick={() => setChatMode('internal')}
+                        className={`pb-2 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all ${
+                          chatMode === 'internal'
+                            ? 'border-amber-500 text-amber-700 bg-amber-50 rounded-t-lg shadow-sm'
+                            : 'border-transparent text-gray-500 hover:text-amber-700'
+                        }`}
+                      >
+                        <Lock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Catatan Internal (Tim L1 & L2)</span>
+                        <span className="text-[10px] bg-amber-200/70 text-amber-800 px-1.5 py-0.2 rounded-full font-bold">
+                          Rahasia
+                        </span>
                       </button>
-                    </form>
+                    </div>
+
+                    {/* Mode 1: Balas WhatsApp Pelanggan */}
+                    {chatMode === 'public' ? (
+                      <div className="p-3.5 flex items-center">
+                        <form onSubmit={handleSend} className="flex items-center space-x-2 w-full">
+                          <button 
+                            type="button" 
+                            onClick={() => fileInputRef.current?.click()} 
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors relative"
+                            title="Lampirkan Gambar"
+                          >
+                            <Paperclip className="w-5 h-5" />
+                            {selectedFile && <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full"></span>}
+                          </button>
+                          <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            onChange={(e) => setSelectedFile(e.target.files[0])}
+                            accept="image/*"
+                          />
+                          <input 
+                            type="text" 
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            placeholder={selectedFile ? `Kirim gambar ${selectedFile.name}...` : "Ketik balasan untuk dikirim ke WhatsApp pelapor..."}
+                            className="flex-1 py-2.5 px-4 border border-gray-300 rounded-full focus:outline-none focus:border-blue-500 bg-gray-50 text-sm"
+                          />
+                          <button 
+                            type="submit" 
+                            disabled={!replyText.trim() && !selectedFile} 
+                            className="px-4 py-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-md flex items-center gap-1.5 text-sm font-semibold"
+                          >
+                            <span>Kirim</span>
+                            <Send className="w-4 h-4" />
+                          </button>
+                        </form>
+                      </div>
+                    ) : (
+                      /* Mode 2: Catatan Internal L1 ke Tim L2 */
+                      <div className="p-3.5 bg-amber-50/70 border-t border-amber-200/50">
+                        <div className="flex items-center justify-between mb-1.5 text-[11px] text-amber-800">
+                          <span className="font-semibold flex items-center gap-1">
+                            <Lock className="w-3 h-3 text-amber-600" /> Mode Catatan Internal Dispatcher
+                          </span>
+                          <span className="text-amber-700/80 italic text-[10px]">
+                            Hanya dibaca tim L1, L2, & Admin. TIDAK terkirim ke WhatsApp pelapor.
+                          </span>
+                        </div>
+                        <form onSubmit={handleSendInternalNote} className="flex items-center space-x-2 w-full">
+                          <input 
+                            type="text" 
+                            value={internalNoteText}
+                            onChange={e => setInternalNoteText(e.target.value)}
+                            placeholder="Ketik catatan atau instruksi internal untuk teknisi L2..."
+                            className="flex-1 py-2.5 px-4 border border-amber-300 rounded-full focus:outline-none focus:border-amber-500 bg-white text-sm"
+                          />
+                          <button 
+                            type="submit" 
+                            disabled={!internalNoteText.trim()} 
+                            className="px-4 py-2.5 bg-amber-600 text-white rounded-full hover:bg-amber-700 disabled:opacity-50 transition-colors shadow-sm text-sm font-semibold flex items-center gap-1.5 whitespace-nowrap"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Kirim Catatan</span>
+                          </button>
+                        </form>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-4 bg-yellow-50 border-t border-yellow-200 flex flex-col">
