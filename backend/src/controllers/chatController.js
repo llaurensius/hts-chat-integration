@@ -324,4 +324,120 @@ const assignTicket = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply, getCategories, closeTicket, sendMedia, assignTicket };
+// L2 Menandai Tiket Selesai (Fase 6)
+const resolveTicket = async (req, res) => {
+  const { ticketId } = req.params;
+  try {
+    const updatedTicket = await prisma.ticket.update({
+      where: { id: parseInt(ticketId) },
+      data: { status: 'RESOLVED' }
+    });
+
+    const noteText = `[SISTEM] Teknisi L2 telah menandai pekerjaan selesai. Menunggu penutupan final oleh L1.`;
+    await prisma.message.create({
+      data: {
+        ticket_id: updatedTicket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user ? req.user.id : 1,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('ticket_closed', { ticketId: updatedTicket.id }); // Trigger reload
+      req.io.emit('new_message', {
+        ticketId: updatedTicket.id,
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({ success: true, ticket: updatedTicket });
+  } catch (error) {
+    console.error('[Chat API] Error resolving ticket:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// L2 Mengembalikan Tiket ke L1 (Fase 6)
+const returnTicket = async (req, res) => {
+  const { ticketId } = req.params;
+  try {
+    const updatedTicket = await prisma.ticket.update({
+      where: { id: parseInt(ticketId) },
+      data: { status: 'OPEN' }
+    });
+
+    // Menghapus mapping kategori agar kembali ke antrean umum L1
+    await prisma.ticketCategory.deleteMany({
+      where: { ticket_id: updatedTicket.id }
+    });
+
+    const noteText = `[SISTEM] Teknisi L2 mengembalikan tiket ini ke L1 (Salah Kategori / Butuh Info).`;
+    await prisma.message.create({
+      data: {
+        ticket_id: updatedTicket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user ? req.user.id : 1,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('ticket_closed', { ticketId: updatedTicket.id });
+      req.io.emit('new_message', {
+        ticketId: updatedTicket.id,
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({ success: true, ticket: updatedTicket });
+  } catch (error) {
+    console.error('[Chat API] Error returning ticket:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// L2 Menambahkan Catatan Internal (Fase Tambahan V2)
+const addInternalNote = async (req, res) => {
+  const { ticketId } = req.params;
+  const { text } = req.body;
+  
+  if (!text) return res.status(400).json({ error: 'Catatan tidak boleh kosong' });
+
+  try {
+    const savedMessage = await prisma.message.create({
+      data: {
+        ticket_id: parseInt(ticketId),
+        sender_type: 'AGENT',
+        sender_id: req.user ? req.user.id : 1,
+        message_text: text,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('new_message', {
+        ticketId: parseInt(ticketId),
+        senderType: 'AGENT',
+        text: text,
+        isInternal: true,
+        createdAt: savedMessage.created_at
+      });
+    }
+
+    res.json({ success: true, message: savedMessage });
+  } catch (error) {
+    console.error('[Chat API] Error adding internal note:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia, assignTicket, resolveTicket, returnTicket, addInternalNote };

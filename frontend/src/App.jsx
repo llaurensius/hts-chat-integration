@@ -99,6 +99,7 @@ function Dashboard() {
   const [activeTicket, setActiveTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
+  const [internalNoteText, setInternalNoteText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   
   // State Close Ticket & Categories
@@ -264,11 +265,40 @@ function Dashboard() {
     }
   };
 
-  // L2 menandai selesai
+  // L2 menandai selesai (Fase 6)
+  const handleSendInternalNote = async (e) => {
+    e.preventDefault();
+    if (!internalNoteText.trim()) return;
+    try {
+      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/internal-note`, { text: internalNoteText });
+      setInternalNoteText('');
+    } catch (error) {
+      alert('Gagal mengirim catatan');
+    }
+  };
+
   const handleMarkResolved = async () => {
-    if(window.confirm('Tandai pekerjaan ini telah selesai? Tiket akan dikembalikan ke L1.')){
-      // Simulasi API call (Di Fase 6 akan dibuat detailnya)
-      alert('Tiket ditandai selesai! Menunggu penutupan resmi oleh L1.');
+    if(!window.confirm('Tandai pekerjaan ini telah selesai? Tiket akan dikembalikan ke L1.')) return;
+    try {
+      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/resolve`);
+      alert('Berhasil. Tiket sekarang menunggu penutupan final oleh L1.');
+      loadTickets();
+      setActiveTicket(null);
+    } catch (error) {
+      alert('Gagal menandai tiket selesai');
+    }
+  };
+
+  // L2 mengembalikan tiket (Fase 6)
+  const handleReturnTicket = async () => {
+    if(!window.confirm('Kembalikan tiket ini ke L1? (Salah kamar/Butuh info)')) return;
+    try {
+      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/return`);
+      alert('Tiket berhasil dikembalikan ke L1.');
+      loadTickets();
+      setActiveTicket(null);
+    } catch (error) {
+      alert('Gagal mengembalikan tiket');
     }
   };
 
@@ -426,7 +456,7 @@ function Dashboard() {
                       <p className="text-gray-500 truncate pr-4 text-xs">
                         {lastMsg ? (lastMsg.attachment_url ? '[Gambar]' : lastMsg.message_text) : 'Belum ada pesan'}
                       </p>
-                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${ticket.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${ticket.status === 'OPEN' ? 'bg-green-100 text-green-700' : ticket.status === 'RESOLVED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
                         {ticket.status}
                       </span>
                     </div>
@@ -464,9 +494,14 @@ function Dashboard() {
                     </div>
                   )}
                   {isL2 && (
-                    <button onClick={handleMarkResolved} className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg font-medium transition flex items-center">
-                      <CheckCircle className="w-4 h-4 mr-1"/> Tandai Selesai
-                    </button>
+                    <div className="flex space-x-2">
+                      <button onClick={handleReturnTicket} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm rounded-lg font-medium transition">
+                        Kembalikan L1
+                      </button>
+                      <button onClick={handleMarkResolved} className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg font-medium transition flex items-center">
+                        <CheckCircle className="w-4 h-4 mr-1"/> Tandai Selesai
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -539,16 +574,18 @@ function Dashboard() {
                 ) : (
                   <div className="p-4 bg-yellow-50 border-t border-yellow-200 flex flex-col">
                     <label className="text-xs font-bold text-yellow-800 mb-1">Catatan Internal (Hanya dibaca L1)</label>
-                    <div className="flex items-center space-x-2 w-full">
+                    <form onSubmit={handleSendInternalNote} className="flex items-center space-x-2 w-full">
                       <input 
                         type="text" 
+                        value={internalNoteText}
+                        onChange={e => setInternalNoteText(e.target.value)}
                         placeholder="Ketik progres pengerjaan lapangan..."
                         className="flex-1 py-2.5 px-4 border border-yellow-300 rounded-full focus:outline-none focus:border-yellow-500 bg-white text-sm"
                       />
-                      <button className="px-4 py-2.5 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors shadow-sm text-sm font-semibold">
+                      <button type="submit" disabled={!internalNoteText.trim()} className="px-4 py-2.5 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 disabled:opacity-50 transition-colors shadow-sm text-sm font-semibold">
                         Simpan Catatan
                       </button>
-                    </div>
+                    </form>
                   </div>
                 )}
               </>
