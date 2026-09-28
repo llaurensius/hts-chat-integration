@@ -19,8 +19,11 @@ Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk
 - **🛡️ Akses Berbasis Peran (Role-Based Access Control - RBAC):**
   - **L1 (Dispatcher):** Berkomunikasi langsung dengan pelanggan via WhatsApp, dua mode chat (balas WhatsApp vs catatan internal ke L2), sakelar bot, dan menutup tiket resmi.
   - **L2 (Teknisi):** Mode *View-Only* obrolan pelanggan, kolom *Catatan Internal* (hanya dibaca tim), tombol *Tandai Selesai*, dan *Kembalikan / Lepas*.
-  - **ADMIN:** Akses penuh gabungan (L1 + L2), **Manajemen Pengguna**, **Kontak Tim L2**, dan **Pembersihan Rekap Aduan**.
+  - **ADMIN:** Akses penuh gabungan (L1 + L2), **Manajemen Pengguna (CRUD Penuh & Reset Password)**, **Kontak Tim L2**, dan **Pembersihan Rekap Aduan**.
   - **SPV:** Monitoring antrean dan akses laporan rekapitulasi.
+- **👥 Manajemen Akun Pengguna Lengkap (Full CRUD - Admin Only):**
+  - Administrator dapat mendaftarkan akun baru, mengedit data akun staf (Nama, Email, Peran/Role, dan Kategori tim L2), serta menghapus akun yang sudah nonaktif.
+  - Reset password bersifat fleksibel (*opsional*): dikosongkan jika tidak ingin mengubah password lama. Sesi profil langsung ter-update secara otomatis jika admin mengedit akunnya sendiri.
 - **💬 Dual-Mode Chat L1 (Balas WhatsApp Pelanggan vs Catatan Internal ke L2):**
   - Mengadopsi standar Zendesk: L1 dapat berpindah tab antara mengirim balasan resmi ke nomor WhatsApp pelanggan (💬) atau mengirim instruksi/tanggapan rahasia ke teknisi L2 (🔒).
   - Catatan internal L1 100% aman (tidak terkirim ke WhatsApp) dan disiarkan secara real-time ke layar seluruh teknisi.

@@ -634,9 +634,12 @@ function Dashboard() {
   };
 
   const isAdmin = currentUser?.role === 'ADMIN';
-  // --- STATE ADMIN ---
+  // --- STATE ADMIN: USER MANAGEMENT ---
   const [adminUsers, setAdminUsers] = useState([]);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'L1', category_id: '' });
+  const [editingUser, setEditingUser] = useState(null);
+  const [editUserData, setEditUserData] = useState({ name: '', email: '', password: '', role: 'L1', category_id: '' });
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
   const loadAdminUsers = async () => {
     try {
@@ -660,6 +663,57 @@ function Dashboard() {
       loadAdminUsers();
     } catch (error) {
       alert(error.response?.data?.error || 'Gagal membuat user');
+    }
+  };
+
+  const handleStartEditUser = (user) => {
+    setEditingUser(user);
+    setEditUserData({
+      name: user.name || '',
+      email: user.email || '',
+      password: '',
+      role: user.role || 'L1',
+      category_id: user.category_id || user.category?.id || ''
+    });
+  };
+
+  const handleSaveEditUser = async (e) => {
+    e.preventDefault();
+    if (!editUserData.name?.trim() || !editUserData.email?.trim()) {
+      return alert('Nama dan Email wajib diisi!');
+    }
+    if (editUserData.role === 'L2' && !editUserData.category_id) {
+      return alert('Kategori wajib dipilih untuk pengguna peran L2!');
+    }
+
+    setIsSavingUser(true);
+    try {
+      await axios.put(`${API_URL}/admin/users/${editingUser.id}`, {
+        name: editUserData.name.trim(),
+        email: editUserData.email.trim(),
+        password: editUserData.password ? editUserData.password.trim() : undefined,
+        role: editUserData.role,
+        category_id: editUserData.category_id ? parseInt(editUserData.category_id) : null
+      });
+
+      alert('Akun pengguna berhasil diperbarui!');
+      setEditingUser(null);
+      loadAdminUsers();
+
+      if (editingUser.id === currentUser.id) {
+        const updatedLocalUser = {
+          ...currentUser,
+          name: editUserData.name.trim(),
+          email: editUserData.email.trim(),
+          role: editUserData.role
+        };
+        localStorage.setItem('user', JSON.stringify(updatedLocalUser));
+        setCurrentUser(updatedLocalUser);
+      }
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal memperbarui akun pengguna');
+    } finally {
+      setIsSavingUser(false);
     }
   };
 
@@ -1352,8 +1406,20 @@ function Dashboard() {
                           </span>
                         </td>
                         <td className="px-4 py-3">{user.category?.name || '-'}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleDeleteUser(user.id)} className="text-red-600 hover:text-red-800 font-medium">Hapus</button>
+                        <td className="px-4 py-3 text-right space-x-3">
+                          <button 
+                            onClick={() => handleStartEditUser(user)} 
+                            className="text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1"
+                            title="Ubah data pengguna"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteUser(user.id)} 
+                            className="text-red-600 hover:text-red-800 font-medium"
+                          >
+                            Hapus
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1788,6 +1854,127 @@ function Dashboard() {
                   className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
                 >
                   {isSavingCustomer ? 'Menyimpan...' : 'Simpan Identitas'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT PENGGUNA (KHUSUS ADMIN) */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-base">Ubah Data Pengguna</h3>
+                  <p className="text-xs text-gray-500">ID Akun: #{editingUser.id}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setEditingUser(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Nama Lengkap <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editUserData.name}
+                  onChange={e => setEditUserData({ ...editUserData, name: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={editUserData.email}
+                  onChange={e => setEditUserData({ ...editUserData, email: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Password Baru (Opsional)
+                </label>
+                <input
+                  type="password"
+                  value={editUserData.password}
+                  onChange={e => setEditUserData({ ...editUserData, password: e.target.value })}
+                  placeholder="Kosongkan jika tidak ingin mengubah password"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Biarkan kosong jika tetap menggunakan password lama.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Role / Peran <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editUserData.role}
+                  onChange={e => setEditUserData({ ...editUserData, role: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                >
+                  <option value="L1">L1 (Dispatcher)</option>
+                  <option value="L2">L2 (Teknisi)</option>
+                  <option value="SPV">SPV (Supervisor)</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+              </div>
+
+              {editUserData.role === 'L2' && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Kategori Khusus (Wajib L2) <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    value={editUserData.category_id}
+                    onChange={e => setEditUserData({ ...editUserData, category_id: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                  >
+                    <option value="">-- Pilih Kategori --</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingUser}
+                  className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
+                >
+                  {isSavingUser ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </div>
             </form>

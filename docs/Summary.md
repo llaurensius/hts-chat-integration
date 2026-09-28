@@ -75,6 +75,11 @@ Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**
 8. **Dua Mode Pengiriman Chat L1 (Dual Tab Zendesk Style: Balas WhatsApp vs Catatan Internal):**
    - Dispatcher L1 kini dapat berpindah mode antara membalas langsung ke nomor WhatsApp pelapor (💬 tab warna biru) dan mengirim catatan internal rahasia ke teknisi L2 (🔒 tab warna kuning/amber).
    - Catatan internal dari L1 **100% rahasia**, tidak dikirim ke WhatsApp pelapor, dan otomatis bertag identitas `🏷️ Catatan Internal - Dispatcher L1 (Nama Petugas)`.
+9. **Manajemen Akun Pengguna Penuh (Full CRUD) & Reset Password Fleksibel (Admin):**
+   - Administrator dapat mengubah data akun staf terdaftar (Nama, Email, Role, dan Kategori tim khusus untuk L2) langsung melalui modal edit pada tab Manajemen Pengguna.
+   - Kolom Password bersifat opsional (*conditional hashing*): jika dibiarkan kosong, password lama tetap dipertahankan. Jika diisi password baru, sistem otomatis mengenkripsinya dengan `bcryptjs` (salt rounds: 10).
+   - Perubahan data akun yang sedang aktif login langsung diperbarui pada sesi lokal (`localStorage` & user state) tanpa perlu logout-login ulang.
+
 
 ---
 

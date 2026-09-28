@@ -4,6 +4,7 @@ const {
   getUsers,
   createUser,
   deleteUser,
+  updateUser,
   getCategoryContacts,
   addCategoryContact,
   deleteCategoryContact,
@@ -12,6 +13,7 @@ const {
 
 router.get('/users', getUsers);
 router.post('/users', createUser);
+router.put('/users/:id', updateUser);
 router.delete('/users/:id', deleteUser);
 
 // Rute Manajemen Multi-Kontak WhatsApp Blast per Tim L2

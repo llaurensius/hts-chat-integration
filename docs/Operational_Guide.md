@@ -97,8 +97,9 @@ Administrator memegang kendali penuh atas tata kelola sistem, manajemen pengguna
 
 ### 2. Manajemen Pengguna (User Management)
 - Masuk ke menu **"Users"** di sidebar kiri.
-- Tambah akun baru: Masukkan Nama, Email, Password, Role (`L1`, `L2`, `SPV`, atau `ADMIN`), dan pilih Kategori tim jika rolenya `L2`.
-- Menghapus akun staf yang sudah tidak aktif (sistem memproteksi agar akun admin yang sedang login tidak dapat menghapus dirinya sendiri).
+- **Tambah Akun Baru:** Masukkan Nama, Email, Password, Role (`L1`, `L2`, `SPV`, atau `ADMIN`), dan pilih Kategori tim jika rolenya `L2`.
+- **Edit Akun Pengguna:** Klik tombol **"Edit"** pada baris pengguna untuk memperbarui Nama, Email, Role, atau Kategori L2. Kolom Password bersifat opsional (cukup dikosongkan jika tidak ingin mengubah password akun tersebut).
+- **Hapus Akun Pengguna:** Menghapus akun staf yang sudah tidak aktif (sistem memproteksi agar akun admin yang sedang login tidak dapat menghapus dirinya sendiri).
 
 ### 3. Pengaturan Kontak & Target WhatsApp Blast Tim L2
 - Masuk ke menu **"Kontak Tim L2"** (ikon pemancar 📡) di sidebar kiri.

@@ -80,7 +80,36 @@
     }
     ```
 
-### C. Hapus Akun Pengguna
+### C. Ubah Akun Pengguna (Edit User)
+*   **Method / Endpoint:** `PUT /api/admin/users/:userId`
+*   **Akses:** `ADMIN`
+*   **Request Body:**
+    ```json
+    {
+      "name": "Teknisi Network Senior",
+      "email": "l2_network@helpdesk.go.id",
+      "password": "newpassword123", // Opsional: kosongkan jika tidak ingin ganti password
+      "role": "L2",
+      "category_id": 7
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "user": {
+        "id": 4,
+        "name": "Teknisi Network Senior",
+        "email": "l2_network@helpdesk.go.id",
+        "role": "L2",
+        "category_id": 7,
+        "category": { "id": 7, "name": "Network" }
+      },
+      "message": "Akun pengguna berhasil diperbarui"
+    }
+    ```
+
+### D. Hapus Akun Pengguna
 *   **Method / Endpoint:** `DELETE /api/admin/users/:userId`
 *   **Response (200 OK):**
     ```json

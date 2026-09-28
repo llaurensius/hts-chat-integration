@@ -75,6 +75,55 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// Memperbarui akun user (Edit Akun)
+const updateUser = async (req, res) => {
+  const { id } = req.params;
+  const { name, email, password, role, category_id } = req.body;
+
+  if (!name || !email || !role) {
+    return res.status(400).json({ error: 'Data wajib diisi (name, email, role)' });
+  }
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { id: parseInt(id) } });
+    if (!existing) {
+      return res.status(404).json({ error: 'User tidak ditemukan' });
+    }
+
+    // Cek jika email diganti dan sudah digunakan oleh akun lain
+    if (email !== existing.email) {
+      const emailTaken = await prisma.user.findUnique({ where: { email } });
+      if (emailTaken) {
+        return res.status(400).json({ error: 'Email sudah digunakan oleh akun lain' });
+      }
+    }
+
+    const updateData = {
+      name,
+      email,
+      role,
+      category_id: role === 'L2' && category_id ? parseInt(category_id) : null
+    };
+
+    // Jika password diisi, update password hash (opsional saat edit akun)
+    if (password && password.trim()) {
+      updateData.password = await bcrypt.hash(password.trim(), 10);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+      include: { category: true }
+    });
+
+    const { password: _, ...safeUser } = updatedUser;
+    res.json({ success: true, user: safeUser, message: 'Akun pengguna berhasil diperbarui' });
+  } catch (error) {
+    console.error('[Admin API] Error updating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // Mengambil daftar kategori beserta multi-kontak WA Blast
 const getCategoryContacts = async (req, res) => {
   try {
@@ -194,6 +243,7 @@ module.exports = {
   getUsers,
   createUser,
   deleteUser,
+  updateUser,
   getCategoryContacts,
   addCategoryContact,
   deleteCategoryContact,
