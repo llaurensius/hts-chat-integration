@@ -35,8 +35,10 @@ const handleIncomingMessage = async (req, res) => {
       
       const img = messageData.message.imageMessage;
       // Jika disetting base64: true di webhook, evolution akan mengirim data base64
-      if (img.base64) {
-        const buffer = Buffer.from(img.base64, 'base64');
+      const base64Data = messageData.base64 || img.base64;
+      if (base64Data) {
+        const buffer = Buffer.from(base64Data, 'base64');
+        
         const filename = `img_${Date.now()}.jpg`;
         const uploadDir = path.join(__dirname, '../../uploads');
         

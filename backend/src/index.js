@@ -20,7 +20,15 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 app.use(cors());
-app.use(helmet()); // Mengamankan HTTP Headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "blob:", "http://localhost:3000"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Izinkan gambar dari backend dimuat frontend
+}));
 
 // Rate Limiter: Maksimal 300 request per 15 menit per IP (Fase 6 Security)
 const limiter = rateLimit({
@@ -32,7 +40,8 @@ app.use('/api', limiter); // Terapkan pembatasan hanya pada rute API
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static('uploads'));
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Injeksi objek io ke setiap request agar bisa dipakai di Controller
 app.use((req, res, next) => {

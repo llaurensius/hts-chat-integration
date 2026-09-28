@@ -344,12 +344,7 @@ function Dashboard() {
     document.body.removeChild(link);
   };
 
-  if (!currentUser) return null;
-
-  const isAdmin = currentUser.role === 'ADMIN';
-  const isL1 = isAdmin || currentUser.role === 'L1' || currentUser.role === 'SPV';
-  const isL2 = isAdmin || currentUser.role === 'L2';
-
+  const isAdmin = currentUser?.role === 'ADMIN';
   // --- STATE ADMIN ---
   const [adminUsers, setAdminUsers] = useState([]);
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'L1', category_id: '' });
@@ -388,6 +383,14 @@ function Dashboard() {
       alert(error.response?.data?.error || 'Gagal menghapus user');
     }
   };
+
+  if (!currentUser) return null;
+
+  
+  const isL1 = isAdmin || currentUser.role === 'L1' || currentUser.role === 'SPV';
+  const isL2 = isAdmin || currentUser.role === 'L2';
+
+
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
@@ -447,7 +450,7 @@ function Dashboard() {
                 return (
                   <div key={ticket.id} onClick={() => setActiveTicket(ticket)} className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${activeTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}>
                     <div className="flex justify-between items-start mb-1">
-                      <h3 className="font-semibold text-gray-800 truncate">{ticket.customer.name}</h3>
+                      <h3 className="font-semibold text-gray-800 truncate">{ticket.customer?.name}</h3>
                       <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
                         {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
                       </span>
@@ -474,11 +477,11 @@ function Dashboard() {
                 <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm z-10">
                   <div className="flex items-center">
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-3">
-                      {activeTicket.customer.name.charAt(0).toUpperCase()}
+                      {activeTicket.customer?.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <h2 className="font-semibold text-gray-800">{activeTicket.customer.name}</h2>
-                      <p className="text-xs text-gray-500">+{activeTicket.customer.wa_number}</p>
+                      <h2 className="font-semibold text-gray-800">{activeTicket.customer?.name}</h2>
+                      <p className="text-xs text-gray-500">+{activeTicket.customer?.wa_number}</p>
                     </div>
                   </div>
                   
@@ -608,7 +611,7 @@ function Dashboard() {
               <div className="flex items-center space-x-2">
                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">ROLE: {currentUser.role}</span>
                 {currentUser.category && (
-                   <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold truncate max-w-[100px]">{currentUser.category}</span>
+                   <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold truncate max-w-[100px]">{typeof currentUser.category === 'object' ? currentUser.category?.name : currentUser.category}</span>
                 )}
               </div>
             </div>
@@ -619,11 +622,11 @@ function Dashboard() {
                 <div className="space-y-4">
                   <div>
                     <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nama Pelapor</label>
-                    <div className="flex items-center text-sm font-medium text-gray-800"><User className="w-4 h-4 mr-2 text-gray-400" />{activeTicket.customer.name}</div>
+                    <div className="flex items-center text-sm font-medium text-gray-800"><User className="w-4 h-4 mr-2 text-gray-400" />{activeTicket.customer?.name}</div>
                   </div>
                   <div>
                     <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nomor WA</label>
-                    <div className="flex items-center text-sm text-gray-800"><Phone className="w-4 h-4 mr-2 text-gray-400" />+{activeTicket.customer.wa_number}</div>
+                    <div className="flex items-center text-sm text-gray-800"><Phone className="w-4 h-4 mr-2 text-gray-400" />+{activeTicket.customer?.wa_number}</div>
                   </div>
                   <div>
                     <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Waktu Masuk</label>

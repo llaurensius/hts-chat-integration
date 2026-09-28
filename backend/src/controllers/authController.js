@@ -60,7 +60,7 @@ const getMe = async (req, res) => {
       where: { id: req.user.id },
       select: { id: true, name: true, email: true, role: true, category: true }
     });
-    res.json(user);
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, category: user.category ? user.category.name : null });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }

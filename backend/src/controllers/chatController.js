@@ -170,7 +170,7 @@ const sendMedia = async (req, res) => {
 
     // FASE 3: Integrasi API Evolution untuk Kirim Media
     const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-    const evolutionApiKey = process.env.EVOLUTION_API_KEY || '429683C4C977415CAAFCCE10F7D57E11';
+    const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
     const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
 
     // Konversi file ke base64
@@ -184,11 +184,9 @@ const sendMedia = async (req, res) => {
         delay: 1200,
         presence: "composing"
       },
-      mediaMessage: {
-        mediatype: "image",
-        caption: caption || "",
-        media: base64Data
-      }
+      mediatype: "image",
+      caption: caption || "",
+      media: base64Data
     };
 
     try {
@@ -202,7 +200,9 @@ const sendMedia = async (req, res) => {
       console.error('[Evolution API] Failed to send WA Media:', evoError?.response?.data || evoError.message);
     }
 
+    
     const publicUrl = `/uploads/${file.filename}`;
+
 
     const savedMessage = await prisma.message.create({
       data: {
@@ -283,7 +283,7 @@ const assignTicket = async (req, res) => {
     // Blast Notifikasi WA ke L2 via Evolution API
     if (category.wa_target_number) {
       const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-      const evolutionApiKey = process.env.EVOLUTION_API_KEY || '429683C4C977415CAAFCCE10F7D57E11';
+      const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
       const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
       
       const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
