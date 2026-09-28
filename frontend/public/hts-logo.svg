@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="htsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded box -->
+  <rect width="128" height="128" rx="30" fill="url(#htsGrad)"/>
+  <!-- Stylized Chat & Ticketing 'H' -->
+  <path d="M44 38H56V58H72V38H84V90H72V68H56V90H44V38Z" fill="#FFFFFF"/>
+  <!-- Status dot indicator (green pulse accent) -->
+  <circle cx="88" cy="40" r="8" fill="#10B981" stroke="#FFFFFF" stroke-width="2.5"/>
+</svg>
