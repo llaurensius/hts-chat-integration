@@ -4,7 +4,7 @@ require('dotenv').config();
 const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
 const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
 const INSTANCE_NAME = 'helpdesk-wa';
-const WEBHOOK_URL = 'http://host.docker.internal:3000/api/webhook/whatsapp'; // Asumsi backend jalan di host port 3000
+const WEBHOOK_URL = 'http://172.17.0.1:3000/api/webhook/whatsapp'; // Menggunakan IP Host Docker Default
 
 const api = axios.create({
   baseURL: EVO_URL,
@@ -38,13 +38,16 @@ async function setup() {
     // 2. Setup Webhook
     console.log(`[Evolution] Mengatur Webhook ke: ${WEBHOOK_URL}`);
     await api.post(`/webhook/set/${INSTANCE_NAME}`, {
-      url: WEBHOOK_URL,
-      webhook_by_events: false,
-      webhook_base64: false,
-      events: [
-        "MESSAGES_UPSERT",
-        "MESSAGES_UPDATE"
-      ]
+      webhook: {
+        enabled: true,
+        url: WEBHOOK_URL,
+        byEvents: false,
+        base64: false,
+        events: [
+          "MESSAGES_UPSERT",
+          "MESSAGES_UPDATE"
+        ]
+      }
     });
     console.log('✅ Webhook berhasil diatur.');
 
@@ -55,9 +58,29 @@ async function setup() {
     
     if (connection.data.instance?.state !== 'open') {
       console.log('\n[!] Instance belum terhubung ke WhatsApp.');
-      console.log(`Buka endpoint berikut di browser untuk melihat QR Code (dan scan dengan WA HP Anda):`);
-      console.log(`${EVO_URL}/instance/connect/${INSTANCE_NAME}`);
-      console.log(`Jangan lupa gunakan API Key: ${EVO_KEY} sebagai bearer token atau di header apikey.`);
+      
+      // Ambil QR Code dari Evolution API
+      try {
+        const qrResponse = await api.get(`/instance/connect/${INSTANCE_NAME}`);
+        if (qrResponse.data?.base64) {
+          const fs = require('fs');
+          const htmlContent = `
+            <html>
+            <body style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f2f5;">
+              <div style="text-align:center; background:white; padding:40px; border-radius:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                <h2>Scan QR Code WhatsApp Helpdesk</h2>
+                <img src="${qrResponse.data.base64}" alt="QR Code" style="width:300px; height:300px; margin-top:20px;" />
+                <p style="margin-top:20px; color:#666;">Buka aplikasi WhatsApp di HP Anda, masuk ke Perangkat Taut (Linked Devices), dan scan QR di atas.</p>
+              </div>
+            </body>
+            </html>
+          `;
+          fs.writeFileSync('qr.html', htmlContent);
+          console.log(`\n🎉 Buka file qr.html di browser Anda (File tersimpan di: backend/qr.html) untuk melakukan SCAN QR Code!`);
+        }
+      } catch (err) {
+        console.log(`Gagal mengambil QR secara otomatis:`, err.message);
+      }
     }
 
   } catch (error) {

@@ -37,7 +37,7 @@ services:
       - AUTH_TOKEN=SecureTokenUntukBackend123
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://helpdesk_user:SecretPassword123!@postgres:5432/wa_helpdesk?schema=public
+      - DATABASE_CONNECTION_URI=postgresql://helpdesk_user:SecretPassword123!@postgres:5432/evolution_db?schema=public
       - DATABASE_CONNECTION_CLIENT_NAME=evolution_api
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/1
