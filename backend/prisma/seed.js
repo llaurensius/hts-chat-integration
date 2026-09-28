@@ -4,63 +4,64 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('--- Starting Database Seeding ---');
+  console.log('--- Starting Database Seeding V2 ---');
 
-  // 1. Seed Divisions
-  const divisionNames = ['Server', 'Network', 'Aplikasi', 'Data Center'];
-  const divisionMap = {};
+  // 1. Seed Categories (sebelumnya Divisions)
+  const categoriesData = [
+    { name: 'Troubleshooting - Server', wa_target_number: '628000000001' },
+    { name: 'Troubleshooting - Network', wa_target_number: '628000000002' },
+    { name: 'Troubleshooting - Aplikasi', wa_target_number: '628000000003' },
+    { name: 'Troubleshooting - M&E', wa_target_number: '628000000004' },
+    { name: 'Request Layanan', wa_target_number: '628000000005' },
+    { name: 'Monitoring', wa_target_number: '628000000006' }
+  ];
+  
+  const categoryMap = {};
 
-  for (const name of divisionNames) {
-    let div = await prisma.division.findFirst({ where: { name } });
-    if (!div) {
-      div = await prisma.division.create({ data: { name } });
-      console.log(`[Division Created] ${name} (ID: ${div.id})`);
+  for (const cat of categoriesData) {
+    let category = await prisma.category.findFirst({ where: { name: cat.name } });
+    if (!category) {
+      category = await prisma.category.create({ data: cat });
+      console.log(`[Category Created] ${category.name}`);
     } else {
-      console.log(`[Division Exists] ${name} (ID: ${div.id})`);
+      console.log(`[Category Exists] ${category.name}`);
     }
-    divisionMap[name] = div.id;
+    categoryMap[category.name] = category.id;
   }
 
   // 2. Hash default password
   const hashedPassword = await bcrypt.hash('password123', 10);
 
-  // 3. Seed Users
+  // 3. Seed Users (L1 Dispatcher & L2 Technicians)
   const users = [
     {
-      name: 'Supervisor DC',
+      name: 'Supervisor',
       email: 'spv@helpdesk.go.id',
       password: hashedPassword,
       role: 'SPV',
-      division_id: null,
+      category_id: null,
     },
     {
       name: 'Dispatcher L1',
       email: 'l1@helpdesk.go.id',
       password: hashedPassword,
       role: 'L1',
-      division_id: null,
+      category_id: null,
     },
     {
       name: 'Teknisi Server L2',
       email: 'l2_server@helpdesk.go.id',
       password: hashedPassword,
       role: 'L2',
-      division_id: divisionMap['Server'],
+      category_id: categoryMap['Troubleshooting - Server'],
     },
     {
       name: 'Teknisi Network L2',
       email: 'l2_network@helpdesk.go.id',
       password: hashedPassword,
       role: 'L2',
-      division_id: divisionMap['Network'],
-    },
-    {
-      name: 'Teknisi Aplikasi L2',
-      email: 'l2_aplikasi@helpdesk.go.id',
-      password: hashedPassword,
-      role: 'L2',
-      division_id: divisionMap['Aplikasi'],
-    },
+      category_id: categoryMap['Troubleshooting - Network'],
+    }
   ];
 
   for (const u of users) {
@@ -73,7 +74,7 @@ async function main() {
     }
   }
 
-  console.log('--- Database Seeding Completed Successfully ---');
+  console.log('--- Database Seeding V2 Completed Successfully ---');
 }
 
 main()

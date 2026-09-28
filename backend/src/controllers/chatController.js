@@ -39,7 +39,9 @@ const getMessages = async (req, res) => {
 
 // Agen membalas pesan ke Customer
 const sendReply = async (req, res) => {
-  const { ticketId, text, userId } = req.body; // userId nanti didapat dari token JWT agen yang login
+  const { ticketId, text } = req.body; 
+  // Gunakan ID dari token JWT jika middleware diaktifkan, jika tidak fallback ke req.body.userId
+  const userId = req.user ? req.user.id : req.body.userId;
 
   if (!ticketId || !text) {
     return res.status(400).json({ error: 'ticketId dan text wajib diisi' });
@@ -88,12 +90,12 @@ const sendReply = async (req, res) => {
 };
 
 // Mengambil daftar divisi untuk Multi-Tagging (F3)
-const getDivisions = async (req, res) => {
+const getCategorys = async (req, res) => {
   try {
-    const divisions = await prisma.division.findMany();
-    res.json(divisions);
+    const categorys = await prisma.category.findMany();
+    res.json(categorys);
   } catch (error) {
-    console.error('[Chat API] Error fetching divisions:', error);
+    console.error('[Chat API] Error fetching categorys:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -101,7 +103,7 @@ const getDivisions = async (req, res) => {
 // Menutup Tiket dengan Mandatory Summary (F7) dan Multi-Tagging (F3)
 const closeTicket = async (req, res) => {
   const { ticketId } = req.params;
-  const { summary, divisionIds } = req.body;
+  const { summary, categoryIds } = req.body;
 
   if (!summary || summary.trim().length < 10) {
     return res.status(400).json({ error: 'Kesimpulan wajib diisi minimal 10 karakter' });
@@ -118,14 +120,14 @@ const closeTicket = async (req, res) => {
       }
     });
 
-    // Handle Multi-Tagging (F3) ke tabel TicketDivision
-    if (divisionIds && Array.isArray(divisionIds) && divisionIds.length > 0) {
-      const divisionData = divisionIds.map(divId => ({
+    // Handle Multi-Tagging (F3) ke tabel TicketCategory
+    if (categoryIds && Array.isArray(categoryIds) && categoryIds.length > 0) {
+      const categoryData = categoryIds.map(divId => ({
         ticket_id: updatedTicket.id,
-        division_id: parseInt(divId)
+        category_id: parseInt(divId)
       }));
-      await prisma.ticketDivision.createMany({
-        data: divisionData,
+      await prisma.ticketCategory.createMany({
+        data: categoryData,
         skipDuplicates: true
       });
     }
@@ -135,7 +137,7 @@ const closeTicket = async (req, res) => {
       req.io.emit('ticket_closed', {
         ticketId: updatedTicket.id,
         summary: updatedTicket.summary,
-        divisions: divisionIds
+        categorys: categoryIds
       });
     }
 
@@ -146,4 +148,4 @@ const closeTicket = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply, getDivisions, closeTicket };
+module.exports = { getTickets, getMessages, sendReply, getCategorys, closeTicket };

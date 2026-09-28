@@ -44,11 +44,13 @@ app.use((req, res, next) => {
 const webhookRoutes = require('./routes/webhook');
 const chatRoutes = require('./routes/chat');
 const reportRoutes = require('./routes/report');
+const authRoutes = require('./routes/auth');
 
 // Register Routes
 app.use('/api/webhook', webhookRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/reports', reportRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/chat', chatRoutes); // TODO di Fase 4: Tambahkan authMiddleware di sini
+app.use('/api/reports', reportRoutes); // TODO di Fase 4: Tambahkan authMiddleware di sini
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

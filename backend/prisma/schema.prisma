@@ -16,11 +16,13 @@ model Customer {
   tickets    Ticket[]
 }
 
-model Division {
-  id         Int              @id @default(autoincrement())
-  name       String
-  users      User[]
-  tickets    TicketDivision[]
+// Menggantikan Division menjadi Category (Fase 1 - V2)
+model Category {
+  id               Int              @id @default(autoincrement())
+  name             String
+  wa_target_number String?          // Nomor grup/teknisi WA untuk Blast Notifikasi
+  users            User[]
+  tickets          TicketCategory[]
 }
 
 model User {
@@ -29,8 +31,8 @@ model User {
   email       String     @unique
   password    String
   role        Role       @default(L2)
-  division_id Int?
-  division    Division?  @relation(fields: [division_id], references: [id])
+  category_id Int?
+  category    Category?  @relation(fields: [category_id], references: [id])
 }
 
 model Ticket {
@@ -41,17 +43,18 @@ model Ticket {
   summary     String?
   created_at  DateTime         @default(now())
   closed_at   DateTime?
-  divisions   TicketDivision[]
+  categories  TicketCategory[]
   messages    Message[]
 }
 
-model TicketDivision {
+// Tabel relasi Many-to-Many antara Tiket dan Kategori
+model TicketCategory {
   ticket_id   Int
-  division_id Int
+  category_id Int
   ticket      Ticket   @relation(fields: [ticket_id], references: [id])
-  division    Division @relation(fields: [division_id], references: [id])
+  category    Category @relation(fields: [category_id], references: [id])
 
-  @@id([ticket_id, division_id])
+  @@id([ticket_id, category_id])
 }
 
 model Message {
@@ -62,6 +65,7 @@ model Message {
   sender_id      Int?
   message_text   String?
   attachment_url String?
+  is_internal    Boolean    @default(false) // Penanda apakah ini Catatan Internal L2 (Fase 1 - V2)
   created_at     DateTime   @default(now())
 }
 
@@ -73,6 +77,7 @@ enum Role {
 
 enum TicketStatus {
   OPEN
+  RESOLVED // Status baru: L2 selesai, menunggu L1 close (Fase 1 - V2)
   CLOSED
 }
 

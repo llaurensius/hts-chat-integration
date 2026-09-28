@@ -3,7 +3,7 @@ const prisma = require('../config/db');
 // Mengambil data rekap tiket untuk laporan
 const getTicketReports = async (req, res) => {
   try {
-    const { status, startDate, endDate, divisionId } = req.query;
+    const { status, startDate, endDate, categoryId } = req.query;
     
     // Bangun query filter secara dinamis
     let whereClause = {};
@@ -19,10 +19,10 @@ const getTicketReports = async (req, res) => {
       };
     }
 
-    if (divisionId) {
-      whereClause.divisions = {
+    if (categoryId) {
+      whereClause.categorys = {
         some: {
-          division_id: parseInt(divisionId)
+          category_id: parseInt(categoryId)
         }
       };
     }
@@ -31,9 +31,9 @@ const getTicketReports = async (req, res) => {
       where: whereClause,
       include: {
         customer: true,
-        divisions: {
+        categorys: {
           include: {
-            division: true
+            category: true
           }
         }
       },
@@ -67,7 +67,7 @@ const getTicketReports = async (req, res) => {
         closedAt: t.closed_at,
         duration: durationStr,
         summary: t.summary || '-',
-        divisions: t.divisions.map(td => td.division.name).join(', ') || 'Belum di-tag'
+        categorys: t.categorys.map(td => td.category.name).join(', ') || 'Belum di-tag'
       };
     });
 

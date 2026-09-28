@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { getTickets, getMessages, sendReply, getDivisions, closeTicket } = require('../controllers/chatController');
+const { getTickets, getMessages, sendReply, getCategories, closeTicket } = require('../controllers/chatController');
 
 // Endpoint untuk Dashboard
 router.get('/tickets', getTickets);
 router.get('/tickets/:ticketId/messages', getMessages);
 router.post('/send', sendReply);
-router.get('/divisions', getDivisions);
+router.get('/categories', getCategories);
 router.post('/tickets/:ticketId/close', closeTicket);
 
 module.exports = router;
