@@ -4,28 +4,31 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('--- Starting Database Seeding V2 ---');
+  console.log('--- Starting Database Seeding V2.1 (3 L2 Teams) ---');
 
-  // 1. Seed Categories (sebelumnya Divisions)
+  // Hapus semua data relasi tiket-kategori untuk mencegah error foreign key
+  await prisma.ticketCategory.deleteMany();
+  
+  // Update pengguna yang ada agar tidak merujuk ke kategori lama
+  await prisma.user.updateMany({
+    data: { category_id: null }
+  });
+
+  // Hapus kategori lama
+  await prisma.category.deleteMany();
+
+  // 1. Seed Categories (3 Tim Utama L2)
   const categoriesData = [
-    { name: 'Troubleshooting - Server', wa_target_number: '628000000001' },
-    { name: 'Troubleshooting - Network', wa_target_number: '628000000002' },
-    { name: 'Troubleshooting - Aplikasi', wa_target_number: '628000000003' },
-    { name: 'Troubleshooting - M&E', wa_target_number: '628000000004' },
-    { name: 'Request Layanan', wa_target_number: '628000000005' },
-    { name: 'Monitoring', wa_target_number: '628000000006' }
+    { name: 'Network', wa_target_number: '628000000001' },
+    { name: 'Server', wa_target_number: '628000000002' },
+    { name: 'Mechanical & Electrical (M&E)', wa_target_number: '628000000003' }
   ];
   
   const categoryMap = {};
 
   for (const cat of categoriesData) {
-    let category = await prisma.category.findFirst({ where: { name: cat.name } });
-    if (!category) {
-      category = await prisma.category.create({ data: cat });
-      console.log(`[Category Created] ${category.name}`);
-    } else {
-      console.log(`[Category Exists] ${category.name}`);
-    }
+    const category = await prisma.category.create({ data: cat });
+    console.log(`[Category Created] ${category.name}`);
     categoryMap[category.name] = category.id;
   }
 
@@ -56,18 +59,25 @@ async function main() {
       category_id: null,
     },
     {
-      name: 'Teknisi Server L2',
-      email: 'l2_server@helpdesk.go.id',
-      password: hashedPassword,
-      role: 'L2',
-      category_id: categoryMap['Troubleshooting - Server'],
-    },
-    {
       name: 'Teknisi Network L2',
       email: 'l2_network@helpdesk.go.id',
       password: hashedPassword,
       role: 'L2',
-      category_id: categoryMap['Troubleshooting - Network'],
+      category_id: categoryMap['Network'],
+    },
+    {
+      name: 'Teknisi Server L2',
+      email: 'l2_server@helpdesk.go.id',
+      password: hashedPassword,
+      role: 'L2',
+      category_id: categoryMap['Server'],
+    },
+    {
+      name: 'Teknisi M&E L2',
+      email: 'l2_me@helpdesk.go.id',
+      password: hashedPassword,
+      role: 'L2',
+      category_id: categoryMap['Mechanical & Electrical (M&E)'],
     }
   ];
 
@@ -77,11 +87,15 @@ async function main() {
       const created = await prisma.user.create({ data: u });
       console.log(`[User Created] ${created.email} (${created.role})`);
     } else {
-      console.log(`[User Exists] ${existing.email}`);
+      const updated = await prisma.user.update({
+        where: { email: u.email },
+        data: { category_id: u.category_id, name: u.name }
+      });
+      console.log(`[User Updated] ${updated.email} (${updated.role})`);
     }
   }
 
-  console.log('--- Database Seeding V2 Completed Successfully ---');
+  console.log('--- Database Seeding V2.1 Completed Successfully ---');
 }
 
 main()
@@ -92,4 +106,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

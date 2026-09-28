@@ -109,6 +109,7 @@ function Dashboard() {
   const [categories, setCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [assignCategoryId, setAssignCategoryId] = useState('');
+  const [assignServiceType, setAssignServiceType] = useState('TROUBLESHOOTING');
 
   // State Reporting
   const [reportTickets, setReportTickets] = useState([]);
@@ -455,10 +456,22 @@ function Dashboard() {
                         {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <p className="text-gray-500 truncate pr-4 text-xs">
+                    <div className="flex justify-between items-center text-sm mb-1">
+                      <p className="text-gray-500 truncate pr-2 text-xs">
                         {lastMsg ? (lastMsg.attachment_url ? '[Gambar]' : lastMsg.message_text) : 'Belum ada pesan'}
                       </p>
+                    </div>
+                    <div className="flex justify-between items-center mt-1">
+                      {ticket.categories && ticket.categories.length > 0 ? (
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-orange-100 text-orange-700 border border-orange-200 truncate max-w-[120px]">
+                          [{ticket.categories[0].category.name}]
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                          [Belum Ditugaskan]
+                        </span>
+                      )}
+                      
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${ticket.status === 'OPEN' ? 'bg-green-100 text-green-700' : ticket.status === 'RESOLVED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
                         {ticket.status}
                       </span>
@@ -480,7 +493,14 @@ function Dashboard() {
                       {activeTicket.customer?.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <h2 className="font-semibold text-gray-800">{activeTicket.customer?.name}</h2>
+                      <h2 className="font-semibold text-gray-800 flex items-center gap-2">
+                        {activeTicket.customer?.name}
+                        {activeTicket.service_type && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-600 rounded-full border border-blue-200 uppercase">
+                            {activeTicket.service_type.replace('_', ' ')}
+                          </span>
+                        )}
+                      </h2>
                       <p className="text-xs text-gray-500">+{activeTicket.customer?.wa_number}</p>
                     </div>
                   </div>
@@ -750,17 +770,29 @@ function Dashboard() {
           <div className="bg-white rounded-xl shadow-xl w-[400px] p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2">Assign ke Teknisi L2</h2>
             <p className="text-sm text-gray-500 mb-4">Tiket ini akan dilempar ke antrean L2 dan sistem akan mengirim notifikasi WhatsApp ke tim terkait.</p>
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Pilih Kategori Masalah</label>
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Tim Tujuan (Wajib)</label>
               <select 
                 value={assignCategoryId} 
                 onChange={e => setAssignCategoryId(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                <option value="">-- Pilih Kategori --</option>
+                <option value="">-- Pilih Tim L2 --</option>
                 {categories.map(cat => (
                   <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}
+              </select>
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Jenis Layanan</label>
+              <select 
+                value={assignServiceType} 
+                onChange={e => setAssignServiceType(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="TROUBLESHOOTING">Troubleshooting (Gangguan)</option>
+                <option value="REQUEST_LAYANAN">Request Layanan</option>
+                <option value="MONITORING">Monitoring</option>
               </select>
             </div>
             <div className="flex justify-end space-x-3">

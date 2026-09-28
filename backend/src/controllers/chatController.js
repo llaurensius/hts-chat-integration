@@ -4,10 +4,26 @@ const evolutionService = require('../services/evolutionService');
 // Mengambil semua tiket aktif beserta pesan terakhirnya
 const getTickets = async (req, res) => {
   try {
+    // Filter tiket berdasarkan peran
+    // L1 / Admin / SPV melihat semua tiket OPEN dan RESOLVED
+    // L2 HANYA melihat tiket OPEN dan RESOLVED yang di-assign ke kategorinya
+    let whereClause = { status: { in: ['OPEN', 'RESOLVED'] } };
+
+    if (req.user && req.user.role === 'L2' && req.user.category_id) {
+      whereClause.categories = {
+        some: {
+          category_id: req.user.category_id
+        }
+      };
+    }
+
     const tickets = await prisma.ticket.findMany({
-      where: { status: 'OPEN' },
+      where: whereClause,
       include: {
         customer: true,
+        categories: {
+          include: { category: true }
+        },
         messages: {
           orderBy: { created_at: 'desc' },
           take: 1 // Ambil 1 pesan terakhir untuk preview (snippet)
