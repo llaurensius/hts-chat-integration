@@ -16,7 +16,20 @@ const io = new Server(server, {
 });
 
 // Middleware
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
 app.use(cors());
+app.use(helmet()); // Mengamankan HTTP Headers
+
+// Rate Limiter: Maksimal 300 request per 15 menit per IP (Fase 6 Security)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 300, 
+  message: { error: 'Terlalu banyak request, silakan coba lagi nanti.' }
+});
+app.use('/api', limiter); // Terapkan pembatasan hanya pada rute API
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static('uploads'));
