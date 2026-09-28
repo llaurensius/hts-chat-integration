@@ -20,12 +20,24 @@ const handleIncomingMessage = async (req, res) => {
     if (fromMe || remoteJid.includes('@g.us')) return;
 
     // Ekstrak teks pesan
-    const conversation = 
+    let conversation = 
       messageData.message.conversation || 
       messageData.message.extendedTextMessage?.text || 
       messageData.message.imageMessage?.caption;
 
-    if (!conversation) return; // Abaikan jika tidak ada teks/caption
+    if (!conversation) {
+      // Jika user mengirim gambar/dokumen tanpa caption, kita tetap anggap sebagai pesan masuk
+      const isImage = !!messageData.message.imageMessage;
+      const isDocument = !!messageData.message.documentMessage;
+      const isVideo = !!messageData.message.videoMessage;
+      const isSticker = !!messageData.message.stickerMessage;
+      
+      if (isImage) conversation = '[Mengirim Gambar]';
+      else if (isDocument) conversation = '[Mengirim Dokumen]';
+      else if (isVideo) conversation = '[Mengirim Video]';
+      else if (isSticker) conversation = '[Mengirim Stiker]';
+      else conversation = '[Pesan Media/Sistem]';
+    }
 
     // Nomor WA pengirim (hapus suffix @s.whatsapp.net)
     const waNumber = remoteJid.split('@')[0];
@@ -59,7 +71,7 @@ const handleIncomingMessage = async (req, res) => {
 
       // F1: Auto-Reply Bot (Kirim pesan balasan otomatis)
       const autoReply = "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
-      await evolutionService.sendText(remoteJid, autoReply);
+      await evolutionService.sendText(waNumber, autoReply);
 
       // Simpan pesan sistem (Bot) ke database
       await prisma.message.create({
