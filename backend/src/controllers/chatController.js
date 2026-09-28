@@ -90,7 +90,7 @@ const sendReply = async (req, res) => {
 };
 
 // Mengambil daftar divisi untuk Multi-Tagging (F3)
-const getCategories = async (req, res) => {
+const getCategorys = async (req, res) => {
   try {
     const categorys = await prisma.category.findMany();
     res.json(categorys);
@@ -238,4 +238,4 @@ const sendMedia = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply, getCategories, closeTicket, sendMedia };
+module.exports = { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia };
