@@ -52,6 +52,8 @@ model Ticket {
 model TicketCategory {
   ticket_id   Int
   category_id Int
+  is_resolved Boolean  @default(false)
+  resolved_at DateTime?
   ticket      Ticket   @relation(fields: [ticket_id], references: [id])
   category    Category @relation(fields: [category_id], references: [id])
 

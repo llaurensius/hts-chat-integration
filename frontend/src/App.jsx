@@ -108,7 +108,7 @@ function Dashboard() {
   const [summaryText, setSummaryText] = useState('');
   const [categories, setCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
-  const [assignCategoryId, setAssignCategoryId] = useState('');
+  const [assignCategoryIds, setAssignCategoryIds] = useState([]);
   const [assignServiceType, setAssignServiceType] = useState('TROUBLESHOOTING');
 
   // State Reporting
@@ -279,27 +279,28 @@ function Dashboard() {
   };
 
   const handleMarkResolved = async () => {
-    if(!window.confirm('Tandai pekerjaan ini telah selesai? Tiket akan dikembalikan ke L1.')) return;
+    if(!window.confirm('Tandai bahwa kendala pada bagian tim Anda telah selesai ditangani?')) return;
     try {
-      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/resolve`);
-      alert('Berhasil. Tiket sekarang menunggu penutupan final oleh L1.');
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/resolve`);
+      alert(res.data?.message || 'Berhasil menandai selesai');
       loadTickets();
-      setActiveTicket(null);
+      if (activeTicket) loadMessages(activeTicket.id);
     } catch (error) {
-      alert('Gagal menandai tiket selesai');
+      alert(error.response?.data?.error || 'Gagal menandai tiket selesai');
     }
   };
 
-  // L2 mengembalikan tiket (Fase 6)
+  // L2 mengembalikan tiket / melepas penugasan
   const handleReturnTicket = async () => {
-    if(!window.confirm('Kembalikan tiket ini ke L1? (Salah kamar/Butuh info)')) return;
+    const reason = prompt('Masukkan alasan pelepasan penugasan / pengembalian ke L1:', 'Tidak ada kendala pada tim ini / Salah penugasan');
+    if (reason === null) return;
     try {
-      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/return`);
-      alert('Tiket berhasil dikembalikan ke L1.');
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/return`, { reason });
+      alert(res.data?.message || 'Penugasan berhasil dikembalikan ke L1.');
       loadTickets();
       setActiveTicket(null);
     } catch (error) {
-      alert('Gagal mengembalikan tiket');
+      alert(error.response?.data?.error || 'Gagal mengembalikan tiket');
     }
   };
 
@@ -461,18 +462,26 @@ function Dashboard() {
                         {lastMsg ? (lastMsg.attachment_url ? '[Gambar]' : lastMsg.message_text) : 'Belum ada pesan'}
                       </p>
                     </div>
-                    <div className="flex justify-between items-center mt-1">
+                    <div className="flex justify-between items-center mt-1 gap-1">
                       {ticket.categories && ticket.categories.length > 0 ? (
-                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-orange-100 text-orange-700 border border-orange-200 truncate max-w-[120px]">
-                          [{ticket.categories[0].category.name}]
-                        </span>
+                        <div className="flex flex-wrap gap-1 max-w-[150px]">
+                          {ticket.categories.map(tc => (
+                            <span key={tc.category_id} className={`px-1.5 py-0.5 text-[9px] font-bold rounded truncate ${
+                              tc.is_resolved 
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                : 'bg-orange-100 text-orange-800 border border-orange-200'
+                            }`} title={tc.category?.name}>
+                              {tc.is_resolved ? '✓ ' : ''}{tc.category?.name}
+                            </span>
+                          ))}
+                        </div>
                       ) : (
                         <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-gray-100 text-gray-500 border border-gray-200">
                           [Belum Ditugaskan]
                         </span>
                       )}
                       
-                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${ticket.status === 'OPEN' ? 'bg-green-100 text-green-700' : ticket.status === 'RESOLVED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full whitespace-nowrap ${ticket.status === 'OPEN' ? 'bg-green-100 text-green-700' : ticket.status === 'RESOLVED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
                         {ticket.status}
                       </span>
                     </div>
@@ -502,6 +511,21 @@ function Dashboard() {
                         )}
                       </h2>
                       <p className="text-xs text-gray-500">+{activeTicket.customer?.wa_number}</p>
+
+                      {/* Status Progress Tim Penugasan (Multi-Assign) */}
+                      {activeTicket.categories && activeTicket.categories.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {activeTicket.categories.map(tc => (
+                            <span key={tc.category_id} className={`px-2 py-0.5 text-[10px] font-bold rounded-full flex items-center gap-1 ${
+                              tc.is_resolved 
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}>
+                              {tc.is_resolved ? '✓' : '⏳'} {tc.category?.name || 'Tim'}: {tc.is_resolved ? 'Selesai' : 'Sedang Ditangani'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -516,16 +540,27 @@ function Dashboard() {
                       </button>
                     </div>
                   )}
-                  {isL2 && (
-                    <div className="flex space-x-2">
-                      <button onClick={handleReturnTicket} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm rounded-lg font-medium transition">
-                        Kembalikan L1
-                      </button>
-                      <button onClick={handleMarkResolved} className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg font-medium transition flex items-center">
-                        <CheckCircle className="w-4 h-4 mr-1"/> Tandai Selesai
-                      </button>
-                    </div>
-                  )}
+                  {isL2 && (() => {
+                    const myCatRelation = activeTicket.categories?.find(tc => tc.category_id === currentUser.category_id);
+                    const isMyTeamResolved = myCatRelation?.is_resolved;
+
+                    return (
+                      <div className="flex items-center space-x-2">
+                        <button onClick={handleReturnTicket} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm rounded-lg font-medium transition">
+                          Kembalikan / Lepas
+                        </button>
+                        {isMyTeamResolved ? (
+                          <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-sm rounded-lg font-semibold flex items-center border border-emerald-200">
+                            <CheckCircle className="w-4 h-4 mr-1 text-emerald-600"/> Bagian Anda Selesai
+                          </span>
+                        ) : (
+                          <button onClick={handleMarkResolved} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-medium transition flex items-center shadow-sm">
+                            <CheckCircle className="w-4 h-4 mr-1"/> Tandai Selesai
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Bubble Chat Area */}
@@ -829,17 +864,25 @@ function Dashboard() {
             <h2 className="text-xl font-bold text-gray-800 mb-2">Assign ke Teknisi L2</h2>
             <p className="text-sm text-gray-500 mb-4">Tiket ini akan dilempar ke antrean L2 dan sistem akan mengirim notifikasi WhatsApp ke tim terkait.</p>
             <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Tim Tujuan (Wajib)</label>
-              <select 
-                value={assignCategoryId} 
-                onChange={e => setAssignCategoryId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">-- Pilih Tim L2 --</option>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Pilih Tim L2 Tujuan (Bisa Centang Lebih dari 1)</label>
+              <div className="space-y-2">
                 {categories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  <label key={cat.id} className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${
+                    assignCategoryIds.includes(cat.id) ? 'bg-blue-50 border-blue-500 text-blue-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  }`}>
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 text-blue-600 rounded mr-3"
+                      checked={assignCategoryIds.includes(cat.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setAssignCategoryIds([...assignCategoryIds, cat.id]);
+                        else setAssignCategoryIds(assignCategoryIds.filter(id => id !== cat.id));
+                      }}
+                    />
+                    <span>{cat.name}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
             <div className="mb-6">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Jenis Layanan</label>
@@ -854,8 +897,8 @@ function Dashboard() {
               </select>
             </div>
             <div className="flex justify-end space-x-3">
-              <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Batal</button>
-              <button onClick={handleAssignTicket} disabled={!assignCategoryId} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors">Tugaskan L2</button>
+              <button onClick={() => { setShowAssignModal(false); setAssignCategoryIds([]); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Batal</button>
+              <button onClick={handleAssignTicket} disabled={assignCategoryIds.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors">Tugaskan L2</button>
             </div>
           </div>
         </div>

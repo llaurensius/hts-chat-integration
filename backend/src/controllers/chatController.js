@@ -249,13 +249,21 @@ const sendMedia = async (req, res) => {
   }
 };
 
-// Assign Tiket ke L2 & Kirim Blast Notifikasi (Fase 5)
+// Assign Tiket ke Satu atau Banyak L2 (Multi-Assign) & Kirim Blast Notifikasi
 const assignTicket = async (req, res) => {
   const { ticketId } = req.params;
-  const { categoryId } = req.body;
+  const { categoryIds, categoryId, serviceType } = req.body;
 
-  if (!categoryId) {
-    return res.status(400).json({ error: 'ID Kategori wajib dipilih' });
+  // Mendukung array categoryIds (Multi-Assign) maupun single categoryId
+  let targetIds = [];
+  if (Array.isArray(categoryIds) && categoryIds.length > 0) {
+    targetIds = categoryIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+  } else if (categoryId) {
+    targetIds = [parseInt(categoryId)];
+  }
+
+  if (targetIds.length === 0) {
+    return res.status(400).json({ error: 'Minimal pilih 1 Tim L2 tujuan' });
   }
 
   try {
@@ -266,26 +274,43 @@ const assignTicket = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
-    const category = await prisma.category.findUnique({
-      where: { id: parseInt(categoryId) }
+    const categories = await prisma.category.findMany({
+      where: { id: { in: targetIds } }
     });
 
-    if (!category) return res.status(404).json({ error: 'Kategori tidak ditemukan' });
+    if (categories.length === 0) return res.status(404).json({ error: 'Tim kategori tidak ditemukan' });
 
-    // Hapus tagging lama jika ada, lalu set yang baru
-    await prisma.ticketCategory.deleteMany({
-      where: { ticket_id: ticket.id }
-    });
-    
-    await prisma.ticketCategory.create({
+    // Update service type jika diberikan
+    let serviceTypeStr = serviceType || ticket.service_type || 'TROUBLESHOOTING';
+    await prisma.ticket.update({
+      where: { id: ticket.id },
       data: {
-        ticket_id: ticket.id,
-        category_id: category.id
+        service_type: serviceTypeStr,
+        status: 'OPEN' // Reset ke OPEN jika sebelumnya RESOLVED
       }
     });
 
+    // Hapus penugasan lama untuk tiket ini
+    await prisma.ticketCategory.deleteMany({
+      where: { ticket_id: ticket.id }
+    });
+
+    // Buat relasi baru untuk masing-masing tim L2 yang dicentang
+    await prisma.ticketCategory.createMany({
+      data: categories.map(c => ({
+        ticket_id: ticket.id,
+        category_id: c.id,
+        is_resolved: false
+      }))
+    });
+
+    // Format tampilan jenis layanan dan nama tim
+    const typeDisplay = serviceTypeStr === 'REQUEST_LAYANAN' ? 'Request Layanan' : 
+                        serviceTypeStr === 'MONITORING' ? 'Monitoring' : 'Troubleshooting';
+    const teamNames = categories.map(c => c.name).join(', ');
+
     // Buat Internal Note otomatis bahwa tiket ini di-assign
-    const noteText = `[SISTEM] Tiket di-assign ke L2: Kategori ${category.name}`;
+    const noteText = `[SISTEM] Tiket di-assign ke L2: Tim ${teamNames} | Jenis: ${typeDisplay}`;
     await prisma.message.create({
       data: {
         ticket_id: ticket.id,
@@ -296,34 +321,37 @@ const assignTicket = async (req, res) => {
       }
     });
 
-    // Blast Notifikasi WA ke L2 via Evolution API
-    if (category.wa_target_number) {
-      const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-      const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-      const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
-      
-      const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      const blastMessage = `🚨 *TUGAS BARU (L2)*\n\nKategori: ${category.name}\nPelapor: ${ticket.customer.name}\n\nSilakan cek detail dan tangani melalui dashboard:\n${dashboardUrl}`;
-      
-      try {
-        const axios = require('axios');
-        await axios.post(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
-          number: category.wa_target_number,
-          text: blastMessage
-        }, {
-          headers: {
-            'apikey': evolutionApiKey,
-            'Content-Type': 'application/json'
-          }
-        });
-        console.log(`[Blast] Sent L2 notification to ${category.wa_target_number}`);
-      } catch (evoError) {
-        console.error('[Evolution API] Failed to send L2 blast:', evoError?.response?.data || evoError.message);
+    // Blast Notifikasi WA ke setiap tim L2 yang memiliki wa_target_number via Evolution API
+    const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+    const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
+    const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
+    const hostHeader = req.headers.host || 'localhost:5173';
+    const dashboardUrl = hostHeader.includes(':') ? `http://${hostHeader.split(':')[0]}:5173` : `http://${hostHeader}:5173`;
+
+    const axios = require('axios');
+    for (const cat of categories) {
+      if (cat.wa_target_number) {
+        const blastMessage = `🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨\n\n*Tim:* ${cat.name}\n*Jenis Layanan:* ${typeDisplay}\n*Pelapor:* ${ticket.customer.name}\n*No WA:* ${ticket.customer.wa_number}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
+        
+        try {
+          await axios.post(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
+            number: cat.wa_target_number,
+            text: blastMessage
+          }, {
+            headers: {
+              'apikey': evolutionApiKey,
+              'Content-Type': 'application/json'
+            }
+          });
+          console.log(`[Blast] Sent L2 notification to ${cat.name} (${cat.wa_target_number})`);
+        } catch (evoError) {
+          console.error(`[Evolution API] Failed to send blast to ${cat.name}:`, evoError?.response?.data || evoError.message);
+        }
       }
     }
 
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: ticket.id }); // Reuse event 'ticket_closed' for re-fetching
+      req.io.emit('ticket_closed', { ticketId: ticket.id }); // Trigger reload
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -333,7 +361,7 @@ const assignTicket = async (req, res) => {
       });
     }
 
-    res.json({ success: true, message: 'Tiket berhasil di-assign dan teknisi telah dinotifikasi.' });
+    res.json({ success: true, message: `Tiket berhasil di-assign ke Tim: ${teamNames}` });
   } catch (error) {
     console.error('[Chat API] Error assigning ticket:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -343,27 +371,94 @@ const assignTicket = async (req, res) => {
 // L2 Menandai Tiket Selesai (Fase 6)
 const resolveTicket = async (req, res) => {
   const { ticketId } = req.params;
+  const user = req.user;
+
   try {
-    const updatedTicket = await prisma.ticket.update({
+    const ticket = await prisma.ticket.findUnique({
       where: { id: parseInt(ticketId) },
-      data: { status: 'RESOLVED' }
+      include: {
+        categories: {
+          include: { category: true }
+        }
+      }
     });
 
-    const noteText = `[SISTEM] Teknisi L2 telah menandai pekerjaan selesai. Menunggu penutupan final oleh L1.`;
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    let noteText = '';
+    let isFullyResolved = false;
+
+    // Jika yang resolve adalah L2 dengan kategori tertentu
+    if (user && user.role === 'L2' && user.category_id) {
+      const myCatRelation = ticket.categories.find(c => c.category_id === user.category_id);
+      
+      if (!myCatRelation) {
+        return res.status(403).json({ error: 'Tim Anda tidak ditugaskan pada tiket ini' });
+      }
+
+      // Update status is_resolved untuk kategori tim user ini
+      await prisma.ticketCategory.update({
+        where: {
+          ticket_id_category_id: {
+            ticket_id: ticket.id,
+            category_id: user.category_id
+          }
+        },
+        data: {
+          is_resolved: true,
+          resolved_at: new Date()
+        }
+      });
+
+      const catName = myCatRelation.category.name;
+      noteText = `[SISTEM] Tim ${catName} telah menandai kendala di bagiannya selesai.`;
+
+      // Cek apakah SEMUA tim yang ditugaskan sudah is_resolved = true
+      const updatedCategories = await prisma.ticketCategory.findMany({
+        where: { ticket_id: ticket.id }
+      });
+
+      const allResolved = updatedCategories.every(c => c.is_resolved);
+      if (allResolved && updatedCategories.length > 0) {
+        await prisma.ticket.update({
+          where: { id: ticket.id },
+          data: { status: 'RESOLVED' }
+        });
+        isFullyResolved = true;
+        noteText += ` Seluruh tim telah selesai menangani. Tiket berstatus RESOLVED (siap ditutup resmi oleh L1).`;
+      }
+    } else {
+      // Jika Admin / SPV yang resolve langsung
+      await prisma.ticketCategory.updateMany({
+        where: { ticket_id: ticket.id },
+        data: {
+          is_resolved: true,
+          resolved_at: new Date()
+        }
+      });
+      await prisma.ticket.update({
+        where: { id: ticket.id },
+        data: { status: 'RESOLVED' }
+      });
+      isFullyResolved = true;
+      noteText = `[SISTEM] Tiket ditandai selesai langsung oleh ${user?.name || 'Admin'}. Menunggu penutupan resmi oleh L1.`;
+    }
+
+    // Catat internal note
     await prisma.message.create({
       data: {
-        ticket_id: updatedTicket.id,
+        ticket_id: ticket.id,
         sender_type: 'AGENT',
-        sender_id: req.user ? req.user.id : 1,
+        sender_id: user ? user.id : 1,
         message_text: noteText,
         is_internal: true
       }
     });
 
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: updatedTicket.id }); // Trigger reload
+      req.io.emit('ticket_closed', { ticketId: ticket.id });
       req.io.emit('new_message', {
-        ticketId: updatedTicket.id,
+        ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
         isInternal: true,
@@ -371,7 +466,11 @@ const resolveTicket = async (req, res) => {
       });
     }
 
-    res.json({ success: true, ticket: updatedTicket });
+    res.json({
+      success: true,
+      isFullyResolved,
+      message: noteText
+    });
   } catch (error) {
     console.error('[Chat API] Error resolving ticket:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -381,32 +480,93 @@ const resolveTicket = async (req, res) => {
 // L2 Mengembalikan Tiket ke L1 (Fase 6)
 const returnTicket = async (req, res) => {
   const { ticketId } = req.params;
+  const { reason } = req.body;
+  const user = req.user;
+
   try {
-    const updatedTicket = await prisma.ticket.update({
+    const ticket = await prisma.ticket.findUnique({
       where: { id: parseInt(ticketId) },
-      data: { status: 'OPEN' }
+      include: {
+        categories: {
+          include: { category: true }
+        }
+      }
     });
 
-    // Menghapus mapping kategori agar kembali ke antrean umum L1
-    await prisma.ticketCategory.deleteMany({
-      where: { ticket_id: updatedTicket.id }
-    });
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
-    const noteText = `[SISTEM] Teknisi L2 mengembalikan tiket ini ke L1 (Salah Kategori / Butuh Info).`;
+    let noteText = '';
+    const returnReason = reason && reason.trim() ? reason.trim() : 'Tidak ada kendala pada tim ini / Salah penugasan';
+
+    if (user && user.role === 'L2' && user.category_id) {
+      const myCatRelation = ticket.categories.find(c => c.category_id === user.category_id);
+      
+      if (!myCatRelation) {
+        return res.status(403).json({ error: 'Tim Anda tidak terdaftar pada penugasan tiket ini' });
+      }
+
+      // Hapus hanya relasi tim user ini dari tiket
+      await prisma.ticketCategory.delete({
+        where: {
+          ticket_id_category_id: {
+            ticket_id: ticket.id,
+            category_id: user.category_id
+          }
+        }
+      });
+
+      const catName = myCatRelation.category.name;
+      noteText = `[SISTEM] Tim ${catName} melepas penugasan / mengembalikan ke L1. Catatan: "${returnReason}"`;
+
+      // Cek sisa tim yang masih ditugaskan pada tiket ini
+      const remainingCategories = await prisma.ticketCategory.findMany({
+        where: { ticket_id: ticket.id }
+      });
+
+      if (remainingCategories.length === 0) {
+        // Jika tidak ada tim tersisa sama sekali, tiket berstatus OPEN dan unassigned
+        await prisma.ticket.update({
+          where: { id: ticket.id },
+          data: { status: 'OPEN' }
+        });
+        noteText += ` (Semua tim telah dilepas, tiket kembali berstatus Belum Ditugaskan).`;
+      } else {
+        // Jika masih ada tim lain, periksa apakah sisa tim tersebut semuanya sudah selesai
+        const allRemainingResolved = remainingCategories.every(c => c.is_resolved);
+        if (allRemainingResolved) {
+          await prisma.ticket.update({
+            where: { id: ticket.id },
+            data: { status: 'RESOLVED' }
+          });
+        }
+      }
+    } else {
+      // Jika Admin yang mereturn semua
+      await prisma.ticketCategory.deleteMany({
+        where: { ticket_id: ticket.id }
+      });
+      await prisma.ticket.update({
+        where: { id: ticket.id },
+        data: { status: 'OPEN' }
+      });
+      noteText = `[SISTEM] Seluruh penugasan tim pada tiket ini telah dikembalikan ke L1 oleh ${user?.name || 'Admin'}. Catatan: "${returnReason}"`;
+    }
+
+    // Catat internal note
     await prisma.message.create({
       data: {
-        ticket_id: updatedTicket.id,
+        ticket_id: ticket.id,
         sender_type: 'AGENT',
-        sender_id: req.user ? req.user.id : 1,
+        sender_id: user ? user.id : 1,
         message_text: noteText,
         is_internal: true
       }
     });
 
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: updatedTicket.id });
+      req.io.emit('ticket_closed', { ticketId: ticket.id });
       req.io.emit('new_message', {
-        ticketId: updatedTicket.id,
+        ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
         isInternal: true,
@@ -414,7 +574,7 @@ const returnTicket = async (req, res) => {
       });
     }
 
-    res.json({ success: true, ticket: updatedTicket });
+    res.json({ success: true, message: noteText });
   } catch (error) {
     console.error('[Chat API] Error returning ticket:', error);
     res.status(500).json({ error: 'Internal server error' });
