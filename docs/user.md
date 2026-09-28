@@ -13,6 +13,8 @@ Tentu! Berikut adalah daftar kredensial yang bisa Anda gunakan untuk masuk dan m
 🔧 **Akun L2 (Teknisi Lapangan)**
 - **Teknisi Kategori Server:** `l2_server@helpdesk.go.id`
 - **Teknisi Kategori Network:** `l2_network@helpdesk.go.id`
+- **Teknisi Kategori M&E:** `l2_me@helpdesk.go.id`
+
 - *Fungsi:* Hanya bisa melihat isi tiket, mengirim *catatan internal* (tanpa terkirim ke pelapor), kembalikan tiket, dan menandai pekerjaan selesai.
 
 Silakan dicoba di tab/browser yang berbeda agar Anda bisa melihat bagaimana tiket berpindah-pindah antar *role* secara *real-time*! Beritahu saya jika Anda menemukan bagian yang ingin disesuaikan.

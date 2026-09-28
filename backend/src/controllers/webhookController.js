@@ -35,34 +35,48 @@ const handleIncomingMessage = async (req, res) => {
       if (!conversation) conversation = '[Mengirim Gambar]';
       
       const img = messageData.message.imageMessage;
-      // Evolution API v2 tidak mengirim base64 di payload meskipun webhookBase64: true.
-      // Solusi: Download gambar langsung dari Evolution API menggunakan messageId
-      try {
-        const axios = require('axios');
-        const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-        const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-        const INSTANCE = 'helpdesk-wa';
-        
-        const mediaRes = await axios.post(
-          `${EVO_URL}/chat/getBase64FromMediaMessage/${INSTANCE}`,
-          { message: { key: messageData.key, message: messageData.message } },
-          { headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' } }
-        );
-        
-        const b64 = mediaRes.data?.base64;
-        if (b64) {
-          const buffer = Buffer.from(b64, 'base64');
-          const filename = `img_${Date.now()}.jpg`;
-          const uploadDir = path.join(__dirname, '../../uploads');
-          if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-          fs.writeFileSync(path.join(uploadDir, filename), buffer);
-          attachmentUrl = `/uploads/${filename}`;
-          console.log(`[Webhook] Downloaded and saved image to ${attachmentUrl}`);
-        } else {
-          console.log('[Webhook] No base64 in media response:', JSON.stringify(mediaRes.data));
+      
+      // 1. Cek apakah base64 sudah ada langsung di payload webhook
+      let base64Data = 
+        messageData.base64 || 
+        img.base64 || 
+        payload.base64 || 
+        messageData.message?.base64;
+
+      // 2. Jika tidak ada di payload, minta unduh ke Evolution API
+      if (!base64Data) {
+        try {
+          const axios = require('axios');
+          const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+          const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
+          const INSTANCE = 'helpdesk-wa';
+          
+          console.log('[Webhook] Fetching media base64 from Evolution API...');
+          const mediaRes = await axios.post(
+            `${EVO_URL}/chat/getBase64FromMediaMessage/${INSTANCE}`,
+            { message: messageData },
+            { headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' } }
+          );
+          
+          base64Data = mediaRes.data?.base64 || mediaRes.data?.message?.base64;
+          if (!base64Data) {
+            console.log('[Webhook] Response from getBase64 (no base64):', JSON.stringify(mediaRes.data));
+          }
+        } catch (mediaErr) {
+          console.error('[Webhook] Failed to download media from Evolution:', mediaErr?.response?.data || mediaErr.message);
         }
-      } catch (mediaErr) {
-        console.error('[Webhook] Failed to download media from Evolution:', mediaErr?.response?.data || mediaErr.message);
+      }
+
+      if (base64Data) {
+        const buffer = Buffer.from(base64Data, 'base64');
+        const filename = `img_${Date.now()}.jpg`;
+        const uploadDir = path.join(__dirname, '../../uploads');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        fs.writeFileSync(path.join(uploadDir, filename), buffer);
+        attachmentUrl = `/uploads/${filename}`;
+        console.log(`[Webhook] Successfully saved image to ${attachmentUrl}`);
+      } else {
+        console.log('[Webhook] Warning: Image detected but could not extract base64.');
       }
     } else if (messageData.message.documentMessage) {
       if (!conversation) conversation = '[Mengirim Dokumen]';

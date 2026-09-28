@@ -33,13 +33,14 @@ app.use(helmet({
 // Rate Limiter: Maksimal 300 request per 15 menit per IP (Fase 6 Security)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 300, 
+  max: 1000, 
+  skip: (req) => req.originalUrl.startsWith('/api/webhook'),
   message: { error: 'Terlalu banyak request, silakan coba lagi nanti.' }
 });
-app.use('/api', limiter); // Terapkan pembatasan hanya pada rute API
+app.use('/api', limiter); // Terapkan pembatasan pada rute API (kecuali webhook)
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
