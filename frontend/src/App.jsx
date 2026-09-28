@@ -103,9 +103,11 @@ function Dashboard() {
   
   // State Close Ticket & Categories
   const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [summaryText, setSummaryText] = useState('');
   const [categories, setCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
+  const [assignCategoryId, setAssignCategoryId] = useState('');
 
   // State Reporting
   const [reportTickets, setReportTickets] = useState([]);
@@ -113,6 +115,20 @@ function Dashboard() {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  const handleAssignTicket = async () => {
+    if (!assignCategoryId) return alert('Pilih kategori L2 terlebih dahulu');
+    try {
+      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, {
+        categoryId: assignCategoryId
+      });
+      setShowAssignModal(false);
+      setAssignCategoryId('');
+      alert('Tiket berhasil di-assign. Notifikasi WA otomatis dikirim ke Teknisi L2.');
+      loadTickets();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal meng-assign tiket');
+    }
+  };
   // Authentication Check
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -439,7 +455,7 @@ function Dashboard() {
                   {/* RBAC: L1 bisa Tutup, L2 bisa Tandai Selesai */}
                   {isL1 && (
                     <div className="flex space-x-2">
-                      <button className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-lg font-medium transition">
+                      <button onClick={() => setShowAssignModal(true)} className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-lg font-medium transition">
                         Assign ke L2
                       </button>
                       <button onClick={() => setShowCloseModal(true)} className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg font-medium transition">
@@ -683,6 +699,33 @@ function Dashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ASSIGN L2 */}
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-[400px] p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Assign ke Teknisi L2</h2>
+            <p className="text-sm text-gray-500 mb-4">Tiket ini akan dilempar ke antrean L2 dan sistem akan mengirim notifikasi WhatsApp ke tim terkait.</p>
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Pilih Kategori Masalah</label>
+              <select 
+                value={assignCategoryId} 
+                onChange={e => setAssignCategoryId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">-- Pilih Kategori --</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Batal</button>
+              <button onClick={handleAssignTicket} disabled={!assignCategoryId} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors">Tugaskan L2</button>
             </div>
           </div>
         </div>

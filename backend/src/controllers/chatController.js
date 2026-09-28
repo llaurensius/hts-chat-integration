@@ -176,10 +176,8 @@ const sendMedia = async (req, res) => {
     // Konversi file ke base64
     const fs = require('fs');
     const base64Data = fs.readFileSync(file.path, { encoding: 'base64' });
-    const mimeType = file.mimetype;
 
     const axios = require('axios');
-    // Payload spesifik untuk Evolution API sendMedia
     const payload = {
       number: waNumber,
       options: {
@@ -204,10 +202,8 @@ const sendMedia = async (req, res) => {
       console.error('[Evolution API] Failed to send WA Media:', evoError?.response?.data || evoError.message);
     }
 
-    // Pindahkan URL agar bisa diakses browser
     const publicUrl = `/uploads/${file.filename}`;
 
-    // Simpan ke DB
     const savedMessage = await prisma.message.create({
       data: {
         ticket_id: ticket.id,
@@ -218,7 +214,6 @@ const sendMedia = async (req, res) => {
       }
     });
 
-    // Broadcast ke Socket.io
     if (req.io) {
       req.io.emit('new_message', {
         ticketId: ticket.id,
@@ -238,4 +233,95 @@ const sendMedia = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia };
+// Assign Tiket ke L2 & Kirim Blast Notifikasi (Fase 5)
+const assignTicket = async (req, res) => {
+  const { ticketId } = req.params;
+  const { categoryId } = req.body;
+
+  if (!categoryId) {
+    return res.status(400).json({ error: 'ID Kategori wajib dipilih' });
+  }
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: { customer: true }
+    });
+
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    const category = await prisma.category.findUnique({
+      where: { id: parseInt(categoryId) }
+    });
+
+    if (!category) return res.status(404).json({ error: 'Kategori tidak ditemukan' });
+
+    // Hapus tagging lama jika ada, lalu set yang baru
+    await prisma.ticketCategory.deleteMany({
+      where: { ticket_id: ticket.id }
+    });
+    
+    await prisma.ticketCategory.create({
+      data: {
+        ticket_id: ticket.id,
+        category_id: category.id
+      }
+    });
+
+    // Buat Internal Note otomatis bahwa tiket ini di-assign
+    const noteText = `[SISTEM] Tiket di-assign ke L2: Kategori ${category.name}`;
+    await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user ? req.user.id : 1,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    // Blast Notifikasi WA ke L2 via Evolution API
+    if (category.wa_target_number) {
+      const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+      const evolutionApiKey = process.env.EVOLUTION_API_KEY || '429683C4C977415CAAFCCE10F7D57E11';
+      const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
+      
+      const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const blastMessage = `🚨 *TUGAS BARU (L2)*\n\nKategori: ${category.name}\nPelapor: ${ticket.customer.name}\n\nSilakan cek detail dan tangani melalui dashboard:\n${dashboardUrl}`;
+      
+      try {
+        const axios = require('axios');
+        await axios.post(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
+          number: category.wa_target_number,
+          text: blastMessage
+        }, {
+          headers: {
+            'apikey': evolutionApiKey,
+            'Content-Type': 'application/json'
+          }
+        });
+        console.log(`[Blast] Sent L2 notification to ${category.wa_target_number}`);
+      } catch (evoError) {
+        console.error('[Evolution API] Failed to send L2 blast:', evoError?.response?.data || evoError.message);
+      }
+    }
+
+    if (req.io) {
+      req.io.emit('ticket_closed', { ticketId: ticket.id }); // Reuse event 'ticket_closed' for re-fetching
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({ success: true, message: 'Tiket berhasil di-assign dan teknisi telah dinotifikasi.' });
+  } catch (error) {
+    console.error('[Chat API] Error assigning ticket:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { getTickets, getMessages, sendReply, getCategories, closeTicket, sendMedia, assignTicket };
