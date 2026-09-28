@@ -118,15 +118,17 @@ function Dashboard() {
   const fileInputRef = useRef(null);
 
   const handleAssignTicket = async () => {
-    if (!assignCategoryId) return alert('Pilih kategori L2 terlebih dahulu');
+    if (assignCategoryIds.length === 0) return alert('Pilih minimal 1 Tim L2 tujuan terlebih dahulu');
     try {
-      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, {
-        categoryId: assignCategoryId
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, {
+        categoryIds: assignCategoryIds,
+        serviceType: assignServiceType
       });
       setShowAssignModal(false);
-      setAssignCategoryId('');
-      alert('Tiket berhasil di-assign. Notifikasi WA otomatis dikirim ke Teknisi L2.');
+      setAssignCategoryIds([]);
+      alert(res.data?.message || 'Tiket berhasil di-assign. Notifikasi WA otomatis dikirim ke Teknisi L2.');
       loadTickets();
+      if (activeTicket) loadMessages(activeTicket.id);
     } catch (error) {
       alert(error.response?.data?.error || 'Gagal meng-assign tiket');
     }
