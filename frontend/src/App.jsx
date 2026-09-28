@@ -399,17 +399,28 @@ function Dashboard() {
     }
   };
 
+  const activeTicketRef = useRef(activeTicket);
+  useEffect(() => {
+    activeTicketRef.current = activeTicket;
+  }, [activeTicket]);
+
+  const currentTabRef = useRef(currentTab);
+  useEffect(() => {
+    currentTabRef.current = currentTab;
+  }, [currentTab]);
+
   useEffect(() => {
     if (!currentUser) return;
 
     loadTickets();
     loadCategories();
 
-    socket.on('new_message', (data) => {
+    const handleNewMessage = (data) => {
       loadTickets();
-      setMessages((prev) => {
-        if (activeTicket && data.ticketId === activeTicket.id) {
-          return [...prev, {
+      if (activeTicketRef.current && data.ticketId === activeTicketRef.current.id) {
+        setMessages((prev) => [
+          ...prev, 
+          {
             id: Date.now(),
             sender_type: data.senderType || 'CUSTOMER',
             message_text: data.text,
@@ -417,23 +428,22 @@ function Dashboard() {
             is_internal: data.isInternal || false, // Fase 1 V2
             sender: data.sender || null,
             created_at: data.createdAt || new Date().toISOString()
-          }];
-        }
-        return prev;
-      });
-    });
+          }
+        ]);
+      }
+    };
 
-    socket.on('ticket_closed', (data) => {
+    const handleTicketClosed = (data) => {
       loadTickets(); 
-      if (currentTab === 'report') loadReports();
+      if (currentTabRef.current === 'report') loadReports();
       
-      if (activeTicket && data.ticketId === activeTicket.id) {
+      if (activeTicketRef.current && data.ticketId === activeTicketRef.current.id) {
         setActiveTicket(null);
         alert('Tiket ini baru saja diupdate statusnya.');
       }
-    });
+    };
 
-    socket.on('customer_updated', (data) => {
+    const handleCustomerUpdated = (data) => {
       setTickets((prev) => prev.map(t => {
         if (t.customer_id === data.customerId || t.customer?.id === data.customerId) {
           return {
@@ -470,14 +480,18 @@ function Dashboard() {
         }
         return r;
       }));
-    });
+    };
+
+    socket.on('new_message', handleNewMessage);
+    socket.on('ticket_closed', handleTicketClosed);
+    socket.on('customer_updated', handleCustomerUpdated);
 
     return () => {
-      socket.off('new_message');
-      socket.off('ticket_closed');
-      socket.off('customer_updated');
+      socket.off('new_message', handleNewMessage);
+      socket.off('ticket_closed', handleTicketClosed);
+      socket.off('customer_updated', handleCustomerUpdated);
     };
-  }, [activeTicket, currentTab, currentUser]); 
+  }, [currentUser]); 
 
   useEffect(() => {
     if (activeTicket) loadMessages(activeTicket.id);

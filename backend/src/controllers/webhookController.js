@@ -178,7 +178,7 @@ const handleIncomingMessage = async (req, res) => {
       req.io.emit('new_message', {
         ticketId,
         waNumber,
-        senderName,
+        senderName: customer.name,
         text: conversation,
         attachmentUrl: attachmentUrl, // Fase 3
         createdAt: savedMessage.created_at
