@@ -75,4 +75,83 @@ const deleteUser = async (req, res) => {
   }
 };
 
-module.exports = { getUsers, createUser, deleteUser };
+// Mengambil daftar kategori beserta multi-kontak WA Blast
+const getCategoryContacts = async (req, res) => {
+  try {
+    const categories = await prisma.category.findMany({
+      include: {
+        contacts: {
+          orderBy: { id: 'asc' }
+        }
+      },
+      orderBy: { id: 'asc' }
+    });
+    res.json(categories);
+  } catch (error) {
+    console.error('[Admin API] Error fetching category contacts:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Menambahkan kontak baru ke kategori tim L2
+const addCategoryContact = async (req, res) => {
+  const { categoryId } = req.params;
+  const { name, wa_target } = req.body;
+
+  if (!name || !wa_target) {
+    return res.status(400).json({ error: 'Nama dan Nomor WA / ID Grup wajib diisi' });
+  }
+
+  try {
+    const category = await prisma.category.findUnique({
+      where: { id: parseInt(categoryId) }
+    });
+
+    if (!category) return res.status(404).json({ error: 'Kategori tim tidak ditemukan' });
+
+    // Format nomor jika nomor pribadi biasa (bukan ID grup @g.us)
+    let formattedTarget = wa_target.trim();
+    if (!formattedTarget.includes('@g.us')) {
+      formattedTarget = formattedTarget.replace(/[^0-9]/g, '');
+      if (formattedTarget.startsWith('0')) {
+        formattedTarget = '62' + formattedTarget.slice(1);
+      }
+    }
+
+    const contact = await prisma.categoryContact.create({
+      data: {
+        category_id: category.id,
+        name: name.trim(),
+        wa_target: formattedTarget
+      }
+    });
+
+    res.json({ success: true, contact });
+  } catch (error) {
+    console.error('[Admin API] Error adding category contact:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Menghapus kontak dari kategori tim L2
+const deleteCategoryContact = async (req, res) => {
+  const { contactId } = req.params;
+  try {
+    await prisma.categoryContact.delete({
+      where: { id: parseInt(contactId) }
+    });
+    res.json({ success: true, message: 'Kontak berhasil dihapus' });
+  } catch (error) {
+    console.error('[Admin API] Error deleting category contact:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = {
+  getUsers,
+  createUser,
+  deleteUser,
+  getCategoryContacts,
+  addCategoryContact,
+  deleteCategoryContact
+};

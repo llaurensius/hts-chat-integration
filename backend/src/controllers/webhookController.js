@@ -119,18 +119,26 @@ const handleIncomingMessage = async (req, res) => {
       });
       ticketId = newTicket.id;
 
-      // F1: Auto-Reply Bot (Kirim pesan balasan otomatis)
-      const autoReply = "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
-      await evolutionService.sendText(waNumber, autoReply);
+      // F1: Auto-Reply Bot (Kirim pesan balasan otomatis jika diaktifkan L1)
+      let botSetting = await prisma.setting.findUnique({ where: { key: 'auto_reply' } });
+      const isBotActive = botSetting ? botSetting.is_active : true;
+      const autoReplyText = botSetting?.value || "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
 
-      // Simpan pesan sistem (Bot) ke database
-      await prisma.message.create({
-        data: {
-          ticket_id: ticketId,
-          sender_type: 'BOT',
-          message_text: autoReply
+      if (isBotActive && autoReplyText.trim()) {
+        try {
+          await evolutionService.sendText(waNumber, autoReplyText);
+          // Simpan pesan sistem (Bot) ke database
+          await prisma.message.create({
+            data: {
+              ticket_id: ticketId,
+              sender_type: 'BOT',
+              message_text: autoReplyText
+            }
+          });
+        } catch (botErr) {
+          console.error('[Webhook] Failed to send auto-reply bot:', botErr.message);
         }
-      });
+      }
     } else {
       ticketId = activeTicket.id;
     }

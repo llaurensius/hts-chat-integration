@@ -83,4 +83,61 @@ const getTicketReports = async (req, res) => {
   }
 };
 
-module.exports = { getTicketReports };
+// Menghapus data tiket laporan (Khusus Admin)
+const deleteTicketReports = async (req, res) => {
+  const { ids, all } = req.body;
+
+  try {
+    if (all === true) {
+      // Hapus SEMUA data testing: Message -> TicketCategory -> Ticket -> Customer
+      await prisma.$transaction([
+        prisma.message.deleteMany(),
+        prisma.ticketCategory.deleteMany(),
+        prisma.ticket.deleteMany(),
+        prisma.customer.deleteMany()
+      ]);
+
+      if (req.io) {
+        req.io.emit('ticket_closed', { ticketId: 'all' });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Seluruh data aduan, pesan, dan kontak pelanggan berhasil dihapus bersih.'
+      });
+    }
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Pilih minimal 1 tiket untuk dihapus' });
+    }
+
+    const ticketIds = ids.map(id => parseInt(id)).filter(id => !isNaN(id));
+
+    // Hapus tiket-tiket terpilih secara aman
+    await prisma.$transaction([
+      prisma.message.deleteMany({
+        where: { ticket_id: { in: ticketIds } }
+      }),
+      prisma.ticketCategory.deleteMany({
+        where: { ticket_id: { in: ticketIds } }
+      }),
+      prisma.ticket.deleteMany({
+        where: { id: { in: ticketIds } }
+      })
+    ]);
+
+    if (req.io) {
+      req.io.emit('ticket_closed', { ticketId: 'batch' });
+    }
+
+    res.json({
+      success: true,
+      message: `${ticketIds.length} data aduan terpilih berhasil dihapus.`
+    });
+  } catch (error) {
+    console.error('[Report API] Error deleting reports:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { getTicketReports, deleteTicketReports };

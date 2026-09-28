@@ -56,6 +56,7 @@ const chatRoutes = require('./routes/chat');
 const reportRoutes = require('./routes/report');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const settingRoutes = require('./routes/setting');
 const { verifyToken, requireRole } = require('./middlewares/authMiddleware');
 
 // Register Routes
@@ -64,6 +65,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', verifyToken, chatRoutes); 
 app.use('/api/reports', verifyToken, reportRoutes); 
 app.use('/api/admin', verifyToken, requireRole(['ADMIN']), adminRoutes);
+app.use('/api/settings', settingRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

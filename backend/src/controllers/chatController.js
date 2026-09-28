@@ -275,7 +275,8 @@ const assignTicket = async (req, res) => {
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
     const categories = await prisma.category.findMany({
-      where: { id: { in: targetIds } }
+      where: { id: { in: targetIds } },
+      include: { contacts: true }
     });
 
     if (categories.length === 0) return res.status(404).json({ error: 'Tim kategori tidak ditemukan' });
@@ -321,7 +322,7 @@ const assignTicket = async (req, res) => {
       }
     });
 
-    // Blast Notifikasi WA ke setiap tim L2 yang memiliki wa_target_number via Evolution API
+    // Blast Notifikasi WA ke setiap tim L2 (Multi-Kontak personil & ID grup) via Evolution API
     const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
     const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
     const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
@@ -330,12 +331,26 @@ const assignTicket = async (req, res) => {
 
     const axios = require('axios');
     for (const cat of categories) {
-      if (cat.wa_target_number) {
-        const blastMessage = `🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨\n\n*Tim:* ${cat.name}\n*Jenis Layanan:* ${typeDisplay}\n*Pelapor:* ${ticket.customer.name}\n*No WA:* ${ticket.customer.wa_number}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
-        
+      const blastMessage = `🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨\n\n*Tim:* ${cat.name}\n*Jenis Layanan:* ${typeDisplay}\n*Pelapor:* ${ticket.customer.name}\n*No WA:* ${ticket.customer.wa_number}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
+
+      // Ambil seluruh target WA dari CategoryContact (Multi-Kontak)
+      const targets = [];
+      if (cat.contacts && cat.contacts.length > 0) {
+        cat.contacts.forEach(c => {
+          if (c.wa_target && !targets.includes(c.wa_target)) {
+            targets.push(c.wa_target);
+          }
+        });
+      }
+      // Fallback ke wa_target_number legacy jika belum ada contacts
+      if (targets.length === 0 && cat.wa_target_number) {
+        targets.push(cat.wa_target_number);
+      }
+
+      for (const targetNumber of targets) {
         try {
           await axios.post(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
-            number: cat.wa_target_number,
+            number: targetNumber,
             text: blastMessage
           }, {
             headers: {
@@ -343,9 +358,9 @@ const assignTicket = async (req, res) => {
               'Content-Type': 'application/json'
             }
           });
-          console.log(`[Blast] Sent L2 notification to ${cat.name} (${cat.wa_target_number})`);
+          console.log(`[Blast] Sent L2 notification to ${cat.name} target: ${targetNumber}`);
         } catch (evoError) {
-          console.error(`[Evolution API] Failed to send blast to ${cat.name}:`, evoError?.response?.data || evoError.message);
+          console.error(`[Evolution API] Failed to send blast to ${cat.name} (${targetNumber}):`, evoError?.response?.data || evoError.message);
         }
       }
     }
