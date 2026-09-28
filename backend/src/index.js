@@ -45,13 +45,15 @@ const webhookRoutes = require('./routes/webhook');
 const chatRoutes = require('./routes/chat');
 const reportRoutes = require('./routes/report');
 const authRoutes = require('./routes/auth');
-const { verifyToken } = require('./middlewares/authMiddleware');
+const adminRoutes = require('./routes/admin');
+const { verifyToken, requireRole } = require('./middlewares/authMiddleware');
 
 // Register Routes
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', verifyToken, chatRoutes); 
 app.use('/api/reports', verifyToken, reportRoutes); 
+app.use('/api/admin', verifyToken, requireRole(['ADMIN']), adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

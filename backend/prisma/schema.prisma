@@ -70,6 +70,7 @@ model Message {
 }
 
 enum Role {
+  ADMIN
   SPV
   L1
   L2

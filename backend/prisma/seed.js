@@ -32,8 +32,15 @@ async function main() {
   // 2. Hash default password
   const hashedPassword = await bcrypt.hash('password123', 10);
 
-  // 3. Seed Users (L1 Dispatcher & L2 Technicians)
+  // 3. Seed Users (Admin, L1 Dispatcher & L2 Technicians)
   const users = [
+    {
+      name: 'Administrator',
+      email: 'admin@helpdesk.go.id',
+      password: hashedPassword,
+      role: 'ADMIN',
+      category_id: null,
+    },
     {
       name: 'Supervisor',
       email: 'spv@helpdesk.go.id',

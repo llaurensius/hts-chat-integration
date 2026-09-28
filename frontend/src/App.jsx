@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle } from 'lucide-react';
+import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://localhost:3000';
@@ -300,8 +300,48 @@ function Dashboard() {
 
   if (!currentUser) return null;
 
-  const isL1 = currentUser.role === 'L1' || currentUser.role === 'SPV';
-  const isL2 = currentUser.role === 'L2';
+  const isAdmin = currentUser.role === 'ADMIN';
+  const isL1 = isAdmin || currentUser.role === 'L1' || currentUser.role === 'SPV';
+  const isL2 = isAdmin || currentUser.role === 'L2';
+
+  // --- STATE ADMIN ---
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'L1', category_id: '' });
+
+  const loadAdminUsers = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/users`);
+      setAdminUsers(res.data);
+    } catch (error) {
+      console.error('Failed to load admin users', error);
+    }
+  };
+
+  useEffect(() => {
+    if (currentTab === 'users' && isAdmin) loadAdminUsers();
+  }, [currentTab, isAdmin]);
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API_URL}/admin/users`, newUser);
+      alert('User berhasil dibuat');
+      setNewUser({ name: '', email: '', password: '', role: 'L1', category_id: '' });
+      loadAdminUsers();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal membuat user');
+    }
+  };
+
+  const handleDeleteUser = async (id) => {
+    if (!window.confirm('Yakin hapus user ini?')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/users/${id}`);
+      loadAdminUsers();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal menghapus user');
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
@@ -327,6 +367,15 @@ function Dashboard() {
             >
               <FileText className="w-6 h-6" />
             </button>
+            {isAdmin && (
+              <button 
+                onClick={() => setCurrentTab('users')}
+                className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'users' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
+                title="Manajemen Pengguna"
+              >
+                <Users className="w-6 h-6" />
+              </button>
+            )}
           </div>
         </div>
         <button onClick={handleLogout} className="p-3 text-red-300 hover:bg-red-800 hover:text-white rounded-xl transition-all" title="Logout">
@@ -548,6 +597,93 @@ function Dashboard() {
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 overflow-hidden flex flex-col">
              <div className="overflow-x-auto p-4">... Area Tabel Rekap (Data disembunyikan untuk ringkas) ...</div>
+          </div>
+        </div>
+      )}
+
+      {/* HALAMAN MANAJEMEN PENGGUNA */}
+      {currentTab === 'users' && isAdmin && (
+        <div className="flex-1 bg-gray-50 flex flex-col p-6 overflow-y-auto">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-800">Manajemen Pengguna</h1>
+            <p className="text-sm text-gray-500 mt-1">Tambah, edit, atau hapus akun tim (L1/L2)</p>
+          </div>
+          
+          <div className="flex space-x-6 items-start">
+            {/* Form Tambah User */}
+            <div className="w-[35%] bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h2 className="font-bold text-gray-800 mb-4 pb-2 border-b">Buat Akun Baru</h2>
+              <form onSubmit={handleCreateUser} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Nama Lengkap</label>
+                  <input type="text" required value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Email</label>
+                  <input type="email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Password</label>
+                  <input type="password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Role / Peran</label>
+                  <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white">
+                    <option value="L1">L1 (Dispatcher)</option>
+                    <option value="L2">L2 (Teknisi)</option>
+                    <option value="SPV">SPV (Supervisor)</option>
+                    <option value="ADMIN">ADMIN</option>
+                  </select>
+                </div>
+                {newUser.role === 'L2' && (
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Kategori Khusus (Wajib L2)</label>
+                    <select required value={newUser.category_id} onChange={e => setNewUser({...newUser, category_id: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white">
+                      <option value="">-- Pilih Kategori --</option>
+                      {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                <button type="submit" className="w-full mt-2 bg-blue-600 text-white font-bold py-2.5 rounded-lg hover:bg-blue-700 transition">
+                  Simpan Akun
+                </button>
+              </form>
+            </div>
+
+            {/* Tabel User */}
+            <div className="flex-1 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h2 className="font-bold text-gray-800 mb-4 pb-2 border-b">Daftar Akun Terdaftar</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-gray-600">
+                  <thead className="bg-gray-50 text-gray-700 uppercase text-xs border-y">
+                    <tr>
+                      <th className="px-4 py-3">Nama</th>
+                      <th className="px-4 py-3">Email</th>
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3">Kategori (L2)</th>
+                      <th className="px-4 py-3 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminUsers.map(user => (
+                      <tr key={user.id} className="border-b hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">{user.name}</td>
+                        <td className="px-4 py-3">{user.email}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'ADMIN' ? 'bg-red-100 text-red-700' : user.role === 'L1' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">{user.category?.name || '-'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeleteUser(user.id)} className="text-red-600 hover:text-red-800 font-medium">Hapus</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       )}
