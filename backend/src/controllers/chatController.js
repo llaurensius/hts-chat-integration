@@ -63,7 +63,7 @@ const sendReply = async (req, res) => {
       data: {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
-        user_id: userId || null, // Null jika sistem auth belum jalan 100%
+        sender_id: userId || null, // Sesuai dengan field di schema.prisma
         message_text: text
       }
     });
