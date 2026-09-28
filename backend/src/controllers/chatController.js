@@ -434,7 +434,7 @@ const assignTicket = async (req, res) => {
       });
     }
 
-    res.json({ success: true, message: `Tiket berhasil di-assign ke Tim: ${teamNames}` });
+    res.json({ success: true, message: `Tiket berhasil di-assign ke Tim: ${allActiveTeamNames}` });
   } catch (error) {
     console.error('[Chat API] Error assigning ticket:', error);
     res.status(500).json({ error: 'Internal server error' });
