@@ -1,5 +1,7 @@
 const prisma = require('../config/db');
 const evolutionService = require('../services/evolutionService');
+const fs = require('fs');
+const path = require('path');
 
 const handleIncomingMessage = async (req, res) => {
   // Selalu balas 200 OK ke Evolution API dengan cepat agar webhook tidak timeout
@@ -25,19 +27,35 @@ const handleIncomingMessage = async (req, res) => {
       messageData.message.extendedTextMessage?.text || 
       messageData.message.imageMessage?.caption;
 
-    if (!conversation) {
-      // Jika user mengirim gambar/dokumen tanpa caption, kita tetap anggap sebagai pesan masuk
-      const isImage = !!messageData.message.imageMessage;
-      const isDocument = !!messageData.message.documentMessage;
-      const isVideo = !!messageData.message.videoMessage;
-      const isSticker = !!messageData.message.stickerMessage;
+    let attachmentUrl = null;
+
+    // Cek apakah ada Media (Gambar) - Fase 3
+    if (messageData.message.imageMessage) {
+      if (!conversation) conversation = '[Mengirim Gambar]';
       
-      if (isImage) conversation = '[Mengirim Gambar]';
-      else if (isDocument) conversation = '[Mengirim Dokumen]';
-      else if (isVideo) conversation = '[Mengirim Video]';
-      else if (isSticker) conversation = '[Mengirim Stiker]';
-      else conversation = '[Pesan Media/Sistem]';
+      const img = messageData.message.imageMessage;
+      // Jika disetting base64: true di webhook, evolution akan mengirim data base64
+      if (img.base64) {
+        const buffer = Buffer.from(img.base64, 'base64');
+        const filename = `img_${Date.now()}.jpg`;
+        const uploadDir = path.join(__dirname, '../../uploads');
+        
+        // Buat folder jika belum ada
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        
+        fs.writeFileSync(path.join(uploadDir, filename), buffer);
+        attachmentUrl = `/uploads/${filename}`;
+        console.log(`[Webhook] Saved image to ${attachmentUrl}`);
+      }
+    } else if (messageData.message.documentMessage) {
+      if (!conversation) conversation = '[Mengirim Dokumen]';
+    } else if (messageData.message.videoMessage) {
+      if (!conversation) conversation = '[Mengirim Video]';
     }
+
+    if (!conversation) conversation = '[Pesan Media/Sistem]';
 
     // Nomor WA pengirim (hapus suffix @s.whatsapp.net)
     const waNumber = remoteJid.split('@')[0];
@@ -82,9 +100,7 @@ const handleIncomingMessage = async (req, res) => {
         }
       });
     } else {
-      // 3b. Gunakan tiket yang sedang berjalan
       ticketId = activeTicket.id;
-      // F6: Jeda Bot Rule logic akan diimplementasikan di sini jika dibutuhkan
     }
 
     // 4. Simpan pesan masuk pelanggan ke database
@@ -92,17 +108,19 @@ const handleIncomingMessage = async (req, res) => {
       data: {
         ticket_id: ticketId,
         sender_type: 'CUSTOMER',
-        message_text: conversation
+        message_text: conversation,
+        attachment_url: attachmentUrl // Fase 3: Simpan URL Attachment
       }
     });
 
-    // 5. Broadcast notifikasi ke Socket.io agar muncul di Dashboard secara realtime
+    // 5. Broadcast notifikasi ke Socket.io
     if (req.io) {
       req.io.emit('new_message', {
         ticketId,
         waNumber,
         senderName,
         text: conversation,
+        attachmentUrl: attachmentUrl, // Fase 3
         createdAt: savedMessage.created_at
       });
     }

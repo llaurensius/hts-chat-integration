@@ -90,7 +90,7 @@ const sendReply = async (req, res) => {
 };
 
 // Mengambil daftar divisi untuk Multi-Tagging (F3)
-const getCategorys = async (req, res) => {
+const getCategories = async (req, res) => {
   try {
     const categorys = await prisma.category.findMany();
     res.json(categorys);
@@ -148,4 +148,94 @@ const closeTicket = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply, getCategorys, closeTicket };
+// Mengirim Media (Gambar/Dokumen) ke WA Pelapor (Fase 3)
+const sendMedia = async (req, res) => {
+  try {
+    const { ticketId, caption } = req.body;
+    const file = req.file;
+    const userId = req.user ? req.user.id : (req.body.userId || 1);
+
+    if (!ticketId || !file) {
+      return res.status(400).json({ error: 'Ticket ID dan File gambar wajib dikirim' });
+    }
+
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: { customer: true }
+    });
+
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    
+    const waNumber = ticket.customer.wa_number;
+
+    // FASE 3: Integrasi API Evolution untuk Kirim Media
+    const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+    const evolutionApiKey = process.env.EVOLUTION_API_KEY || '429683C4C977415CAAFCCE10F7D57E11';
+    const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
+
+    // Konversi file ke base64
+    const fs = require('fs');
+    const base64Data = fs.readFileSync(file.path, { encoding: 'base64' });
+    const mimeType = file.mimetype;
+
+    const axios = require('axios');
+    // Payload spesifik untuk Evolution API sendMedia
+    const payload = {
+      number: waNumber,
+      options: {
+        delay: 1200,
+        presence: "composing"
+      },
+      mediaMessage: {
+        mediatype: "image",
+        caption: caption || "",
+        media: base64Data
+      }
+    };
+
+    try {
+      await axios.post(`${evolutionApiUrl}/message/sendMedia/${instanceName}`, payload, {
+        headers: {
+          'apikey': evolutionApiKey,
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (evoError) {
+      console.error('[Evolution API] Failed to send WA Media:', evoError?.response?.data || evoError.message);
+    }
+
+    // Pindahkan URL agar bisa diakses browser
+    const publicUrl = `/uploads/${file.filename}`;
+
+    // Simpan ke DB
+    const savedMessage = await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: userId,
+        message_text: caption || '[Mengirim Gambar]',
+        attachment_url: publicUrl
+      }
+    });
+
+    // Broadcast ke Socket.io
+    if (req.io) {
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        waNumber: waNumber,
+        senderName: 'Agent',
+        text: savedMessage.message_text,
+        attachmentUrl: publicUrl,
+        createdAt: savedMessage.created_at,
+        senderType: 'AGENT'
+      });
+    }
+
+    res.json({ success: true, message: savedMessage });
+  } catch (error) {
+    console.error('[Chat API] Error sending media:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { getTickets, getMessages, sendReply, getCategories, closeTicket, sendMedia };

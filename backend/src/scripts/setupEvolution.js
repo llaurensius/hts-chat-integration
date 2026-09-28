@@ -36,14 +36,14 @@ async function setup() {
       }
     }
 
-    // 2. Setup Webhook
+    // 2. Setup Webhook (Fase 3: Mengaktifkan base64 untuk Media Gambar)
     console.log(`[Evolution] Mengatur Webhook ke: ${WEBHOOK_URL}`);
     await api.post(`/webhook/set/${INSTANCE_NAME}`, {
       webhook: {
         enabled: true,
         url: WEBHOOK_URL,
         byEvents: false,
-        base64: false,
+        base64: true, // <-- DIUBAH KE TRUE UNTUK MEDIA SUPPORT
         events: [
           "MESSAGES_UPSERT",
           "MESSAGES_UPDATE"
