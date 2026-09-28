@@ -44,6 +44,21 @@ const getMessages = async (req, res) => {
   try {
     const messages = await prisma.message.findMany({
       where: { ticket_id: parseInt(ticketId) },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        }
+      },
       orderBy: { created_at: 'asc' } // Urutkan dari terlama ke terbaru
     });
     res.json(messages);
@@ -601,16 +616,31 @@ const addInternalNote = async (req, res) => {
   const { ticketId } = req.params;
   const { text } = req.body;
   
-  if (!text) return res.status(400).json({ error: 'Catatan tidak boleh kosong' });
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Catatan tidak boleh kosong' });
 
   try {
     const savedMessage = await prisma.message.create({
       data: {
         ticket_id: parseInt(ticketId),
         sender_type: 'AGENT',
-        sender_id: req.user ? req.user.id : 1,
-        message_text: text,
+        sender_id: req.user ? req.user.id : null,
+        message_text: text.trim(),
         is_internal: true
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        }
       }
     });
 
@@ -618,8 +648,9 @@ const addInternalNote = async (req, res) => {
       req.io.emit('new_message', {
         ticketId: parseInt(ticketId),
         senderType: 'AGENT',
-        text: text,
+        text: text.trim(),
         isInternal: true,
+        sender: savedMessage.sender,
         createdAt: savedMessage.created_at
       });
     }

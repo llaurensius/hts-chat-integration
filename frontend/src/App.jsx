@@ -341,6 +341,7 @@ function Dashboard() {
             message_text: data.text,
             attachment_url: data.attachmentUrl, // Fase 3
             is_internal: data.isInternal || false, // Fase 1 V2
+            sender: data.sender || null,
             created_at: data.createdAt || new Date().toISOString()
           }];
         }
@@ -737,15 +738,41 @@ function Dashboard() {
                     const isCustomer = msg.sender_type === 'CUSTOMER';
                     const isBot = msg.sender_type === 'BOT'; 
                     // Fase 1 V2: Highlight jika ini internal note
-                    if(msg.is_internal) {
+                    if (msg.is_internal) {
+                      const isSystem = msg.message_text?.startsWith('[SISTEM]');
+                      const senderCat = msg.sender?.category?.name;
+                      const senderName = msg.sender?.name;
+
+                      let badgeTitle = 'Catatan Internal L2';
+                      if (isSystem) {
+                        badgeTitle = 'Notifikasi Sistem';
+                      } else if (senderCat) {
+                        badgeTitle = `Catatan Internal - Tim ${senderCat}${senderName ? ` (${senderName})` : ''}`;
+                      } else if (senderName) {
+                        badgeTitle = `Catatan Internal - ${senderName}`;
+                      }
+
                       return (
                         <div key={idx} className="flex justify-center my-4">
-                          <div className="bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg text-sm max-w-[80%] border border-yellow-200 shadow-sm text-center">
-                            <span className="font-bold text-xs block mb-1">Catatan Internal L2</span>
-                            {msg.message_text}
+                          <div className={`px-4 py-2.5 rounded-xl text-sm max-w-[85%] border shadow-sm text-left ${
+                            isSystem
+                              ? 'bg-amber-50 text-amber-900 border-amber-200'
+                              : 'bg-yellow-50 text-yellow-900 border-yellow-300'
+                          }`}>
+                            <div className="flex items-center justify-between gap-3 mb-1 pb-1 border-b border-yellow-200/60">
+                              <span className="font-bold text-xs flex items-center gap-1.5 text-yellow-800">
+                                🏷️ {badgeTitle}
+                              </span>
+                              <span className="text-[10px] text-yellow-600 font-mono">
+                                {msg.created_at ? format(new Date(msg.created_at), 'HH:mm') : ''}
+                              </span>
+                            </div>
+                            <p className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm">
+                              {msg.message_text}
+                            </p>
                           </div>
                         </div>
-                      )
+                      );
                     }
 
                     return (
@@ -799,13 +826,16 @@ function Dashboard() {
                   </div>
                 ) : (
                   <div className="p-4 bg-yellow-50 border-t border-yellow-200 flex flex-col">
-                    <label className="text-xs font-bold text-yellow-800 mb-1">Catatan Internal (Hanya dibaca L1)</label>
+                    <label className="text-xs font-bold text-yellow-800 mb-1 flex items-center gap-1.5">
+                      <span>🏷️ Catatan Internal {currentUser.category ? `Tim ${typeof currentUser.category === 'object' ? currentUser.category?.name : currentUser.category}` : 'L2'}</span>
+                      <span className="text-[10px] font-normal text-yellow-700">(Hanya dibaca L1 & Tim Lapangan)</span>
+                    </label>
                     <form onSubmit={handleSendInternalNote} className="flex items-center space-x-2 w-full">
                       <input 
                         type="text" 
                         value={internalNoteText}
                         onChange={e => setInternalNoteText(e.target.value)}
-                        placeholder="Ketik progres pengerjaan lapangan..."
+                        placeholder={`Ketik progres penanganan ${currentUser.category ? `(Tim ${typeof currentUser.category === 'object' ? currentUser.category?.name : currentUser.category})` : ''}...`}
                         className="flex-1 py-2.5 px-4 border border-yellow-300 rounded-full focus:outline-none focus:border-yellow-500 bg-white text-sm"
                       />
                       <button type="submit" disabled={!internalNoteText.trim()} className="px-4 py-2.5 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 disabled:opacity-50 transition-colors shadow-sm text-sm font-semibold">

@@ -52,6 +52,7 @@ model User {
   role        Role       @default(L2)
   category_id Int?
   category    Category?  @relation(fields: [category_id], references: [id])
+  messages    Message[]
 }
 
 model Ticket {
@@ -85,6 +86,7 @@ model Message {
   ticket         Ticket     @relation(fields: [ticket_id], references: [id])
   sender_type    SenderType
   sender_id      Int?
+  sender         User?      @relation(fields: [sender_id], references: [id], onDelete: SetNull)
   message_text   String?
   attachment_url String?
   is_internal    Boolean    @default(false) // Penanda apakah ini Catatan Internal L2 (Fase 1 - V2)
