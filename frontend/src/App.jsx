@@ -137,6 +137,14 @@ function Dashboard() {
     setShowAssignModal(true);
   };
 
+  const handleOpenCloseModal = () => {
+    if (!activeTicket) return;
+    const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
+    setSelectedCategories(currentCatIds);
+    setSummaryText('');
+    setShowCloseModal(true);
+  };
+
   const handleAssignTicket = async () => {
     if (assignCategoryIds.length === 0) return alert('Pilih minimal 1 Tim L2 tujuan terlebih dahulu');
 
@@ -728,7 +736,7 @@ function Dashboard() {
                       >
                         {activeTicket.categories && activeTicket.categories.length > 0 ? 'Ubah / Tambah Tim L2' : 'Assign ke L2'}
                       </button>
-                      <button onClick={() => setShowCloseModal(true)} className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg font-medium transition">
+                      <button onClick={handleOpenCloseModal} className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg font-medium transition">
                         Selesaikan
                       </button>
                     </div>
@@ -1429,22 +1437,38 @@ function Dashboard() {
           <div className="bg-white rounded-xl shadow-xl w-[500px] p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-4">Selesaikan Tiket</h2>
             <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Tag Kategori Masalah (Penting untuk Report)</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Tag Kategori Masalah (Penting untuk Report)</label>
+              <p className="text-[11px] text-gray-500 mb-2.5">
+                Otomatis tercentang sesuai penugasan Tim L2. Anda dapat menambah atau menyesuaikan jika diperlukan.
+              </p>
               <div className="flex flex-wrap gap-2">
-                {categories.map(cat => (
-                  <label key={cat.id} className="inline-flex items-center bg-gray-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-gray-200">
-                    <input 
-                      type="checkbox" 
-                      className="rounded text-blue-600 focus:ring-blue-500 mr-2"
-                      checked={selectedCategories.includes(cat.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelectedCategories([...selectedCategories, cat.id]);
-                        else setSelectedCategories(selectedCategories.filter(id => id !== cat.id));
-                      }}
-                    />
-                    <span className="text-sm text-gray-700">{cat.name}</span>
-                  </label>
-                ))}
+                {categories.map(cat => {
+                  const isAssigned = activeTicket?.categories?.some(tc => (tc.category_id || tc.category?.id) === cat.id);
+                  const isChecked = selectedCategories.includes(cat.id);
+                  return (
+                    <label key={cat.id} className={`inline-flex items-center px-3 py-1.5 rounded-full cursor-pointer transition border text-sm ${
+                      isChecked 
+                        ? 'bg-blue-50 border-blue-400 text-blue-900 font-medium' 
+                        : 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200'
+                    }`}>
+                      <input 
+                        type="checkbox" 
+                        className="rounded text-blue-600 focus:ring-blue-500 mr-2"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedCategories([...selectedCategories, cat.id]);
+                          else setSelectedCategories(selectedCategories.filter(id => id !== cat.id));
+                        }}
+                      />
+                      <span>{cat.name}</span>
+                      {isAssigned && (
+                        <span className="text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold ml-1.5">
+                          Penugasan L2
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
             </div>
             <div className="mb-6">

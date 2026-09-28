@@ -152,15 +152,34 @@ const closeTicket = async (req, res) => {
     });
 
     // Handle Multi-Tagging (F3) ke tabel TicketCategory
-    if (categoryIds && Array.isArray(categoryIds) && categoryIds.length > 0) {
-      const categoryData = categoryIds.map(divId => ({
-        ticket_id: updatedTicket.id,
-        category_id: parseInt(divId)
-      }));
-      await prisma.ticketCategory.createMany({
-        data: categoryData,
-        skipDuplicates: true
+    if (categoryIds && Array.isArray(categoryIds)) {
+      const parsedCatIds = categoryIds.map(divId => parseInt(divId)).filter(id => !isNaN(id));
+      
+      // Hapus kategori yang tidak ada dalam seleksi akhir L1
+      await prisma.ticketCategory.deleteMany({
+        where: {
+          ticket_id: updatedTicket.id,
+          category_id: { notIn: parsedCatIds }
+        }
       });
+
+      // Tambahkan kategori baru jika ada yang baru dipilih saat close
+      if (parsedCatIds.length > 0) {
+        await prisma.ticketCategory.createMany({
+          data: parsedCatIds.map(catId => ({
+            ticket_id: updatedTicket.id,
+            category_id: catId,
+            is_resolved: true
+          })),
+          skipDuplicates: true
+        });
+
+        // Tandai seluruh kategori tiket ini selesai (is_resolved = true)
+        await prisma.ticketCategory.updateMany({
+          where: { ticket_id: updatedTicket.id },
+          data: { is_resolved: true, resolved_at: new Date() }
+        });
+      }
     }
 
     // Blast Notifikasi via Socket.io (F4) - Kasih tahu semua klien bahwa tiket diclose/diupdate
