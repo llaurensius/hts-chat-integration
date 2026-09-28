@@ -14,6 +14,13 @@ function App() {
   const [activeTicket, setActiveTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
+  
+  // State untuk Fase 4 (Penutupan & Divisi)
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [summaryText, setSummaryText] = useState('');
+  const [divisions, setDivisions] = useState([]);
+  const [selectedDivisions, setSelectedDivisions] = useState([]);
+
   const messagesEndRef = useRef(null);
 
   // Load antrean tiket aktif
@@ -36,8 +43,19 @@ function App() {
     }
   };
 
+  // Load divisi untuk tagging
+  const loadDivisions = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/chat/divisions`);
+      setDivisions(res.data);
+    } catch (error) {
+      console.error('Failed to load divisions', error);
+    }
+  };
+
   useEffect(() => {
     loadTickets();
+    loadDivisions();
 
     // Listener realtime dari Socket.io
     socket.on('new_message', (data) => {
@@ -58,8 +76,17 @@ function App() {
       });
     });
 
+    socket.on('ticket_closed', (data) => {
+      loadTickets(); // Refresh antrean untuk menghilangkan tiket yg closed
+      if (activeTicket && data.ticketId === activeTicket.id) {
+        setActiveTicket(null); // Tutup obrolan jika tiket ini yang diclose
+        alert('Tiket ini baru saja diselesaikan oleh agen lain.');
+      }
+    });
+
     return () => {
       socket.off('new_message');
+      socket.off('ticket_closed');
     };
   }, [activeTicket]); // Dependensi activeTicket agar state di dalam event tidak stale
 
@@ -94,6 +121,31 @@ function App() {
       alert('Gagal mengirim pesan');
     }
   };
+
+  const handleCloseTicket = async () => {
+    if (summaryText.trim().length < 10) {
+      alert('Kesimpulan wajib diisi minimal 10 karakter!');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/close`, {
+        summary: summaryText,
+        divisionIds: selectedDivisions
+      });
+      
+      // Reset Modal & State
+      setShowCloseModal(false);
+      setSummaryText('');
+      setSelectedDivisions([]);
+      setActiveTicket(null);
+      loadTickets();
+    } catch (error) {
+      console.error('Failed to close ticket', error);
+      alert('Gagal menutup tiket');
+    }
+  };
+
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
@@ -159,7 +211,10 @@ function App() {
                   <p className="text-xs text-gray-500">+{activeTicket.customer.wa_number}</p>
                 </div>
               </div>
-              <button className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg transition-colors font-medium">
+              <button 
+                onClick={() => setShowCloseModal(true)}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg transition-colors font-medium"
+              >
                 Selesaikan
               </button>
             </div>
@@ -266,6 +321,65 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* Modal Penutupan Tiket (Fase 4) */}
+      {showCloseModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-[500px] p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Selesaikan Tiket</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Silakan isi kesimpulan penanganan (wajib) dan tag divisi terkait untuk keperluan pelaporan.
+            </p>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Tag Divisi Terkait (Opsional)</label>
+              <div className="flex flex-wrap gap-2">
+                {divisions.map(div => (
+                  <label key={div.id} className="inline-flex items-center bg-gray-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-gray-200">
+                    <input 
+                      type="checkbox" 
+                      className="rounded text-blue-600 focus:ring-blue-500 mr-2"
+                      checked={selectedDivisions.includes(div.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedDivisions([...selectedDivisions, div.id]);
+                        else setSelectedDivisions(selectedDivisions.filter(id => id !== div.id));
+                      }}
+                    />
+                    <span className="text-sm text-gray-700">{div.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Kesimpulan & Tindakan (Min. 10 karakter)</label>
+              <textarea 
+                rows="4" 
+                value={summaryText}
+                onChange={e => setSummaryText(e.target.value)}
+                placeholder="Jelaskan tindakan yang telah diambil untuk menyelesaikan masalah ini..."
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              ></textarea>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button 
+                onClick={() => setShowCloseModal(false)}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={handleCloseTicket}
+                disabled={summaryText.trim().length < 10}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors"
+              >
+                Tutup Tiket
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

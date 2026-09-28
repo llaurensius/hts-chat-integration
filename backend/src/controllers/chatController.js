@@ -87,4 +87,63 @@ const sendReply = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply };
+// Mengambil daftar divisi untuk Multi-Tagging (F3)
+const getDivisions = async (req, res) => {
+  try {
+    const divisions = await prisma.division.findMany();
+    res.json(divisions);
+  } catch (error) {
+    console.error('[Chat API] Error fetching divisions:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Menutup Tiket dengan Mandatory Summary (F7) dan Multi-Tagging (F3)
+const closeTicket = async (req, res) => {
+  const { ticketId } = req.params;
+  const { summary, divisionIds } = req.body;
+
+  if (!summary || summary.trim().length < 10) {
+    return res.status(400).json({ error: 'Kesimpulan wajib diisi minimal 10 karakter' });
+  }
+
+  try {
+    // Update tiket
+    const updatedTicket = await prisma.ticket.update({
+      where: { id: parseInt(ticketId) },
+      data: {
+        status: 'CLOSED',
+        summary: summary.trim(),
+        closed_at: new Date()
+      }
+    });
+
+    // Handle Multi-Tagging (F3) ke tabel TicketDivision
+    if (divisionIds && Array.isArray(divisionIds) && divisionIds.length > 0) {
+      const divisionData = divisionIds.map(divId => ({
+        ticket_id: updatedTicket.id,
+        division_id: parseInt(divId)
+      }));
+      await prisma.ticketDivision.createMany({
+        data: divisionData,
+        skipDuplicates: true
+      });
+    }
+
+    // Blast Notifikasi via Socket.io (F4) - Kasih tahu semua klien bahwa tiket diclose/diupdate
+    if (req.io) {
+      req.io.emit('ticket_closed', {
+        ticketId: updatedTicket.id,
+        summary: updatedTicket.summary,
+        divisions: divisionIds
+      });
+    }
+
+    res.json({ success: true, ticket: updatedTicket });
+  } catch (error) {
+    console.error('[Chat API] Error closing ticket:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+module.exports = { getTickets, getMessages, sendReply, getDivisions, closeTicket };
