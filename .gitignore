@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment files
+.env
+.env.*
+*.env
+!.env.example
+
+# Production builds
+dist/
+build/
+**/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploads & temporary files
+uploads/
+**/uploads/
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/

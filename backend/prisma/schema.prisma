@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id         Int       @id @default(autoincrement())
+  wa_number  String    @unique
+  name       String
+  skpd_name  String?
+  created_at DateTime  @default(now())
+  tickets    Ticket[]
+}
+
+model Division {
+  id         Int              @id @default(autoincrement())
+  name       String
+  users      User[]
+  tickets    TicketDivision[]
+}
+
+model User {
+  id          Int        @id @default(autoincrement())
+  name        String
+  email       String     @unique
+  password    String
+  role        Role       @default(L2)
+  division_id Int?
+  division    Division?  @relation(fields: [division_id], references: [id])
+}
+
+model Ticket {
+  id          Int              @id @default(autoincrement())
+  customer_id Int
+  customer    Customer         @relation(fields: [customer_id], references: [id])
+  status      TicketStatus     @default(OPEN)
+  summary     String?
+  created_at  DateTime         @default(now())
+  closed_at   DateTime?
+  divisions   TicketDivision[]
+  messages    Message[]
+}
+
+model TicketDivision {
+  ticket_id   Int
+  division_id Int
+  ticket      Ticket   @relation(fields: [ticket_id], references: [id])
+  division    Division @relation(fields: [division_id], references: [id])
+
+  @@id([ticket_id, division_id])
+}
+
+model Message {
+  id             Int        @id @default(autoincrement())
+  ticket_id      Int
+  ticket         Ticket     @relation(fields: [ticket_id], references: [id])
+  sender_type    SenderType
+  sender_id      Int?
+  message_text   String?
+  attachment_url String?
+  created_at     DateTime   @default(now())
+}
+
+enum Role {
+  SPV
+  L1
+  L2
+}
+
+enum TicketStatus {
+  OPEN
+  CLOSED
+}
+
+enum SenderType {
+  CUSTOMER
+  AGENT
+  BOT
+}

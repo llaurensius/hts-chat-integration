@@ -10,14 +10,15 @@ Sistem ini dirancang untuk memfasilitasi komunikasi keluhan dari instansi (via W
 
 Berikut adalah struktur dokumentasi yang telah disepakati untuk pengembangan proyek ini:
 
-1. **[Product Requirements Document (PRD)](PRD_WhatsApp_Helpdesk.md)** - Kebutuhan bisnis, User Persona, *Acceptance Criteria*, dan fitur inti.
-2. **[Arsitektur & Tech Stack](Tech_Stack_Architecture.md)** - Topologi komunikasi dan tumpukan teknologi yang digunakan.
-3. **[Database Schema / ERD](Database_Schema.md)** - Desain relasional tabel PostgreSQL, termasuk tabel pivot untuk penanganan multi-kendala.
-4. **[Spesifikasi API Endpoints](API_Endpoints_Spec.md)** - Payload kontrak untuk *Webhook* WhatsApp dan *REST API Internal*.
-5. **[Konsep Antarmuka & Wireframe](UI_Wireframe_Concept.md)** - Spesifikasi *layout 3-panel* untuk halaman *Live Chat*.
-6. **[Flowchart Sistem](System_Flowcharts.md)** - Diagram alur untuk pesan masuk, *blast notifikasi*, dan re-eskalasi tiket.
-7. **[Spesifikasi Keamanan](Security_Specification.md)** - Standar Autentikasi (JWT) dan Hak Akses (RBAC).
-8. **[Panduan Deployment](Deployment_Guide.md)** - Panduan Docker Compose untuk infrastruktur server dan *Evolution API*.
+1. **[Product Requirements Document (PRD)](docs/PRD_WhatsApp_Helpdesk.md)** - Kebutuhan bisnis, User Persona, *Acceptance Criteria*, dan fitur inti.
+2. **[Arsitektur & Tech Stack](docs/Tech_Stack_Architecture.md)** - Topologi komunikasi dan tumpukan teknologi yang digunakan.
+3. **[Database Schema / ERD](docs/Database_Schema.md)** - Desain relasional tabel PostgreSQL, termasuk tabel pivot untuk penanganan multi-kendala.
+4. **[Spesifikasi API Endpoints](docs/API_Endpoints_Spec.md)** - Payload kontrak untuk *Webhook* WhatsApp dan *REST API Internal*.
+5. **[Konsep Antarmuka & Wireframe](docs/UI_Wireframe_Concept.md)** - Spesifikasi *layout 3-panel* untuk halaman *Live Chat*.
+6. **[Rencana Implementasi (Implementation Plan)](docs/Implementation_Plan.md)** - Rencana pengerjaan 14 hari sprint dan tahapan teknis.
+7. **[Flowchart Sistem](docs/System_Flowcharts.md)** - Diagram alur untuk pesan masuk, *blast notifikasi*, dan re-eskalasi tiket.
+8. **[Spesifikasi Keamanan](docs/Security_Specification.md)** - Standar Autentikasi (JWT) dan Hak Akses (RBAC).
+9. **[Panduan Deployment](docs/Deployment_Guide.md)** - Panduan Docker Compose untuk infrastruktur server dan *Evolution API*.
 
 ---
 
