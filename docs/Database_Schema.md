@@ -1,119 +1,170 @@
-# Rancangan Database (ERD)
-**Proyek:** Integrasi WhatsApp ke Web Helpdesk
+# 🗄️ Rancangan Database & Skema Relasional (ERD)
+**Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
+**Database Engine:** PostgreSQL 15 (Prisma ORM)  
+**Status:** Produksi / Workflow V2 (Multi-Assign & Service Type)
 
-Struktur *database* ini dirancang menggunakan pendekatan relasional (SQL) yang mencakup tabel-tabel utama untuk mengakomodasi alur tiket, multi-divisi, serta histori *chat*.
+---
 
 ## 1. Entity Relationship Diagram (ERD)
 
 ```mermaid
 erDiagram
-    CUSTOMERS ||--o{ TICKETS : "membuat"
-    CUSTOMERS {
+    Customer ||--o{ Ticket : "membuat"
+    Category ||--o{ User : "memiliki teknisi"
+    Category ||--o{ TicketCategory : "ditugaskan ke"
+    Ticket ||--o{ TicketCategory : "memiliki tim"
+    Ticket ||--o{ Message : "memiliki percakapan"
+
+    Customer {
         int id PK
         string wa_number "Unique"
         string name
-        string skpd_name
+        string skpd_name "Nullable"
         datetime created_at
     }
 
-    USERS ||--o{ MESSAGES : "mengirim"
-    USERS {
+    Category {
+        int id PK
+        string name "Network, Server, M&E"
+        string wa_target_number "Target WA Blast L2"
+    }
+
+    User {
         int id PK
         string name
-        string email
-        string role "ENUM('L1', 'L2', 'SPV')"
-        int division_id FK "Nullable"
+        string email "Unique"
+        string password "Hashed bcrypt"
+        Role role "ADMIN, L1, L2, SPV"
+        int category_id FK "Nullable (Khusus L2)"
     }
 
-    DIVISIONS ||--o{ USERS : "memiliki"
-    DIVISIONS ||--o{ TICKET_DIVISIONS : "di-tag ke"
-    DIVISIONS {
-        int id PK
-        string name "Misal: Server, Network"
-    }
-
-    TICKETS ||--o{ MESSAGES : "berisi"
-    TICKETS ||--o{ TICKET_DIVISIONS : "memiliki"
-    TICKETS {
+    Ticket {
         int id PK
         int customer_id FK
-        string status "ENUM('OPEN', 'CLOSED')"
-        text summary "Wajib diisi saat CLOSED"
+        TicketStatus status "OPEN, RESOLVED, CLOSED"
+        ServiceType service_type "TROUBLESHOOTING, REQUEST_LAYANAN, MONITORING"
+        string summary "Kesimpulan Penanganan (Nullable)"
         datetime created_at
-        datetime closed_at
+        datetime closed_at "Nullable"
     }
 
-    TICKET_DIVISIONS {
-        int ticket_id FK
-        int division_id FK
+    TicketCategory {
+        int ticket_id PK, FK
+        int category_id PK, FK
+        boolean is_resolved "Status selesai per tim (Default: false)"
+        datetime resolved_at "Waktu selesai per tim"
     }
 
-    MESSAGES {
+    Message {
         int id PK
         int ticket_id FK
-        string sender_type "ENUM('CUSTOMER', 'AGENT', 'BOT')"
-        int sender_id "FK ke Customers atau Users"
-        text message_text
-        string attachment_url "Nullable"
+        SenderType sender_type "CUSTOMER, AGENT, BOT"
+        int sender_id "Nullable (User ID agen jika AGENT)"
+        string message_text "Isi chat / catatan"
+        string attachment_url "Path gambar di /uploads/ (Nullable)"
+        boolean is_internal "Penanda Catatan Khusus L2 (Default: false)"
         datetime created_at
     }
 ```
 
 ---
 
-## 2. Definisi Tabel & Penjelasan
+## 2. Struktur Tabel & Rincian Kolom
 
-### 2.1. Tabel `customers`
-Tabel ini menyimpan data pengguna/pelapor yang mengirim pesan via WhatsApp.
-*   `id` (INT, PK, Auto Increment)
-*   `wa_number` (VARCHAR, Unique) - Nomor WhatsApp pelapor.
-*   `name` (VARCHAR) - Nama kontak pelapor.
-*   `skpd_name` (VARCHAR) - Nama Instansi / SKPD pelapor.
-*   `created_at` (TIMESTAMP)
-
-### 2.2. Tabel `divisions`
-Tabel master untuk menyimpan daftar divisi teknis (contoh: Server, Network, All).
-*   `id` (INT, PK, Auto Increment)
-*   `name` (VARCHAR) - Nama divisi.
-
-### 2.3. Tabel `users`
-Tabel untuk agen L1, L2, dan Manajemen (Supervisor) yang bisa *login* ke dashboard Web.
-*   `id` (INT, PK, Auto Increment)
-*   `name` (VARCHAR)
-*   `email` (VARCHAR, Unique)
-*   `password` (VARCHAR) - Hashed
-*   `role` (ENUM: 'L1', 'L2', 'SPV')
-*   `division_id` (INT, FK) - Menunjuk ke `divisions.id`. L1 & SPV mungkin bernilai *null*.
-
-### 2.4. Tabel `tickets`
-Tabel utama untuk menyimpan data tiket aduan. Waktu (SLA basis) dapat dihitung dari selisih `created_at` dan `closed_at`.
-*   `id` (INT, PK, Auto Increment)
-*   `customer_id` (INT, FK)
-*   `status` (ENUM: 'OPEN', 'CLOSED') - Status tiket saat ini.
-*   `summary` (TEXT, Nullable) - Kesimpulan yang **wajib** diisi sebelum status menjadi CLOSED.
-*   `created_at` (TIMESTAMP) - Waktu tiket dibuat (SLA Start).
-*   `closed_at` (TIMESTAMP, Nullable) - Waktu tiket ditutup.
-
-### 2.5. Tabel `ticket_divisions` (Pivot / Junction Table)
-Tabel ini memecahkan masalah **F3 (Penanganan Multi-Kendala)**. Satu tiket dapat di-*tag* ke banyak divisi (misal `ticket_id: 1` di-tag ke `Network` dan `Server`).
-*   `ticket_id` (INT, FK)
-*   `division_id` (INT, FK)
-*   *(Primary Key adalah kombinasi dari `ticket_id` dan `division_id`)*
-
-### 2.6. Tabel `messages`
-Tabel untuk menyimpan seluruh riwayat percakapan (*chat*) dalam suatu tiket. Mendukung konsep **Many-to-One** (berbagai agen bisa membalas 1 tiket yang sama).
-*   `id` (INT, PK, Auto Increment)
-*   `ticket_id` (INT, FK) - Menunjuk ke tiket mana pesan ini berada.
-*   `sender_type` (ENUM: 'CUSTOMER', 'AGENT', 'BOT') - Menandakan siapa pengirimnya.
-*   `sender_id` (INT, FK) - ID pengirim. Jika `sender_type` = CUSTOMER, maka menunjuk ke `customers.id`. Jika AGENT, menunjuk ke `users.id`.
-*   `message_text` (TEXT, Nullable) - Isi teks pesan (termasuk *auto-reply* bot).
-*   `attachment_url` (VARCHAR, Nullable) - Path/URL jika ada *upload* gambar/dokumen.
-*   `created_at` (TIMESTAMP)
+### A. Tabel `Customer` (Pelanggan / Pelapor)
+Menyimpan identitas kontak WhatsApp yang menghubungi sistem.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `id` | `Int` | PK, Auto Increment | ID unik pelanggan |
+| `wa_number` | `String` | Unique, Not Null | Nomor WhatsApp tanpa simbol (misal `628123456789`) |
+| `name` | `String` | Not Null | Nama pelapor / *Push Name* dari WhatsApp |
+| `skpd_name` | `String` | Nullable | Nama instansi / dinas pelapor |
+| `created_at` | `DateTime` | Default `now()` | Waktu pertama kali kontak dibuat |
 
 ---
 
-## 3. Relasi dengan Fitur PRD
-1. **Multi-Kendala (F3):** Diselesaikan menggunakan tabel `ticket_divisions`.
-2. **Blast Broadcast (F4):** Sistem bisa men-*query* tiket baru dan mengambil ID divisi dari `ticket_divisions`, lalu mengirim notifikasi ke semua `users` yang memiliki `division_id` tersebut.
-3. **Mandatory Summary (F7):** Field `summary` di tabel `tickets` siap digunakan sebagai validasi *backend* sebelum merubah `status` menjadi `CLOSED`.
-4. **Jeda Rule Bot (F6):** Aplikasi (*backend*) cukup mengecek apakah di tabel `messages` untuk `ticket_id` tersebut sudah ada balasan dengan `sender_type = 'AGENT'`. Jika ada, maka matikan *auto-reply* bot (kecuali tiket tersebut sudah ditutup dan *user* membuka *chat* baru).
+### B. Tabel `Category` (Tim Teknisi / Kategori Masalah)
+Menggantikan model *Division* lama. Merepresentasikan 3 pilar utama tim penanganan teknis L2.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `id` | `Int` | PK, Auto Increment | ID kategori tim |
+| `name` | `String` | Not Null | Nama tim (`Network`, `Server`, `Mechanical & Electrical (M&E)`) |
+| `wa_target_number` | `String` | Nullable | Nomor WhatsApp teknisi/grup untuk notifikasi otomatis (*Blast*) |
+
+---
+
+### C. Tabel `User` (Pengguna Tim Helpdesk)
+Menyimpan data akun petugas Helpdesk (Admin, Dispatcher L1, Teknisi L2, dan Supervisor).
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `id` | `Int` | PK, Auto Increment | ID unik akun |
+| `name` | `String` | Not Null | Nama lengkap pengguna |
+| `email` | `String` | Unique, Not Null | Alamat email untuk login |
+| `password` | `String` | Not Null | Password yang dienkripsi menggunakan `bcryptjs` (salt 10) |
+| `role` | `Role` (Enum) | Default `L2` | Peran pengguna: `ADMIN`, `L1`, `L2`, `SPV` |
+| `category_id` | `Int` | FK, Nullable | Relasi ke `Category` (Wajib diisi untuk teknisi L2) |
+
+---
+
+### D. Tabel `Ticket` (Tiket Aduan)
+Entitas pusat penanganan keluhan pelanggan dari awal masuk hingga selesai dan ditutup.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `id` | `Int` | PK, Auto Increment | Nomor referensi tiket |
+| `customer_id` | `Int` | FK, Not Null | Relasi ke `Customer` |
+| `status` | `TicketStatus` | Default `OPEN` | Status siklus hidup: `OPEN`, `RESOLVED`, `CLOSED` |
+| `service_type` | `ServiceType` | Nullable | Jenis layanan: `TROUBLESHOOTING`, `REQUEST_LAYANAN`, `MONITORING` |
+| `summary` | `String` | Nullable | Kesimpulan akhir penanganan kendala yang diisi L1 saat penutupan |
+| `created_at` | `DateTime` | Default `now()` | Waktu aduan masuk |
+| `closed_at` | `DateTime` | Nullable | Waktu tiket resmi ditutup oleh L1 |
+
+---
+
+### E. Tabel `TicketCategory` (Relasi Many-to-Many Multi-Assign & Status Per-Tim)
+Tabel pivot yang menghubungkan satu tiket dengan satu atau lebih Tim L2, sekaligus mencatat penyelesaian mandiri masing-masing tim.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `ticket_id` | `Int` | PK, FK | Relasi ke `Ticket` |
+| `category_id` | `Int` | PK, FK | Relasi ke `Category` |
+| `is_resolved` | `Boolean` | Default `false` | Menandakan apakah tim spesifik ini sudah menyelesaikan tugasnya |
+| `resolved_at` | `DateTime` | Nullable | Waktu teknisi tim terkait menandai selesai |
+
+> **Logika Status Tiket:**  
+> Ketika tiket ditugaskan ke beberapa tim (misal `Network` dan `Server`), tiket utama tetap `OPEN` selama masih ada `is_resolved = false`. Begitu **seluruh** tim terkait telah mengubah `is_resolved = true`, status tiket utama otomatis berubah menjadi `RESOLVED`.
+
+---
+
+### F. Tabel `Message` (Histori Percakapan & Catatan Internal)
+Menyimpan seluruh jejak komunikasi, baik pesan masuk pelapor, pesan keluar agen, pesan bot, lampiran gambar, dan catatan internal L2.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `id` | `Int` | PK, Auto Increment | ID pesan |
+| `ticket_id` | `Int` | FK, Not Null | Relasi ke `Ticket` |
+| `sender_type` | `SenderType` | Not Null | Tipe pengirim: `CUSTOMER`, `AGENT`, `BOT` |
+| `sender_id` | `Int` | Nullable | ID user jika pengirim adalah agen/petugas |
+| `message_text` | `String` | Nullable | Isi teks pesan obrolan atau catatan |
+| `attachment_url`| `String` | Nullable | Path relatif file gambar (misal `/uploads/img_1790595960337.jpg`) |
+| `is_internal` | `Boolean` | Default `false` | `true` jika pesan adalah **Catatan Internal L2** (tidak dikirim ke WA pelapor) |
+| `created_at` | `DateTime` | Default `now()` | Waktu pesan dibuat |
+
+---
+
+## 3. Rincian Enum (Tipe Data Konstan)
+
+1. **`Role`**:
+   - `ADMIN`: Hak akses penuh (melihat antrean L1 & L2, CRUD User).
+   - `L1`: Dispatcher (chat ke pelapor, assign ke L2, menutup tiket resmi).
+   - `L2`: Teknisi lapangan (mode baca aduan, catatan internal, resolve per-tim, return penugasan).
+   - `SPV`: Supervisor (monitoring antrean dan laporan rekap).
+2. **`TicketStatus`**:
+   - `OPEN`: Tiket aktif baru masuk atau sedang dalam penanganan teknisi L2.
+   - `RESOLVED`: Seluruh tim L2 yang ditugaskan telah menandai pekerjaan selesai; menunggu L1 menutup tiket.
+   - `CLOSED`: Tiket telah resmi diselesaikan dan ditutup oleh L1 beserta kesimpulan penanganan.
+3. **`SenderType`**:
+   - `CUSTOMER`: Pesan masuk dari WhatsApp pelapor.
+   - `AGENT`: Pesan keluar yang diketik oleh petugas Helpdesk atau notifikasi catatan sistem.
+   - `BOT`: Pesan balasan otomatis sambutan (*Auto-Reply*).
+4. **`ServiceType`**:
+   - `TROUBLESHOOTING`: Penanganan gangguan atau kerusakan teknis.
+   - `REQUEST_LAYANAN`: Permintaan konfigurasi, instalasi, atau permohonan akses.
+   - `MONITORING`: Pemantauan rutin performa jaringan atau server.

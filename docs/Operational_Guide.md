@@ -1,79 +1,92 @@
-# 📘 HTS Chat Integration - Operational Guide
+# 📘 Panduan Operasional Harian & SOP (Operational Guide)
+**Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
+**Status:** Produksi / Workflow V2
 
-Dokumen ini berisi panduan teknis operasional untuk proyek HTS (Helpdesk Ticketing System) Chat Integration (WhatsApp Webhook + Dashboard Realtime).
-
-## 🏢 Arsitektur Sistem
-Sistem ini terdiri dari 3 komponen utama:
-1. **Frontend (React + Vite + Socket.io-client):** Antarmuka visual Dashboard Helpdesk. Berjalan di *port* `5173`.
-2. **Backend (Node.js + Express + Socket.io + Prisma):** Core engine yang mengatur alur database, webhook WhatsApp, dan realtime server. Berjalan di *port* `3000`.
-3. **Infrastructure (Docker):**
-   - **PostgreSQL (`hts_postgres`):** Database utama penyimpan histori tiket dan percakapan. Berjalan di port `5432`.
-   - **Evolution API (`hts_evolution_api`):** WhatsApp Gateway v2. Berjalan di port `8080`.
+Dokumen ini adalah pedoman operasional standar (*Standard Operating Procedure* - SOP) bagi seluruh petugas Helpdesk, Dispatcher L1, Teknisi L2, dan Administrator dalam menjalankan tugas harian.
 
 ---
 
-## 🚀 Cara Menjalankan Sistem (Local / Development)
+## 🎧 1. Prosedur Operasional Dispatcher L1 (Garda Depan)
 
-### 1. Jalankan Infrastruktur (Database & WA Gateway)
-Pastikan Docker Desktop / Daemon sudah menyala.
-```bash
-cd hts-chat-integration/docker
-docker compose up -d
-```
-*Tunggu sekitar 10-15 detik hingga Evolution API dan PostgreSQL menyala dengan sempurna.*
+Dispatcher L1 bertindak sebagai pengelola utama alur komunikasi aduan pelanggan.
 
-### 2. Jalankan Backend (Core Engine)
-```bash
-cd hts-chat-integration/backend
-npm run dev
-```
-*(Backend akan menyala di `http://localhost:3000`)*
+### Tahap 1: Menerima Aduan Baru
+1. Saat pelanggan mengirim pesan WhatsApp, sistem otomatis membuat tiket berstatus **`OPEN`** dan Bot membalas dengan pesan sambutan.
+2. Tiket baru akan muncul di kolom kiri **"Antrean Aduan"** berlabel abu-abu **`[Belum Ditugaskan]`**.
+3. Klik tiket tersebut untuk membuka ruang percakapan.
+4. Dispatcher dapat langsung membalas pelanggan melalui kotak chat di bagian bawah (mendukung teks dan tombol 📎 untuk mengirim gambar penjelasan).
 
-### 3. Jalankan Frontend (Dashboard UI)
-Buka terminal baru:
-```bash
-cd hts-chat-integration/frontend
-npm run dev
-```
-*(Frontend akan menyala di `http://localhost:5173`)*
+### Tahap 2: Menugaskan Tiket (Multi-Assign ke Tim L2)
+1. Jika kendala membutuhkan penanganan teknis lapangan, klik tombol **"Assign ke L2"** di header atas.
+2. Pada modal yang muncul:
+   - **Centang Tim Tujuan:** Pilih satu atau beberapa tim sekaligus (`Network`, `Server`, dan/atau `Mechanical & Electrical (M&E)`).
+   - **Pilih Jenis Layanan:** Tentukan apakah aduan bertipe *Troubleshooting (Gangguan)*, *Request Layanan*, atau *Monitoring*.
+3. Klik **"Tugaskan L2"**.
+4. Sistem otomatis mencatat catatan internal dan menembakkan pesan WhatsApp Blast ke grup/teknisi tim terkait.
 
----
+### Tahap 3: Memantau Progres Penanganan Tim L2
+- Pada header obrolan tiket, Dispatcher dapat melihat status real-time masing-masing tim:
+  - Label Hijau: `✓ Network: Selesai`
+  - Label Oranye: `⏳ Server: Sedang Dikerjakan`
+- Jika seluruh tim telah menyelesaikan kendala, tiket otomatis berstatus **`RESOLVED`** (berlabel biru di antrean).
 
-## 📱 Menautkan Nomor WhatsApp (Pairing)
-
-Jika Anda belum menautkan nomor WhatsApp Instansi/Helpdesk, atau sesi kadaluwarsa:
-1. Buka terminal baru dan masuk ke folder `backend`.
-2. Jalankan perintah:
-   ```bash
-   node src/scripts/setupEvolution.js
-   ```
-3. Segera buka file `backend/qr.html` di browser Anda.
-4. Scan QR Code menggunakan aplikasi WhatsApp di HP Anda (Perangkat Taut / Linked Devices).
-   *(Catatan: Lakukan dengan cepat dalam rentang waktu < 20 detik agar QR tidak expired).*
+### Tahap 4: Menutup Tiket Secara Resmi (Official Closure)
+1. Hubungi kembali pelanggan via chat untuk memastikan layanan telah berfungsi normal.
+2. Klik tombol **"Selesaikan"** di header atas.
+3. Konfirmasi tag kategori dan **wajib mengisi Kesimpulan Penanganan** (minimal 10 karakter, contoh: *"Kabel FO putus telah disambung dan switch core di-restart. Jalur internet normal kembali"*).
+4. Klik **"Tutup Tiket"**. Tiket resmi berstatus `CLOSED` dan otomatis dipindahkan ke menu **Rekap Hasil Aduan**.
 
 ---
 
-## 🛠 Troubleshooting (Pemecahan Masalah)
+## 🔧 2. Prosedur Operasional Teknisi L2 (Spesialis Lapangan)
 
-### 1. Pesan WA masuk tapi tidak muncul di Dashboard?
-- Periksa koneksi WhatsApp di HP. Pastikan internet menyala.
-- Periksa terminal `backend`. Apakah ada *log* dari webhook?
-  - Jika **Tidak ada log**, berarti Evolution API terputus. Lakukan restart Docker:
-    `docker compose restart evolution-api`
-  - Jika **Ada log** tapi gagal simpan, cek koneksi ke database PostgreSQL.
+Teknisi L2 bertugas menyelesaikan permasalahan teknis sesuai keahlian bidangnya.
 
-### 2. Lupa Password Database PostgreSQL?
-Konfigurasi tersimpan di `backend/.env` dan `docker/docker-compose.yml`.
-User default: `helpdesk_user`
-Pass default: `admin1234`
-DB: `wa_helpdesk` (Backend) & `evolution_db` (WA Gateway).
+### Tahap 1: Menerima Tugas
+1. Teknisi menerima notifikasi tugas baru di WhatsApp dari bot Helpdesk.
+2. Buka dashboard web (`http://localhost:5173` atau alamat IP LAN kantor `http://192.168.10.100:5173`).
+3. Login menggunakan akun bidang masing-masing (`l2_network`, `l2_server`, atau `l2_me`).
+4. Antrean hanya akan menampilkan tiket aduan yang didelegasikan ke tim Anda.
 
-### 3. Error Port Already in Use (3000 atau 5173)
-Jika saat menjalankan `npm run dev` muncul error port terpakai, matikan service Node.js yang tertinggal dengan:
-```bash
-killall node
-```
-Lalu coba jalankan ulang.
+### Tahap 2: Menganalisis Kendala & Koordinasi Internal
+1. Klik tiket aduan untuk membaca riwayat keluhan dan gambar lampiran dari pelapor.
+2. *Catatan Penting:* Teknisi L2 berada dalam mode **View-Only** (tidak bisa membalas langsung ke nomor WhatsApp pelapor guna mencegah simpang siur informasi).
+3. Gunakan kolom kuning **"Tulis catatan internal L2..."** untuk menuliskan temuan lapangan atau berkoordinasi dengan tim teknisi lain. Catatan ini dijamin privat dan hanya dibaca oleh tim internal helpdesk.
+
+### Tahap 3: Menandai Selesai atau Melepas Penugasan
+- **Jika Kendala Tim Anda Sudah Beres:**  
+  Klik tombol hijau **"Tandai Selesai"**. Status tim Anda akan berubah menjadi `✓ Bagian Anda Selesai`. Jika ada tim lain yang masih bekerja, biarkan tiket tetap berjalan hingga tim lain menyelesaikan bagiannya.
+- **Jika Kendala Bukan di Ranah Tim Anda (Salah Kamar):**  
+  Klik tombol **"Kembalikan / Lepas"**. Masukkan alasan singkat (misal: *"Diperiksa tidak ada kendala di sisi server, murni gangguan jalur link network"*). Tim Anda akan langsung dilepas dari tiket tersebut tanpa mengganggu proses kerja tim lain.
 
 ---
-*Generated by Antigravity AI for HTS Team.*
+
+## 👑 3. Prosedur Administrator
+
+1. **Visibilitas Global:** Admin dapat melihat antrean aduan L1 dan seluruh kategori L2 secara bersamaan.
+2. **Manajemen Pengguna:**
+   - Masuk ke tab **"Users"** di sidebar kiri.
+   - Buat akun baru dengan mengisi Nama, Email, Password, Role (`L1`, `L2`, `SPV`, atau `ADMIN`), serta Kategori khusus jika rolenya adalah `L2`.
+   - Menghapus akun yang sudah tidak aktif (sistem memproteksi agar Admin tidak dapat menghapus akunnya sendiri).
+
+---
+
+## 📊 4. Prosedur Supervisor (SPV)
+
+1. **Monitoring Antrean:** Memantau distribusi tiket yang sedang aktif dan memastikan tidak ada tiket yang terbengkalai tanpa penugasan.
+2. **Rekap Hasil Aduan & Export CSV:**
+   - Masuk ke tab **"Rekap Hasil Aduan"** (ikon dokumen di sidebar).
+   - Melihat tabel laporan historis tiket: Pelapor, Status, Jenis Layanan, Tim Terkait, Waktu Masuk, Durasi Penanganan, dan Kesimpulan Solusi.
+   - Klik tombol hijau **"Export CSV"** untuk mengunduh rekapitulasi data siap buka di Microsoft Excel / Google Sheets untuk bahan paparan manajemen.
+
+---
+
+## 🛠️ 5. Troubleshooting Cepat (FAQ Operasional)
+
+| Masalah | Kemungkinan Penyebab | Tindakan Solusi |
+|---|---|---|
+| Pesan WhatsApp masuk tidak muncul di antrean web | Server backend mati atau Evolution API terputus | Buka terminal server, jalankan `curl http://localhost:3000/api/chat/categories`. Jika mati, jalankan `npm run dev` di folder `backend`. |
+| Gambar dari WhatsApp pelapor tidak muncul di web | File terkirim sebelum update payload limit | Sistem kini mendukung gambar hingga 50MB. Minta pelapor mengirimkan ulang gambarnya. |
+| Komputer lain di kantor tidak bisa membuka web | Firewall memblokir port atau IP salah | Cek IP server via `hostname -I`. Pastikan port 5173 diizinkan (`sudo ufw allow 5173/tcp`). Buka via format `http://<IP_KOMPUTER>:5173`. |
+| Sesi WhatsApp terputus / Logout | Nomor WA di HP ter-logout | Jalankan `node setupEvolution.js` di folder `backend` dan scan ulang QR code melalui WhatsApp Perangkat Tertaut. |
+| Port 3000 / 5173 "Address already in use" | Proses Node.js sebelumnya masih menggantung | Eksekusi `killall node`, lalu jalankan ulang `npm run dev` pada backend dan frontend. |

@@ -1,89 +1,95 @@
-# Product Requirements Document (PRD)
-**Proyek:** Integrasi WhatsApp ke Web Helpdesk
-**Target Rilis:** 7 Oktober (Durasi: 2 Minggu)
-**Status:** Draft / Review
+# 📋 Product Requirements Document (PRD)
+**Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
+**Versi:** 2.0 (Workflow V2 - Multi-Assign & RBAC)  
+**Status:** Produksi / Disetujui (*Approved & Implemented*)
 
 ---
 
-## 1. Executive Summary & Goals
-Sistem Helpdesk saat ini membutuhkan peningkatan efisiensi dalam menangani aduan dari pengguna. Proyek ini bertujuan untuk membangun integrasi *seamless* antara WhatsApp (sebagai kanal pelaporan dari *user*) dengan Dashboard Web (sebagai kanal manajemen tiket bagi Agen L1/L2). 
-Sistem ini dirancang untuk memangkas waktu respons, memfasilitasi kolaborasi lintas divisi (*many-to-one chat*), serta menghasilkan laporan siap pakai untuk bahan paparan manajemen.
+## 1. Ringkasan Eksekutif & Tujuan Sistem
+Sistem **HTS Chat Integration** adalah solusi terpadu yang menjembatani saluran komunikasi WhatsApp (sebagai kanal pelaporan aduan dari instansi/pelanggan) dengan Dasbor Web Helpdesk terpusat bagi tim internal.
 
-## 2. User Personas
-1. **Pelapor (User WA):** Klien/SKPD yang mengirimkan keluhan teknis melalui WhatsApp.
-2. **Agen L1 (Dispatcher/Helpdesk):** Menerima aduan awal dan memastikan *routing* tiket tepat sasaran.
-3. **Agen L2 (Divisi Teknis - Server/Network/dll):** Menerima notifikasi *blast*, menangani tiket, berinteraksi dengan pelapor, dan menyelesaikan masalah.
-4. **Supervisor / Manajemen:** Memonitor operasional tiket, membaca rekap aduan, dan mengevaluasi laporan paparan.
-
----
-
-## 3. Core Features & Acceptance Criteria (AC)
-
-### F1. Auto-Reply & Inbound Routing
-*   **User Story:** Sebagai pelapor, saya ingin mendapat kepastian bahwa pesan saya diterima oleh sistem.
-*   **Acceptance Criteria (AC):**
-    *   Sistem membalas otomatis maksimal 5 detik setelah pesan pertama masuk dengan teks: *"Baik untuk aduan akan kami cek dahulu mohon ditunggu"*.
-    *   Sistem mendeteksi identitas pengirim (Nomor WA).
-
-### F2. Manajemen Tiket (Create, Forward, Re-escalate)
-*   **User Story:** Sebagai Agen, saya ingin bisa membuat tiket baru dari *chat*, atau menyambungkannya ke masalah lama.
-*   **AC:**
-    *   Terdapat opsi **"Membuat tiket baru"** (untuk *issue* baru) atau **"Meneruskan (Forward) tiket baru"**.
-    *   Terdapat opsi **"Re-escalate to ticket"** untuk memanggil tiket lama jika pengguna menanyakan *follow-up* masalah yang belum selesai (menggabungkan *history chat*).
-
-### F3. Penanganan Multi-Kendala (Split/Multi-Tagging)
-*   **User Story:** Sebagai pelapor yang mewakili instansi, saya sering melaporkan 2 kendala sekaligus (misal: Server mati & Jaringan putus) dalam 1 pesan chat.
-*   **AC:**
-    *   Sistem/Agen L1 dapat men-tag lebih dari 1 divisi (misal `Network` dan `Server`) dalam 1 tiket yang sama.
-    *   Jika perlu, sistem bisa memecah (*split*) 1 *chat* menjadi 2 *child tickets* yang di-assign ke divisi masing-masing tanpa harus meminta *user* mengirim ulang pesan.
-
-### F4. Blast Broadcast Notification
-*   **User Story:** Sebagai Agen L2, saya ingin segera tahu jika ada tiket masuk ke divisi saya.
-*   **AC:**
-    *   Sistem secara otomatis mengirim *blast broadcast* / notifikasi ke grup agen spesifik (Server / Network / All).
-    *   Notifikasi berisi *summary* singkat dan **URL/Link Eskalasi** yang jika diklik akan langsung membuka *room chat* tiket tersebut di Web.
-
-### F5. Many-to-One Live Chat & Attachment
-*   **User Story:** Sebagai Agen L2 dari berbagai divisi, kami butuh berkolaborasi membalas 1 *user* secara bersamaan.
-*   **AC:**
-    *   Web interface menyediakan *live chat* di mana multiple Agen L2 dapat membalas ke 1 pelapor (Many-to-One).
-    *   Tersedia fitur *Upload Image* dan *Upload Document* di dalam kolom *live chat* Web.
-
-### F6. Jeda Rule (Pause Bot)
-*   **User Story:** Sebagai Agen, saya tidak ingin Bot ikut membalas saat saya sedang aktif melakukan *troubleshooting* via *chat*.
-*   **AC:**
-    *   Ada tombol/aturan "Jeda Bot".
-    *   Ketika *chat* sudah diklaim Agen atau berada di luar jam operasional tertentu, *auto-reply* bot akan dihentikan.
-
-### F7. Kesimpulan & Penutupan (Mandatory Summary)
-*   **User Story:** Sebagai Supervisor, saya ingin tahu ringkasan solusi dari setiap tiket tanpa harus membaca seluruh *history chat*.
-*   **AC:**
-    *   Tombol "Close Ticket" tidak bisa diklik jika form **Kesimpulan / Summary** belum diisi.
-    *   Summary akan menjadi data utama di laporan akhir.
+Sistem dirancang untuk:
+1. **Memangkas waktu respons aduan:** Pesan masuk otomatis direspons oleh Bot dan langsung terdistribusi ke antrean Dispatcher L1.
+2. **Memfasilitasi kolaborasi lintas bidang teknis (*Many-to-One Collaboration*):** Satu tiket aduan dapat ditugaskan ke beberapa tim teknisi L2 sekaligus (misal tim Network dan Server) secara paralel tanpa memecah riwayat percakapan.
+3. **Menjaga privasi komunikasi teknisi:** Tim teknisi L2 berfokus pada analisis teknis dan koordinasi via *Catatan Internal*, sementara interaksi langsung ke pelanggan tetap satu pintu melalui Dispatcher L1.
+4. **Menghasilkan pelaporan siap saji:** Menghasilkan rekapitulasi data penanganan, durasi SLA, dan kesimpulan solusi akhir yang dapat diekspor ke format CSV.
 
 ---
 
-## 4. SLA Management (Service Level Agreement)
-> **STATUS: DITUNDA (NEXT IMPLEMENTATION / FASE 2)**
-> 
-> *Catatan: Fitur perhitungan metrik SLA otomatis, pencatatan timer KPI Data Center, dan konsep perpindahan SLA Ownership saat agen L2 mengklik "Ambil" secara resmi dikeluarkan dari scope rilis awal ini. Fokus rilis tahap pertama murni ditujukan pada fungsionalitas penerimaan pesan, kolaborasi agen, dan penutupan tiket.*
+## 2. Profil Pengguna (*User Personas*)
+
+1. **Pelapor (PIC / Pelanggan WhatsApp):**
+   - Mengirimkan laporan gangguan, permohonan layanan, atau konsultasi melalui WhatsApp.
+   - Menerima balasan otomatis dan berinteraksi langsung dengan Dispatcher L1.
+   - Mengirimkan tangkapan layar (foto/gambar) kendala.
+2. **Dispatcher L1 (Garda Depan / Helpdesk):**
+   - Melakukan triase aduan masuk, menentukan jenis layanan, dan menugaskan tiket ke tim teknisi L2 terkait.
+   - Berkomunikasi langsung dua arah dengan pelapor via teks dan lampiran gambar.
+   - Menutup tiket secara resmi setelah seluruh teknisi menyelesaikan tugasnya dan mengisi kesimpulan penanganan.
+3. **Teknisi L2 (Spesialis Lapangan - Network, Server, M&E):**
+   - Menerima notifikasi tugas otomatis (*WhatsApp Blast*).
+   - Melihat riwayat aduan pelanggan dalam mode baca (*View-Only*).
+   - Berkoordinasi antar teknisi menggunakan fitur *Catatan Internal*.
+   - Menandai selesai penanganan bagian timnya atau mengembalikan penugasan jika bukan kewenangannya.
+4. **Administrator (Super Admin):**
+   - Memiliki visibilitas menyeluruh (bisa melihat antrean L1 dan L2 sekaligus).
+   - Mengelola akun petugas (tambah, lihat, dan hapus pengguna L1/L2) serta penentuan kategori tim teknisi.
+5. **Supervisor (SPV):**
+   - Memantau kelancaran operasional antrean aduan secara *real-time*.
+   - Mengakses data rekapitulasi, mengevaluasi durasi penanganan, dan mengunduh laporan bulanan.
 
 ---
 
-## 5. Reporting & Analytics
+## 3. Fitur Utama & Kriteria Keberhasilan (*Acceptance Criteria*)
 
-### R1. Rekap Hasil Akhir Aduan
-*   Tabel *exportable* (Excel/CSV/PDF) yang berisi: ID Tiket, Tanggal Dibuat, Waktu Selesai, SKPD/Pelapor, Jenis Kendala, Divisi (L2), dan **Kesimpulan (Summary)**.
+### F1. Inbound Webhook & Auto-Reply Bot
+- Sistem menerima pesan masuk dari WhatsApp melalui Evolution API v2.
+- Jika nomor baru atau tiket sebelumnya sudah ditutup (`CLOSED`), sistem otomatis membuat tiket baru dan membalas seketika:  
+  *"Baik untuk aduan akan kami cek dahulu mohon ditunggu."*
+- Jika tiket pelanggan masih aktif (`OPEN` atau `RESOLVED`), pesan susulan otomatis digabungkan ke dalam tiket yang sedang berjalan.
 
-### R2. Laporan Bahan Paparan (Presentation Prep)
-*   Sistem mampu men-generate rekap khusus yang membandingkan periode sebelumnya dan saat ini.
-*   Data wajib: "Apa saja masalah pada paparan sebelumnya" disandingkan dengan "Tindak lanjut (Follow-up) apa yang telah dilakukan".
-*   *Output* harus mudah di-*copy-paste* ke dalam presentasi manajemen.
+### F2. Pertukaran Media Gambar Dua Arah (Bi-directional Images)
+- **Pelapor ➡️ Helpdesk:** Foto kendala yang dikirim via WhatsApp otomatis diunduh, disimpan di `/uploads/`, dan dirender di dalam *bubble chat* dashboard web.
+- **Helpdesk ➡️ Pelapor:** Dispatcher L1 dapat melampirkan file gambar penjelasan (maks. 10MB) yang otomatis terkirim langsung ke WhatsApp pelapor.
 
----
+### F3. Pendelegasian Multi-Assign (Satu atau Banyak Tim L2)
+- Dispatcher L1 dapat menugaskan tiket ke **satu, dua, atau tiga tim L2 sekaligus** via kotak centang (*checkbox*):
+  - `Network`
+  - `Server`
+  - `Mechanical & Electrical (M&E)`
+- Tiket akan langsung muncul di antrean semua teknisi tim yang dicentang secara bersamaan.
 
-## 6. Technical Considerations (Aspek Teknis)
-*   **Integrasi WhatsApp:** Menggunakan *WhatsApp Business API* / API pihak ketiga berbasis Webhook (pengiriman dan penerimaan pesan seketika).
-*   **Real-time Communication:** Kolom *live chat* di Web menggunakan *WebSockets* (contoh: Socket.io) agar *chat* dari *user* dan agen L2 lain muncul tanpa perlu me-*refresh* halaman.
-*   **Storage:** Menggunakan *bucket storage* lokal/cloud (misal AWS S3/MinIO) untuk menyimpan lampiran *image & document* secara aman.
-*   **Backend & Frontend:** (Disesuaikan dengan *tech stack* yang dikuasai tim *developer*, misal Node.js/PHP Laravel + React/Vue).
+### F4. Klasifikasi Jenis Layanan (*Service Type*)
+- Saat penugasan tiket, L1 dapat mengklasifikasikan jenis pekerjaan:
+  - `TROUBLESHOOTING` (Penanganan Gangguan)
+  - `REQUEST_LAYANAN` (Permintaan Layanan)
+  - `MONITORING` (Pemantauan Sistem)
+- Jenis layanan tercatat di tiket dan tampil pada rekap laporan CSV.
+
+### F5. Notifikasi WhatsApp Blast ke Teknisi L2
+- Saat tiket didelegasikan, sistem secara otomatis mengirim pesan WhatsApp ke nomor target teknisi/grup masing-masing tim yang ditugaskan, memuat ringkasan kendala, nama pelapor, dan link akses dashboard.
+
+### F6. Ruang Kolaborasi Catatan Internal L2
+- Teknisi L2 memiliki kolom input khusus *Catatan Internal* berwarna kuning.
+- Catatan internal **hanya terlihat oleh tim internal di dashboard** dan **dijamin tidak terkirim** ke nomor WhatsApp pelapor.
+
+### F7. Penyelesaian Mandiri Per-Tim (*Per-Team Resolution*)
+- Masing-masing tim menandai selesai bagian kendalanya sendiri (`is_resolved = true`).
+- Tiket utama tetap berstatus `OPEN` selama masih ada tim yang belum selesai, disertai indikator visual:  
+  `[✓ Network: Selesai] | [⏳ Server: Sedang Dikerjakan]`.
+- Status tiket utama otomatis berubah menjadi `RESOLVED` ketika **seluruh tim yang ditugaskan telah menyatakan selesai**.
+
+### F8. Pelepasan Penugasan Mandiri (*Self-Unassign Return*)
+- Teknisi L2 dapat mengembalikan penugasan timnya jika bukan ranah kewenangannya dengan menyertakan alasan.
+- Tiket otomatis lepas dari antrean tim tersebut tanpa membatalkan penugasan tim lain yang masih bekerja.
+
+### F9. Penutupan Resmi Tiket & Kesimpulan Solusi (*Mandatory Summary*)
+- Tiket berstatus `RESOLVED` hanya dapat ditutup resmi (`CLOSED`) oleh Dispatcher L1 setelah mengonfirmasi kepuasan pelapor.
+- L1 diwajibkan menuliskan ringkasan solusi penanganan (minimal 10 karakter) sebelum tiket dapat ditutup.
+
+### F10. Dasbor Rekapitulasi & Export CSV
+- Tab khusus rekapitulasi menampilkan seluruh riwayat tiket, waktu masuk, waktu selesai, durasi penanganan, tim terkait, jenis layanan, dan kesimpulan solusi.
+- Tersedia tombol **"Export CSV"** untuk mengunduh rekap laporan dalam format spreadsheet.
+
+### F11. Akses Jaringan Lokal (Multi-Device LAN Access)
+- Seluruh antarmuka web dashboard dapat diakses oleh komputer lain di jaringan LAN / Wi-Fi lokal kantor melalui alamat IP host (port `5173`) secara dinamis tanpa perlu instalasi tambahan di perangkat klien.

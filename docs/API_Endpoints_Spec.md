@@ -1,100 +1,313 @@
-# Spesifikasi API Endpoints
-**Proyek:** Integrasi WhatsApp ke Web Helpdesk
-
-Dokumen ini mendefinisikan *endpoint* utama yang dibutuhkan *Backend* untuk menghubungkan *Frontend* (Web Dashboard) dan Provider WhatsApp API.
+# 📡 Spesifikasi API Endpoints (Kontrak REST & Webhook)
+**Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
+**Base URL:** `http://localhost:3000/api` (atau `http://192.168.10.100:3000/api`)  
+**Format:** JSON / Multipart Form-Data  
+**Autentikasi:** Bearer Token JWT (Header `Authorization: Bearer <TOKEN>`)
 
 ---
 
-## 1. Webhook (WhatsApp ke Sistem)
+## 1. Modul Autentikasi (`/api/auth`)
 
-### `POST /api/webhook/whatsapp`
-Digunakan untuk menerima notifikasi pesan masuk dari server WhatsApp API secara real-time.
-*   **Request Payload (Contoh dari Provider WA):**
+### A. Login Pengguna
+*   **Method / Endpoint:** `POST /api/auth/login`
+*   **Akses:** Publik
+*   **Request Body:**
     ```json
     {
-      "from": "6281234567890",
-      "name": "Budi - SKPD A",
-      "message": "Server aplikasi keuangan mati.",
-      "type": "text",
-      "timestamp": 1695640000
+      "email": "l1@helpdesk.go.id",
+      "password": "password123"
     }
     ```
-*   **Action Backend:** 
-    1. Cek nomor WA di Database, *create/update* data kontak.
-    2. Cek apakah ada tiket berstatus OPEN untuk kontak ini. Jika ada, masukkan sebagai pesan baru.
-    3. Jika tidak ada, buat tiket baru dan *trigger* **Auto-Reply Bot**.
-    4. *Push* event WebSocket ke *Frontend* agar chat muncul di layar agen tanpa *refresh*.
-
----
-
-## 2. Manajemen Tiket (Web ke Sistem)
-
-### `GET /api/tickets`
-Mengambil daftar tiket aktif berdasarkan filter (digunakan di Panel Kiri Web).
-*   **Query Params:** `?status=OPEN&division_id=2`
-*   **Response:** Daftar (Array) dari data tiket.
-
-### `POST /api/tickets`
-Membuat tiket baru secara manual (jika diperlukan) atau *Forward* tiket.
-*   **Payload:** `{ "customer_id": 12, "division_ids": [1, 2] }`
-
-### `PUT /api/tickets/:id/divisions`
-Fungsi **Multi-kendala (F3)**: Menambahkan atau merubah *tag* divisi pada satu tiket.
-*   **Payload:** `{ "division_ids": [1, 3] }`  *(Misal: Server & Network)*
-*   **Action Backend:** Meng-update tabel `ticket_divisions` dan melakukan *Blast Broadcast* ke divisi terkait.
-
-### `POST /api/tickets/:id/close`
-Menutup tiket. Memenuhi aturan **F7 (Mandatory Summary)**.
-*   **Payload:**
+*   **Response (200 OK):**
     ```json
     {
-      "summary": "Kabel FO putus di area X, sudah disambung kembali oleh tim."
+      "success": true,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "user": {
+        "id": 2,
+        "name": "Dispatcher L1",
+        "email": "l1@helpdesk.go.id",
+        "role": "L1",
+        "category": null
+      }
     }
     ```
-*   **Response:** `200 OK` (Status tiket berubah menjadi CLOSED, waktu penutupan tercatat).
 
----
-
-## 3. Pesan / Live Chat (Web ke Sistem ke WA)
-
-### `GET /api/tickets/:id/messages`
-Mengambil histori *chat* untuk suatu tiket (digunakan di Panel Tengah Web saat agen mengklik sebuah tiket).
-
-### `POST /api/tickets/:id/messages`
-Agen mengirim balasan *chat* melalui Web ke WA pelapor (F5 Many-to-One).
-*   **Payload:**
+### B. Cek Sesi Pengguna Login
+*   **Method / Endpoint:** `GET /api/auth/me`
+*   **Akses:** Terproteksi (Semua Role)
+*   **Response (200 OK):**
     ```json
     {
-      "sender_id": 5,
-      "message_text": "Baik Pak, tim network sedang meluncur ke lokasi.",
-      "attachment_url": null
+      "id": 4,
+      "name": "Teknisi Network L2",
+      "email": "l2_network@helpdesk.go.id",
+      "role": "L2",
+      "category": "Network"
     }
     ```
-*   **Action Backend:**
-    1. Simpan pesan ke database tabel `messages`.
-    2. *Hit* API Provider WhatsApp untuk mem-forward teks tersebut ke nomor WA pelapor.
-
-### `POST /api/media/upload`
-Mengunggah gambar/dokumen (F5).
-*   **Payload:** `multipart/form-data` (File Image/PDF).
-*   **Response:** `{ "url": "https://storage.domain.com/files/img123.jpg" }`
 
 ---
 
-## 4. Kontrol Bot
+## 2. Modul Manajemen Pengguna (`/api/admin`)
+*Hanya dapat diakses oleh peran `ADMIN`.*
 
-### `PUT /api/tickets/:id/bot-status`
-Aturan **Jeda Rule Bot (F6)**. Digunakan untuk menghidupkan/mematikan balasan *auto-reply* bot pada tiket tertentu agar tidak bentrok dengan balasan agen.
-*   **Payload:** `{ "is_bot_paused": true }`
+### A. Ambil Daftar Semua Pengguna
+*   **Method / Endpoint:** `GET /api/admin/users`
+*   **Response (200 OK):**
+    ```json
+    [
+      {
+        "id": 1,
+        "name": "Administrator",
+        "email": "admin@helpdesk.go.id",
+        "role": "ADMIN",
+        "category": null
+      }
+    ]
+    ```
+
+### B. Tambah Akun Pengguna Baru
+*   **Method / Endpoint:** `POST /api/admin/users`
+*   **Request Body:**
+    ```json
+    {
+      "name": "Teknisi Baru",
+      "email": "teknisi_baru@helpdesk.go.id",
+      "password": "password123",
+      "role": "L2",
+      "category_id": 7
+    }
+    ```
+
+### C. Hapus Akun Pengguna
+*   **Method / Endpoint:** `DELETE /api/admin/users/:userId`
+*   **Response (200 OK):**
+    ```json
+    {
+      "message": "Pengguna berhasil dihapus"
+    }
+    ```
 
 ---
 
-## 5. Reporting
+## 3. Modul Live Chat & Penanganan Tiket (`/api/chat`)
 
-### `GET /api/reports/recap`
-Mengambil rekap hasil akhir aduan (*export*).
-*   **Query Params:** `?start_date=2023-09-01&end_date=2023-09-30`
+### A. Mengambil Daftar Antrean Tiket Aktif
+Mengembalikan tiket berstatus `OPEN` dan `RESOLVED`.
+*   **Method / Endpoint:** `GET /api/chat/tickets`
+*   **Aturan RBAC:**
+    *   Jika peran `L2`: Backend otomatis memfilter hanya tiket yang ditugaskan ke `category_id` milik teknisi tersebut.
+    *   Jika peran `L1` / `ADMIN` / `SPV`: Mengembalikan seluruh tiket aktif.
+*   **Response (200 OK):**
+    ```json
+    [
+      {
+        "id": 10,
+        "customer_id": 1,
+        "status": "OPEN",
+        "service_type": "TROUBLESHOOTING",
+        "created_at": "2026-09-28T15:41:26.869Z",
+        "customer": {
+          "id": 1,
+          "name": "Laurensius Liquori",
+          "wa_number": "628992572654"
+        },
+        "categories": [
+          {
+            "ticket_id": 10,
+            "category_id": 7,
+            "is_resolved": false,
+            "resolved_at": null,
+            "category": { "id": 7, "name": "Network" }
+          },
+          {
+            "ticket_id": 10,
+            "category_id": 8,
+            "is_resolved": true,
+            "resolved_at": "2026-09-28T15:52:21.000Z",
+            "category": { "id": 8, "name": "Server" }
+          }
+        ],
+        "messages": [
+          {
+            "id": 25,
+            "message_text": "Mohon dicek jaringan dan web server",
+            "attachment_url": null,
+            "created_at": "2026-09-28T15:42:00.000Z"
+          }
+        ]
+      }
+    ]
+    ```
 
-### `GET /api/reports/presentation`
-Mengambil data komparasi untuk paparan manajemen (Masalah Sebelumnya vs Follow-up saat ini).
+### B. Mengambil Riwayat Pesan Tiket
+*   **Method / Endpoint:** `GET /api/chat/tickets/:ticketId/messages`
+*   **Response (200 OK):**
+    ```json
+    [
+      {
+        "id": 1,
+        "ticket_id": 10,
+        "sender_type": "CUSTOMER",
+        "message_text": "Halo, jaringan mati.",
+        "attachment_url": null,
+        "is_internal": false,
+        "created_at": "2026-09-28T15:41:26.869Z"
+      },
+      {
+        "id": 2,
+        "ticket_id": 10,
+        "sender_type": "AGENT",
+        "message_text": "[SISTEM] Tim Network telah menandai kendala di bagiannya selesai.",
+        "attachment_url": null,
+        "is_internal": true,
+        "created_at": "2026-09-28T15:45:10.000Z"
+      }
+    ]
+    ```
 
+### C. Mengirim Balasan Chat ke WhatsApp Pelapor (L1)
+*   **Method / Endpoint:** `POST /api/chat/send`
+*   **Akses:** `L1`, `ADMIN`, `SPV`
+*   **Request Body:**
+    ```json
+    {
+      "ticketId": 10,
+      "text": "Selamat siang, kendala sudah kami koordinasikan dengan tim terkait."
+    }
+    ```
+
+### D. Mengirim Lampiran Gambar ke WhatsApp Pelapor (L1)
+*   **Method / Endpoint:** `POST /api/chat/sendMedia`
+*   **Content-Type:** `multipart/form-data`
+*   **Form Data:**
+    - `ticketId`: `10`
+    - `caption`: "Berikut tangkapan layar status jaringan" (Opsional)
+    - `media`: (File gambar .jpg / .png maksimal 10MB)
+
+### E. Multi-Assign Tiket ke Tim L2 & WhatsApp Blast
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/assign`
+*   **Akses:** `L1`, `ADMIN`
+*   **Request Body:**
+    ```json
+    {
+      "categoryIds": [7, 8],
+      "serviceType": "TROUBLESHOOTING"
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "message": "Tiket berhasil di-assign ke Tim: Network, Server"
+    }
+    ```
+
+### F. Tandai Selesai Penanganan Per-Tim (L2)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/resolve`
+*   **Akses:** `L2`, `ADMIN`
+*   **Keterangan:** Jika masih ada tim lain yang belum selesai, status tiket utama tetap `OPEN`. Jika seluruh tim sudah selesai, status tiket utama otomatis menjadi `RESOLVED`.
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "isFullyResolved": true,
+      "message": "[SISTEM] Tim Server telah menandai kendala di bagiannya selesai. Seluruh tim telah selesai menangani. Tiket berstatus RESOLVED."
+    }
+    ```
+
+### G. Kembalikan / Lepas Penugasan Tim (L2)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/return`
+*   **Akses:** `L2`, `ADMIN`
+*   **Request Body:**
+    ```json
+    {
+      "reason": "Tidak ada kendala pada tim Server, murni kendala switch network."
+    }
+    ```
+
+### H. Menutup Tiket Secara Resmi (L1)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/close`
+*   **Akses:** `L1`, `ADMIN`
+*   **Request Body:**
+    ```json
+    {
+      "summary": "Router core telah diganti dan jalur optik kembali normal. Selesai.",
+      "categoryIds": [7]
+    }
+    ```
+
+### I. Menulis Catatan Internal (L2 & L1)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/internal-note`
+*   **Request Body:**
+    ```json
+    {
+      "ticketId": 10,
+      "text": "Sedang koordinasi dengan pihak provider FO di lapangan."
+    }
+    ```
+
+### J. Mengambil Daftar Kategori / Tim
+*   **Method / Endpoint:** `GET /api/chat/categories`
+*   **Response (200 OK):**
+    ```json
+    [
+      { "id": 7, "name": "Network", "wa_target_number": "628000000001" },
+      { "id": 8, "name": "Server", "wa_target_number": "628000000002" },
+      { "id": 9, "name": "Mechanical & Electrical (M&E)", "wa_target_number": "628000000003" }
+    ]
+    ```
+
+---
+
+## 4. Modul Laporan & Rekapitulasi (`/api/reports`)
+
+### Mengambil Rekap Laporan Aduan
+*   **Method / Endpoint:** `GET /api/reports/tickets`
+*   **Query Parameters (Opsional):**
+    - `status`: `OPEN` / `RESOLVED` / `CLOSED`
+    - `startDate`: `2026-09-01`
+    - `endDate`: `2026-09-30`
+    - `categoryId`: `7`
+*   **Response (200 OK):**
+    ```json
+    [
+      {
+        "id": 10,
+        "customerName": "Laurensius Liquori",
+        "waNumber": "628992572654",
+        "status": "CLOSED",
+        "serviceType": "Troubleshooting",
+        "createdAt": "2026-09-28T15:41:26.869Z",
+        "closedAt": "2026-09-28T16:15:00.000Z",
+        "duration": "33 Menit",
+        "summary": "Router core telah diganti dan jalur optik normal.",
+        "categories": "Network"
+      }
+    ]
+    ```
+
+---
+
+## 5. Webhook Inbound WhatsApp (`/api/webhook`)
+
+### Menerima Event Pesan Masuk dari Evolution API
+*   **Method / Endpoint:** `POST /api/webhook/whatsapp`
+*   **Event:** `messages.upsert`
+*   **Alur:**
+    1. Cek atau buat kontak `Customer`.
+    2. Cek apakah ada tiket aktif berstatus `OPEN` atau `RESOLVED`.
+    3. Jika tidak ada, buat tiket baru dan kirim **Auto-Reply Bot**.
+    4. Jika pesan berupa media gambar, simpan otomatis ke `/uploads/` dan catat URL lampirannya.
+    5. Broadcast pesan ke Web Dashboard via Socket.io `new_message`.
+*   **Response:** Selalu `200 OK` `{ "status": "success" }`.
+
+---
+
+## 6. Event Real-time WebSocket (Socket.io)
+
+| Nama Event | Arah | Payload Utama | Keterangan |
+|---|---|---|---|
+| `new_message` | Server ➡️ Client | `{ ticketId, senderType, text, attachmentUrl, isInternal, createdAt }` | Ditembak saat ada pesan baru dari WhatsApp atau catatan internal agen. |
+| `ticket_closed` | Server ➡️ Client | `{ ticketId }` | Ditembak saat status tiket berubah (di-assign, resolved, atau closed) untuk memicu refresh antrean. |
