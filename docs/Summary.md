@@ -68,6 +68,10 @@ Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**
    - Peringatan konfirmasi jika L1 sengaja melepas tim yang sedang aktif.
 6. **Centang Kategori Otomatis saat Selesaikan Tiket:**
    - Saat L1 mengklik *"Selesaikan"*, modal penutupan tiket otomatis mencentang kategori sesuai penugasan awal L2 dengan badge penanda `Penugasan L2`, dengan fleksibilitas bagi L1 untuk menambah/menyesuaikan sebelum tiket ditutup resmi.
+7. **Resolusi Identitas Pelapor Hybrid & Pengelolaan Nama/Instansi (Web Custom > Kontak HP > Profil WA):**
+   - Mengambil nama kontak tersimpan di buku kontak HP Helpdesk (via Evolution API `findContacts`) secara otomatis saat pesan masuk.
+   - Dispatcher L1 dan Admin dapat mengubah nama pelapor dan instansi/SKPD langsung dari header chat atau panel detail tiket (tombol pensil ✏️).
+   - Nama hasil editan tersimpan permanen (`is_custom_name = true`) dan disiarkan seketika via WebSocket (`customer_updated`) serta otomatis masuk ke Laporan Rekapitulasi dan Export CSV.
 
 ---
 

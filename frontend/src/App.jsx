@@ -126,6 +126,55 @@ function Dashboard() {
   const [editingContactId, setEditingContactId] = useState(null);
   const [editContactData, setEditContactData] = useState({ name: '', wa_target: '' });
 
+  // State Edit Identitas Pelapor (Nama & Instansi/SKPD) (Rekomendasi C)
+  const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
+  const [editCustomerData, setEditCustomerData] = useState({ name: '', skpd_name: '' });
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+
+  const handleOpenEditCustomerModal = () => {
+    if (!activeTicket?.customer) return;
+    setEditCustomerData({
+      name: activeTicket.customer.name || '',
+      skpd_name: activeTicket.customer.skpd_name || ''
+    });
+    setShowEditCustomerModal(true);
+  };
+
+  const handleSaveCustomer = async (e) => {
+    e.preventDefault();
+    if (!editCustomerData.name?.trim()) {
+      return alert('Nama pelapor tidak boleh kosong!');
+    }
+    setIsSavingCustomer(true);
+    try {
+      const res = await axios.put(`${API_URL}/chat/customers/${activeTicket.customer.id}`, {
+        name: editCustomerData.name.trim(),
+        skpd_name: editCustomerData.skpd_name.trim()
+      });
+      const updatedCustomer = res.data.customer;
+      
+      setActiveTicket(prev => prev ? {
+        ...prev,
+        customer: updatedCustomer
+      } : null);
+
+      setTickets(prev => prev.map(t => {
+        if (t.customer_id === updatedCustomer.id || t.customer?.id === updatedCustomer.id) {
+          return { ...t, customer: updatedCustomer };
+        }
+        return t;
+      }));
+
+      setShowEditCustomerModal(false);
+      alert('Identitas pelapor berhasil diperbarui.');
+      if (activeTicket) loadMessages(activeTicket.id);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal memperbarui identitas pelapor');
+    } finally {
+      setIsSavingCustomer(false);
+    }
+  };
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -384,9 +433,49 @@ function Dashboard() {
       }
     });
 
+    socket.on('customer_updated', (data) => {
+      setTickets((prev) => prev.map(t => {
+        if (t.customer_id === data.customerId || t.customer?.id === data.customerId) {
+          return {
+            ...t,
+            customer: {
+              ...t.customer,
+              name: data.name,
+              skpd_name: data.skpd_name,
+              is_custom_name: data.is_custom_name
+            }
+          };
+        }
+        return t;
+      }));
+
+      setActiveTicket((prev) => {
+        if (prev && (prev.customer_id === data.customerId || prev.customer?.id === data.customerId)) {
+          return {
+            ...prev,
+            customer: {
+              ...prev.customer,
+              name: data.name,
+              skpd_name: data.skpd_name,
+              is_custom_name: data.is_custom_name
+            }
+          };
+        }
+        return prev;
+      });
+
+      setReportTickets((prev) => prev.map(r => {
+        if (r.customerId === data.customerId) {
+          return { ...r, customerName: data.name, skpdName: data.skpd_name || '-' };
+        }
+        return r;
+      }));
+    });
+
     return () => {
       socket.off('new_message');
       socket.off('ticket_closed');
+      socket.off('customer_updated');
     };
   }, [activeTicket, currentTab, currentUser]); 
 
@@ -502,14 +591,21 @@ function Dashboard() {
 
   const exportToCSV = () => {
     if (reportTickets.length === 0) return alert('Tidak ada data');
-    const headers = ['ID Tiket', 'Nama Pelapor', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Tim / Kategori', 'Jenis Layanan', 'Kesimpulan'];
+    const headers = ['ID Tiket', 'Nama Pelapor', 'Instansi / SKPD', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Tim / Kategori', 'Jenis Layanan', 'Kesimpulan'];
     const csvRows = [headers.join(',')];
     reportTickets.forEach(ticket => {
       const row = [
-        ticket.id, `"${ticket.customerName}"`, `"${ticket.waNumber}"`, ticket.status,
+        ticket.id, 
+        `"${ticket.customerName}"`, 
+        `"${ticket.skpdName || '-'}"`,
+        `"${ticket.waNumber}"`, 
+        ticket.status,
         `"${format(new Date(ticket.createdAt), 'yyyy-MM-dd HH:mm:ss')}"`,
         ticket.closedAt ? `"${format(new Date(ticket.closedAt), 'yyyy-MM-dd HH:mm:ss')}"` : '-',
-        `"${ticket.duration}"`, `"${ticket.categories || '-'}"`, `"${ticket.serviceType || '-'}"`, `"${(ticket.summary || '-').replace(/"/g, '""')}"`
+        `"${ticket.duration}"`, 
+        `"${ticket.categories || '-'}"`, 
+        `"${ticket.serviceType || '-'}"`, 
+        `"${(ticket.summary || '-').replace(/"/g, '""')}"`
       ];
       csvRows.push(row.join(','));
     });
@@ -646,7 +742,14 @@ function Dashboard() {
                 return (
                   <div key={ticket.id} onClick={() => setActiveTicket(ticket)} className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${activeTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}>
                     <div className="flex justify-between items-start mb-1">
-                      <h3 className="font-semibold text-gray-800 truncate">{ticket.customer?.name}</h3>
+                      <h3 className="font-semibold text-gray-800 truncate">
+                        {ticket.customer?.name}
+                        {ticket.customer?.skpd_name && (
+                          <span className="text-[10px] text-blue-600 font-normal ml-1.5 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                            {ticket.customer.skpd_name}
+                          </span>
+                        )}
+                      </h3>
                       <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
                         {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
                       </span>
@@ -697,7 +800,21 @@ function Dashboard() {
                     </div>
                     <div>
                       <h2 className="font-semibold text-gray-800 flex items-center gap-2">
-                        {activeTicket.customer?.name}
+                        <span>{activeTicket.customer?.name}</span>
+                        {activeTicket.customer?.skpd_name && (
+                          <span className="px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-md border border-blue-200">
+                            {activeTicket.customer.skpd_name}
+                          </span>
+                        )}
+                        {isL1 && (
+                          <button
+                            onClick={handleOpenEditCustomerModal}
+                            className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                            title="Ubah Identitas Pelapor / Instansi"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {activeTicket.service_type && (
                           <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-600 rounded-full border border-blue-200 uppercase">
                             {activeTicket.service_type.replace('_', ' ')}
@@ -906,8 +1023,27 @@ function Dashboard() {
                 <h3 className="font-bold text-gray-800 mb-4 border-b pb-2">Detail Tiket</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nama Pelapor</label>
-                    <div className="flex items-center text-sm font-medium text-gray-800"><User className="w-4 h-4 mr-2 text-gray-400" />{activeTicket.customer?.name}</div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-[10px] uppercase font-bold text-gray-400 block">Nama Pelapor</label>
+                      {isL1 && (
+                        <button
+                          onClick={handleOpenEditCustomerModal}
+                          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
+                          title="Ubah identitas pelapor"
+                        >
+                          <Edit2 className="w-3 h-3" /> Edit
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center text-sm font-medium text-gray-800">
+                      <User className="w-4 h-4 mr-2 text-gray-400" />
+                      {activeTicket.customer?.name}
+                    </div>
+                    {activeTicket.customer?.skpd_name && (
+                      <div className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded mt-1.5 ml-6 inline-block font-medium border border-blue-200">
+                        Instansi: {activeTicket.customer.skpd_name}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nomor WA</label>
@@ -1009,6 +1145,9 @@ function Dashboard() {
                         <td className="px-6 py-4 font-medium text-gray-900">#{row.id}</td>
                         <td className="px-6 py-4">
                           <div className="font-semibold text-gray-800">{row.customerName}</div>
+                          {row.skpdName && row.skpdName !== '-' && (
+                            <div className="text-xs text-blue-600 font-medium">{row.skpdName}</div>
+                          )}
                           <div className="text-xs text-gray-500">+{row.waNumber}</div>
                         </td>
                         <td className="px-6 py-4">
@@ -1484,6 +1623,80 @@ function Dashboard() {
               <button onClick={() => setShowCloseModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Batal</button>
               <button onClick={handleCloseTicket} disabled={summaryText.trim().length < 10} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors">Tutup Tiket</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT IDENTITAS PELAPOR (L1 & ADMIN) */}
+      {showEditCustomerModal && activeTicket?.customer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <User className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-base">Ubah Identitas Pelapor</h3>
+                  <p className="text-xs text-gray-500">Nomor WA: +{activeTicket.customer.wa_number}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowEditCustomerModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCustomer} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Nama Pelapor / Kontak <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editCustomerData.name}
+                  onChange={e => setEditCustomerData({ ...editCustomerData, name: e.target.value })}
+                  placeholder="Contoh: Pak Budi Santoso"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Instansi / Unit Kerja / SKPD (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={editCustomerData.skpd_name}
+                  onChange={e => setEditCustomerData({ ...editCustomerData, skpd_name: e.target.value })}
+                  placeholder="Contoh: Diskominfo / Bagian Umum"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Nama ini akan tersimpan permanen di database dan muncul pada rekap laporan CSV.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditCustomerModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingCustomer || !editCustomerData.name?.trim()}
+                  className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
+                >
+                  {isSavingCustomer ? 'Menyimpan...' : 'Simpan Identitas'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -39,6 +39,10 @@ Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk
 - **🗑️ Pembersihan Rekap Aduan & Reset Penomoran ID (Admin Only):**
   - Administrator dapat menghapus tiket selesai terpilih atau menghapus seluruh riwayat data testing.
   - Saat hapus semua, urutan penomoran auto-increment PostgreSQL otomatis di-reset (`ALTER SEQUENCE tickets_id_seq RESTART WITH 1`) sehingga tiket baru berikutnya kembali bernomor ID #1.
+- **👤 Resolusi Identitas Pelapor Hybrid & Instansi/SKPD (L1 & Admin):**
+  - **Prioritas Cerdas:** Web Custom Edit > Buku Kontak HP (via Evolution API) > WhatsApp Push Name > Nomor WA.
+  - Dispatcher L1 dan Admin dapat mengubah nama pelapor dan menyematkan nama instansi/SKPD langsung dari header chat atau panel detail tiket.
+  - Nama tersimpan permanen di database dan otomatis terintegrasi pada Laporan Rekapitulasi & Export CSV.
 - **🏷️ Klasifikasi Jenis Layanan (*Service Type*):**
   - Mendukung klasifikasi: `Troubleshooting (Gangguan)`, `Request Layanan`, atau `Monitoring`.
 - **⚡ Komunikasi Real-time (Socket.io):**

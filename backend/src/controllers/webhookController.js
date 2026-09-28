@@ -88,17 +88,37 @@ const handleIncomingMessage = async (req, res) => {
 
     // Nomor WA pengirim (hapus suffix @s.whatsapp.net)
     const waNumber = remoteJid.split('@')[0];
-    const senderName = messageData.pushName || waNumber;
 
-    // 1. Cari atau buat Customer (Pelapor)
+    // 1. Cari Customer (Pelapor) di database Helpdesk
     let customer = await prisma.customer.findUnique({ where: { wa_number: waNumber } });
+
+    // Resolusi nama pelapor (Rekomendasi C - Hybrid: Web Custom > Kontak HP > WA pushName > waNumber)
+    let resolvedName = messageData.pushName || waNumber;
+    try {
+      const contactInfo = await evolutionService.getContactInfo(remoteJid);
+      if (contactInfo && contactInfo.isSaved && contactInfo.pushName) {
+        resolvedName = contactInfo.pushName;
+      }
+    } catch (e) {
+      console.warn('Gagal cek kontak HP dari Evolution API:', e.message);
+    }
+
     if (!customer) {
       customer = await prisma.customer.create({
         data: {
           wa_number: waNumber,
-          name: senderName
+          name: resolvedName,
+          is_custom_name: false
         }
       });
+    } else if (!customer.is_custom_name) {
+      // Jika belum pernah di-edit manual dari Web Dashboard, update jika nama tersimpan di HP lebih spesifik
+      if (customer.name === waNumber || (resolvedName && resolvedName !== waNumber && customer.name !== resolvedName)) {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: { name: resolvedName }
+        });
+      }
     }
 
     // 2. Cek apakah ada tiket aktif (status OPEN atau RESOLVED yang belum ditutup L1)

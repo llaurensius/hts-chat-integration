@@ -259,6 +259,31 @@ Mengembalikan tiket berstatus `OPEN` dan `RESOLVED`.
     ]
     ```
 
+### K. Memperbarui Identitas Pelapor (Nama & Instansi/SKPD)
+*   **Method / Endpoint:** `PUT /api/chat/customers/:customerId`
+*   **Akses:** `L1`, `ADMIN`, `SPV`
+*   **Request Body:**
+    ```json
+    {
+      "name": "Budi Santoso",
+      "skpd_name": "Diskominfo"
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "customer": {
+        "id": 1,
+        "wa_number": "628992572654",
+        "name": "Budi Santoso",
+        "skpd_name": "Diskominfo",
+        "is_custom_name": true,
+        "created_at": "2026-09-28T09:33:00.644Z"
+      }
+    }
+    ```
+
 ---
 
 ## 4. Modul Laporan & Rekapitulasi (`/api/reports`)

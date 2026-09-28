@@ -724,4 +724,91 @@ const addInternalNote = async (req, res) => {
   }
 };
 
-module.exports = { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia, assignTicket, resolveTicket, returnTicket, addInternalNote };
+// Memperbarui Identitas Pelapor (Nama & Instansi/SKPD) - Khusus L1 dan ADMIN
+const updateCustomer = async (req, res) => {
+  const { customerId } = req.params;
+  const { name, skpd_name } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Nama pelapor tidak boleh kosong' });
+  }
+
+  // Hak akses: L1, ADMIN, SPV
+  if (req.user && !['L1', 'ADMIN', 'SPV'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Hanya L1 dan Admin yang memiliki izin mengubah nama pelapor' });
+  }
+
+  try {
+    const updatedCustomer = await prisma.customer.update({
+      where: { id: parseInt(customerId) },
+      data: {
+        name: name.trim(),
+        skpd_name: skpd_name !== undefined ? (skpd_name ? skpd_name.trim() : null) : undefined,
+        is_custom_name: true // Tandai bahwa nama telah dikustomisasi manual di Web Dashboard
+      }
+    });
+
+    // Catat ke catatan internal bahwa identitas pelapor diperbarui
+    // Cari tiket aktif dari customer ini jika ada
+    const activeTicket = await prisma.ticket.findFirst({
+      where: {
+        customer_id: updatedCustomer.id,
+        status: { in: ['OPEN', 'RESOLVED'] }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    if (activeTicket) {
+      const editorName = req.user ? req.user.name : 'Petugas Helpdesk';
+      const skpdInfo = updatedCustomer.skpd_name ? ` (Instansi: ${updatedCustomer.skpd_name})` : '';
+      const noteMsg = await prisma.message.create({
+        data: {
+          ticket_id: activeTicket.id,
+          sender_type: 'AGENT',
+          sender_id: req.user ? req.user.id : null,
+          message_text: `[SISTEM] Identitas pelapor diperbarui oleh ${editorName}: "${updatedCustomer.name}"${skpdInfo}`,
+          is_internal: true
+        }
+      });
+
+      if (req.io) {
+        req.io.emit('new_message', {
+          ticketId: activeTicket.id,
+          senderType: 'AGENT',
+          text: noteMsg.message_text,
+          isInternal: true,
+          createdAt: noteMsg.created_at
+        });
+      }
+    }
+
+    if (req.io) {
+      req.io.emit('customer_updated', {
+        customerId: updatedCustomer.id,
+        name: updatedCustomer.name,
+        skpd_name: updatedCustomer.skpd_name,
+        is_custom_name: updatedCustomer.is_custom_name
+      });
+    }
+
+    res.json({ success: true, customer: updatedCustomer });
+  } catch (error) {
+    console.error('[Chat API] Error updating customer:', error);
+    res.status(500).json({ error: 'Gagal memperbarui identitas pelapor' });
+  }
+};
+
+module.exports = { 
+  getTickets, 
+  getMessages, 
+  sendReply, 
+  getCategorys, 
+  closeTicket, 
+  sendMedia, 
+  assignTicket, 
+  resolveTicket, 
+  returnTicket, 
+  addInternalNote,
+  updateCustomer 
+};
+

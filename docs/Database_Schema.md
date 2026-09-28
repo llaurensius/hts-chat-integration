@@ -22,6 +22,7 @@ erDiagram
         string wa_number "Unique"
         string name
         string skpd_name "Nullable"
+        boolean is_custom_name "Status diedit manual via Dashboard (Default: false)"
         datetime created_at
     }
 
@@ -94,8 +95,9 @@ Menyimpan identitas kontak WhatsApp yang menghubungi sistem.
 |---|---|---|---|
 | `id` | `Int` | PK, Auto Increment | ID unik pelanggan |
 | `wa_number` | `String` | Unique, Not Null | Nomor WhatsApp tanpa simbol (misal `628123456789`) |
-| `name` | `String` | Not Null | Nama pelapor / *Push Name* dari WhatsApp |
-| `skpd_name` | `String` | Nullable | Nama instansi / dinas pelapor |
+| `name` | `String` | Not Null | Nama pelapor (Prioritas: Web Custom > Kontak HP > pushName WA > waNumber) |
+| `skpd_name` | `String` | Nullable | Nama instansi / dinas / SKPD pelapor |
+| `is_custom_name` | `Boolean` | Default `false` | Menandai jika identitas telah diedit manual via Dashboard |
 | `created_at` | `DateTime` | Default `now()` | Waktu pertama kali kontak dibuat |
 
 ---

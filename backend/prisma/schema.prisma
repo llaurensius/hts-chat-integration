@@ -8,12 +8,13 @@ datasource db {
 }
 
 model Customer {
-  id         Int       @id @default(autoincrement())
-  wa_number  String    @unique
-  name       String
-  skpd_name  String?
-  created_at DateTime  @default(now())
-  tickets    Ticket[]
+  id             Int       @id @default(autoincrement())
+  wa_number      String    @unique
+  name           String
+  skpd_name      String?
+  is_custom_name Boolean   @default(false) // Menandai jika nama telah diedit manual via Dashboard (V2.3)
+  created_at     DateTime  @default(now())
+  tickets        Ticket[]
 }
 
 // Menggantikan Division menjadi Category (Fase 1 - V2)

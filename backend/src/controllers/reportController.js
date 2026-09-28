@@ -65,6 +65,7 @@ const getTicketReports = async (req, res) => {
       return {
         id: t.id,
         customerName: t.customer.name,
+        skpdName: t.customer.skpd_name || '-',
         waNumber: t.customer.wa_number,
         status: t.status,
         serviceType: serviceTypeStr,

@@ -27,4 +27,21 @@ const sendText = async (number, text) => {
   }
 };
 
-module.exports = { sendText, INSTANCE_NAME, api };
+// Mengambil informasi kontak dari buku kontak HP (Evolution API)
+const getContactInfo = async (remoteJid) => {
+  try {
+    const res = await api.post(`/chat/findContacts/${INSTANCE_NAME}`, {
+      where: { remoteJid }
+    });
+    if (Array.isArray(res.data) && res.data.length > 0) {
+      return res.data[0];
+    }
+    return null;
+  } catch (error) {
+    console.warn('[Evolution API] Gagal mencari kontak:', error?.response?.data || error.message);
+    return null;
+  }
+};
+
+module.exports = { sendText, getContactInfo, INSTANCE_NAME, api };
+
