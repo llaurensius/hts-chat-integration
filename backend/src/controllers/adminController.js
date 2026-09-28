@@ -136,9 +136,14 @@ const addCategoryContact = async (req, res) => {
 // Menghapus kontak dari kategori tim L2
 const deleteCategoryContact = async (req, res) => {
   const { contactId } = req.params;
+  const parsedId = parseInt(contactId, 10);
+  if (isNaN(parsedId)) {
+    return res.status(400).json({ error: 'ID kontak tidak valid' });
+  }
+
   try {
     await prisma.categoryContact.delete({
-      where: { id: parseInt(contactId) }
+      where: { id: parsedId }
     });
     res.json({ success: true, message: 'Kontak berhasil dihapus' });
   } catch (error) {
