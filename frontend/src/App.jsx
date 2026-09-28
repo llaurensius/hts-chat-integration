@@ -5,7 +5,7 @@ import { io } from 'socket.io-client';
 import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users } from 'lucide-react';
 import { format } from 'date-fns';
 
-const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : 'http://localhost:3000';
+const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
 const API_URL = `${BASE_URL}/api`;
 const SOCKET_URL = BASE_URL;
 

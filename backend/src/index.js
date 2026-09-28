@@ -24,7 +24,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      "img-src": ["'self'", "data:", "blob:", "http://localhost:3000"],
+      "img-src": ["'self'", "data:", "blob:", "*"],
     },
   },
   crossOriginResourcePolicy: { policy: "cross-origin" }, // Izinkan gambar dari backend dimuat frontend
