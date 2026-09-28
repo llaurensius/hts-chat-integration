@@ -18,11 +18,30 @@ model Customer {
 
 // Menggantikan Division menjadi Category (Fase 1 - V2)
 model Category {
-  id               Int              @id @default(autoincrement())
+  id               Int               @id @default(autoincrement())
   name             String
-  wa_target_number String?          // Nomor grup/teknisi WA untuk Blast Notifikasi
+  wa_target_number String?          // Nomor grup/teknisi WA untuk Blast Notifikasi (Legacy)
   users            User[]
   tickets          TicketCategory[]
+  contacts         CategoryContact[] // Relasi Multi-Kontak WA Blast (Fase 1 - V2.2)
+}
+
+// Tabel Multi-Kontak Teknisi / Grup WA per Tim L2 (Fase 1 - V2.2)
+model CategoryContact {
+  id          Int      @id @default(autoincrement())
+  category_id Int
+  name        String   // Misal: "Budi (Teknisi 1)" atau "Grup WA Network"
+  wa_target   String   // Misal: "628123456789" atau "1203632948293@g.us"
+  created_at  DateTime @default(now())
+  category    Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+}
+
+// Tabel Konfigurasi Dinamis (Auto-Reply Bot dsb) (Fase 1 - V2.2)
+model Setting {
+  key        String   @id // Contoh: "auto_reply"
+  value      String   @db.Text // Isi template pesan balasan
+  is_active  Boolean  @default(true) // Sakelar ON / OFF
+  updated_at DateTime @updatedAt
 }
 
 model User {
@@ -90,7 +109,6 @@ enum SenderType {
   AGENT
   BOT
 }
-
 
 enum ServiceType {
   TROUBLESHOOTING

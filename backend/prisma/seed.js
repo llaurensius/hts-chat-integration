@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('--- Starting Database Seeding V2.1 (3 L2 Teams) ---');
+  console.log('--- Starting Database Seeding V2.2 (3 L2 Teams & Settings) ---');
 
   // Hapus semua data relasi tiket-kategori untuk mencegah error foreign key
   await prisma.ticketCategory.deleteMany();
@@ -14,7 +14,7 @@ async function main() {
     data: { category_id: null }
   });
 
-  // Hapus kategori lama
+  // Hapus kategori lama (akan cascade ke CategoryContact)
   await prisma.category.deleteMany();
 
   // 1. Seed Categories (3 Tim Utama L2)
@@ -31,6 +31,16 @@ async function main() {
     console.log(`[Category Created] ${category.name}`);
     categoryMap[category.name] = category.id;
   }
+
+  // 1b. Seed Default Contacts for L2 Teams
+  await prisma.categoryContact.createMany({
+    data: [
+      { category_id: categoryMap['Network'], name: 'Teknisi Network 1', wa_target: '628000000001' },
+      { category_id: categoryMap['Server'], name: 'Teknisi Server 1', wa_target: '628000000002' },
+      { category_id: categoryMap['Mechanical & Electrical (M&E)'], name: 'Teknisi M&E 1', wa_target: '628000000003' }
+    ]
+  });
+  console.log('[Category Contacts Created]');
 
   // 2. Hash default password
   const hashedPassword = await bcrypt.hash('password123', 10);
@@ -95,7 +105,19 @@ async function main() {
     }
   }
 
-  console.log('--- Database Seeding V2.1 Completed Successfully ---');
+  // 4. Seed Default Setting (Auto-Reply Bot)
+  await prisma.setting.upsert({
+    where: { key: 'auto_reply' },
+    update: {},
+    create: {
+      key: 'auto_reply',
+      value: 'Baik untuk aduan akan kami cek dahulu mohon ditunggu.',
+      is_active: true
+    }
+  });
+  console.log('[Setting Initialized] auto_reply');
+
+  console.log('--- Database Seeding V2.2 Completed Successfully ---');
 }
 
 main()

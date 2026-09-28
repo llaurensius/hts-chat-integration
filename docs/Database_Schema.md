@@ -12,6 +12,7 @@ erDiagram
     Customer ||--o{ Ticket : "membuat"
     Category ||--o{ User : "memiliki teknisi"
     Category ||--o{ TicketCategory : "ditugaskan ke"
+    Category ||--o{ CategoryContact : "memiliki kontak blast"
     Ticket ||--o{ TicketCategory : "memiliki tim"
     Ticket ||--o{ Message : "memiliki percakapan"
 
@@ -55,6 +56,21 @@ erDiagram
         datetime resolved_at "Waktu selesai per tim"
     }
 
+
+    CategoryContact {
+        int id PK
+        int category_id FK
+        string name "Nama personil / grup"
+        string wa_target "Nomor WA / ID Grup"
+        datetime created_at
+    }
+
+    Setting {
+        string key PK "auto_reply"
+        string value "Template teks"
+        boolean is_active "Toggle ON/OFF"
+        datetime updated_at
+    }
     Message {
         int id PK
         int ticket_id FK
