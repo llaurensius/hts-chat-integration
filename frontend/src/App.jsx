@@ -163,6 +163,45 @@ function App() {
     }
   };
 
+  const exportToCSV = () => {
+    if (reportTickets.length === 0) {
+      alert('Tidak ada data untuk diexport');
+      return;
+    }
+
+    // Header Kolom
+    const headers = ['ID Tiket', 'Nama Pelapor', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Divisi Terkait', 'Kesimpulan'];
+    const csvRows = [headers.join(',')];
+
+    // Format Data Baris
+    reportTickets.forEach(ticket => {
+      const row = [
+        ticket.id,
+        `"${ticket.customerName}"`, // Escape dgn quote jaga-jaga ada koma di nama
+        `"${ticket.waNumber}"`,
+        ticket.status,
+        `"${format(new Date(ticket.createdAt), 'yyyy-MM-dd HH:mm:ss')}"`,
+        ticket.closedAt ? `"${format(new Date(ticket.closedAt), 'yyyy-MM-dd HH:mm:ss')}"` : '-',
+        `"${ticket.duration}"`,
+        `"${ticket.divisions}"`,
+        `"${ticket.summary.replace(/"/g, '""')}"` // Escape double quote di dalam summary
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    // Trigger Download
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Rekap_Aduan_HTS_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       
@@ -372,7 +411,10 @@ function App() {
               <h1 className="text-2xl font-bold text-gray-800">Rekap Hasil Aduan</h1>
               <p className="text-sm text-gray-500 mt-1">Laporan historis tiket dan kesimpulan penanganan</p>
             </div>
-            <button className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors">
+            <button 
+              onClick={exportToCSV}
+              className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
+            >
               <Download className="w-4 h-4 mr-2" />
               Export CSV
             </button>
