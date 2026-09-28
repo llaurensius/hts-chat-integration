@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users } from 'lucide-react';
+import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -113,6 +113,16 @@ function Dashboard() {
 
   // State Reporting
   const [reportTickets, setReportTickets] = useState([]);
+  const [selectedReportIds, setSelectedReportIds] = useState([]);
+
+  // State Auto-Reply Bot (Khusus L1)
+  const [botMessage, setBotMessage] = useState('');
+  const [botIsActive, setBotIsActive] = useState(true);
+  const [isSavingBot, setIsSavingBot] = useState(false);
+
+  // State Multi-Kontak Tim L2 (Khusus Admin)
+  const [teamCategories, setTeamCategories] = useState([]);
+  const [newContactInputs, setNewContactInputs] = useState({});
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -180,6 +190,112 @@ function Dashboard() {
     }
   };
 
+  // --- HANDLER FITUR 1: AUTO-REPLY BOT (KHUSUS L1) ---
+  const loadBotSetting = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/settings/autoreply`);
+      setBotMessage(res.data.message || '');
+      setBotIsActive(res.data.isActive !== undefined ? res.data.isActive : true);
+    } catch (error) {
+      console.error('Failed to load bot setting', error);
+    }
+  };
+
+  const handleSaveBotSetting = async (e) => {
+    e.preventDefault();
+    if (!botMessage.trim()) return alert('Pesan template bot tidak boleh kosong');
+    setIsSavingBot(true);
+    try {
+      const res = await axios.put(`${API_URL}/settings/autoreply`, {
+        message: botMessage,
+        isActive: botIsActive
+      });
+      alert('Pengaturan Auto-Reply Bot berhasil disimpan!');
+      setBotMessage(res.data.message);
+      setBotIsActive(res.data.isActive);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal menyimpan pengaturan bot');
+    } finally {
+      setIsSavingBot(false);
+    }
+  };
+
+  // --- HANDLER FITUR 2: HAPUS REKAP (KHUSUS ADMIN) ---
+  const handleDeleteSelectedReports = async () => {
+    if (selectedReportIds.length === 0) return alert('Pilih minimal 1 tiket untuk dihapus');
+    if (!window.confirm(`Yakin ingin menghapus ${selectedReportIds.length} data aduan terpilih?`)) return;
+    try {
+      const res = await axios.delete(`${API_URL}/reports/tickets`, {
+        data: { ids: selectedReportIds }
+      });
+      alert(res.data?.message || 'Data aduan terpilih berhasil dihapus');
+      setSelectedReportIds([]);
+      loadReports();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal menghapus tiket');
+    }
+  };
+
+  const handleDeleteAllReports = async () => {
+    const confirmation = prompt('PERINGATAN: Tindakan ini akan MENGHAPUS SEMUA DATA aduan, riwayat obrolan, lampiran, dan data pelanggan testing secara permanen.\n\nKetik "HAPUS" untuk melanjutkan:');
+    if (confirmation !== 'HAPUS') {
+      if (confirmation !== null) alert('Penghapusan dibatalkan. Kata konfirmasi tidak cocok.');
+      return;
+    }
+    try {
+      const res = await axios.delete(`${API_URL}/reports/tickets`, {
+        data: { all: true }
+      });
+      alert(res.data?.message || 'Seluruh data berhasil dihapus bersih');
+      setSelectedReportIds([]);
+      loadReports();
+      loadTickets();
+      setActiveTicket(null);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal mengosongkan data');
+    }
+  };
+
+  // --- HANDLER FITUR 3: PENGATURAN TIM & KONTAK L2 (KHUSUS ADMIN) ---
+  const loadTeamCategories = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/categories/contacts`);
+      setTeamCategories(res.data);
+    } catch (error) {
+      console.error('Failed to load team categories', error);
+    }
+  };
+
+  const handleAddContact = async (categoryId) => {
+    const input = newContactInputs[categoryId] || {};
+    if (!input.name?.trim() || !input.wa_target?.trim()) {
+      return alert('Nama dan Nomor WA / ID Grup wajib diisi!');
+    }
+    try {
+      await axios.post(`${API_URL}/admin/categories/${categoryId}/contacts`, {
+        name: input.name,
+        wa_target: input.wa_target
+      });
+      setNewContactInputs(prev => ({
+        ...prev,
+        [categoryId]: { name: '', wa_target: '' }
+      }));
+      loadTeamCategories();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal menambahkan kontak');
+    }
+  };
+
+  const handleDeleteContact = async (contactId) => {
+    if (!window.confirm('Yakin ingin menghapus kontak ini dari target blast?')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/categories/contacts/${contactId}`);
+      loadTeamCategories();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal menghapus kontak');
+    }
+  };
+
   useEffect(() => {
     if (!currentUser) return;
 
@@ -225,7 +341,10 @@ function Dashboard() {
 
   useEffect(() => {
     if (currentTab === 'report') loadReports();
-  }, [currentTab]);
+    if (currentTab === 'users' && isAdmin) loadAdminUsers();
+    if (currentTab === 'teams' && isAdmin) loadTeamCategories();
+    if (currentTab === 'bot' && currentUser?.role === 'L1') loadBotSetting();
+  }, [currentTab, currentUser]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -427,6 +546,24 @@ function Dashboard() {
                 title="Manajemen Pengguna"
               >
                 <Users className="w-6 h-6" />
+              </button>
+            )}
+            {isAdmin && (
+              <button 
+                onClick={() => setCurrentTab('teams')}
+                className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'teams' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
+                title="Pengaturan Kontak Tim L2"
+              >
+                <PhoneCall className="w-6 h-6" />
+              </button>
+            )}
+            {currentUser?.role === 'L1' && (
+              <button 
+                onClick={() => setCurrentTab('bot')}
+                className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'bot' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
+                title="Pengaturan Auto-Reply Bot"
+              >
+                <Bot className="w-6 h-6" />
               </button>
             )}
           </div>
@@ -704,15 +841,47 @@ function Dashboard() {
               <h1 className="text-2xl font-bold text-gray-800">Rekap Hasil Aduan</h1>
               <p className="text-sm text-gray-500 mt-1">Laporan historis tiket dan kesimpulan penanganan</p>
             </div>
-            <button onClick={exportToCSV} className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors">
-              <Download className="w-4 h-4 mr-2" /> Export CSV
-            </button>
+            <div className="flex items-center space-x-3">
+              {isAdmin && (
+                <>
+                  <button 
+                    onClick={handleDeleteSelectedReports} 
+                    disabled={selectedReportIds.length === 0}
+                    className="flex items-center bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3.5 py-2 rounded-lg font-medium shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1.5" /> Hapus Terpilih ({selectedReportIds.length})
+                  </button>
+                  <button 
+                    onClick={handleDeleteAllReports} 
+                    className="flex items-center bg-red-600 hover:bg-red-700 text-white px-3.5 py-2 rounded-lg font-medium shadow-sm transition text-sm"
+                  >
+                    <AlertCircle className="w-4 h-4 mr-1.5" /> Hapus Semua Data
+                  </button>
+                </>
+              )}
+              <button onClick={exportToCSV} className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors text-sm">
+                <Download className="w-4 h-4 mr-2" /> Export CSV
+              </button>
+            </div>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 overflow-hidden flex flex-col">
             <div className="overflow-x-auto flex-1">
               <table className="w-full text-left text-sm text-gray-600">
                 <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 uppercase text-xs">
                   <tr>
+                    {isAdmin && (
+                      <th className="px-4 py-4 w-10 text-center">
+                        <input 
+                          type="checkbox" 
+                          checked={reportTickets.length > 0 && selectedReportIds.length === reportTickets.length}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedReportIds(reportTickets.map(t => t.id));
+                            else setSelectedReportIds([]);
+                          }}
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                        />
+                      </th>
+                    )}
                     <th className="px-6 py-4 font-semibold">ID</th>
                     <th className="px-6 py-4 font-semibold">Pelapor (WA)</th>
                     <th className="px-6 py-4 font-semibold">Status</th>
@@ -726,13 +895,26 @@ function Dashboard() {
                 <tbody className="divide-y divide-gray-100">
                   {reportTickets.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
+                      <td colSpan="9" className="px-6 py-12 text-center text-gray-400">
                         Belum ada data aduan atau tiket yang tercatat.
                       </td>
                     </tr>
                   ) : (
                     reportTickets.map(row => (
                       <tr key={row.id} className="hover:bg-gray-50 transition-colors">
+                        {isAdmin && (
+                          <td className="px-4 py-4 text-center">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedReportIds.includes(row.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedReportIds([...selectedReportIds, row.id]);
+                                else setSelectedReportIds(selectedReportIds.filter(id => id !== row.id));
+                              }}
+                              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                        )}
                         <td className="px-6 py-4 font-medium text-gray-900">#{row.id}</td>
                         <td className="px-6 py-4">
                           <div className="font-semibold text-gray-800">{row.customerName}</div>
@@ -854,6 +1036,190 @@ function Dashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HALAMAN PENGATURAN TIM & KONTAK L2 (KHUSUS ADMIN) */}
+      {currentTab === 'teams' && isAdmin && (
+        <div className="flex-1 bg-gray-50 flex flex-col p-6 overflow-y-auto">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <PhoneCall className="w-7 h-7 text-blue-600" /> Kontak & Target WhatsApp Blast L2
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Atur nomor WhatsApp personil teknisi atau ID Grup WhatsApp yang akan menerima notifikasi blast otomatis saat tiket di-assign.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {teamCategories.map(cat => {
+              const inputState = newContactInputs[cat.id] || { name: '', wa_target: '' };
+
+              return (
+                <div key={cat.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+                  <div className="p-5 bg-gradient-to-r from-blue-900 to-blue-800 text-white">
+                    <span className="text-xs uppercase tracking-wider text-blue-200 font-bold">Tim Lapangan</span>
+                    <h3 className="text-lg font-bold mt-0.5">{cat.name}</h3>
+                    <p className="text-xs text-blue-300 mt-1">
+                      {cat.contacts?.length || 0} Kontak Terdaftar
+                    </p>
+                  </div>
+
+                  {/* List Kontak */}
+                  <div className="p-4 flex-1 overflow-y-auto space-y-3 min-h-[160px] max-h-[260px]">
+                    {(!cat.contacts || cat.contacts.length === 0) ? (
+                      <div className="text-center py-8 text-gray-400 text-xs">
+                        Belum ada nomor kontak terdaftar.
+                      </div>
+                    ) : (
+                      cat.contacts.map(contact => {
+                        const isGroup = contact.wa_target?.includes('@g.us');
+
+                        return (
+                          <div key={contact.id} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 transition">
+                            <div className="truncate pr-2">
+                              <div className="font-semibold text-gray-800 text-xs truncate flex items-center gap-1.5">
+                                {contact.name}
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${isGroup ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                                  {isGroup ? 'Grup WA' : 'Personil'}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-gray-500 font-mono mt-0.5 truncate">
+                                {contact.wa_target}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteContact(contact.id)}
+                              className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
+                              title="Hapus Kontak"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Form Tambah Kontak */}
+                  <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-2.5">
+                    <span className="text-xs font-bold text-gray-700 block">Tambah Kontak / Grup Baru</span>
+                    <input
+                      type="text"
+                      placeholder="Nama (misal: Budi / Grup WA)"
+                      value={inputState.name}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setNewContactInputs(prev => ({
+                          ...prev,
+                          [cat.id]: { ...(prev[cat.id] || {}), name: val }
+                        }));
+                      }}
+                      className="w-full text-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="No WA (08xx) atau ID Grup (xxx@g.us)"
+                      value={inputState.wa_target}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setNewContactInputs(prev => ({
+                          ...prev,
+                          [cat.id]: { ...(prev[cat.id] || {}), wa_target: val }
+                        }));
+                      }}
+                      className="w-full text-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddContact(cat.id)}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-xs transition flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Tambah ke Tim {cat.name}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* HALAMAN PENGATURAN AUTO-REPLY BOT (KHUSUS L1) */}
+      {currentTab === 'bot' && currentUser?.role === 'L1' && (
+        <div className="flex-1 bg-gray-50 flex flex-col p-8 overflow-y-auto">
+          <div className="max-w-3xl w-full mx-auto">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Bot className="w-7 h-7 text-blue-600" /> Pengaturan Auto-Reply Bot
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">
+                Kelola status aktif dan teks pesan sambutan yang dikirim otomatis saat pelanggan pertama kali menghubungi WhatsApp Helpdesk.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+              {/* Sakelar Toggle ON / OFF */}
+              <div className="flex items-center justify-between pb-6 border-b border-gray-100">
+                <div>
+                  <h3 className="font-semibold text-gray-800 text-base">Status Balasan Otomatis</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {botIsActive ? '🟢 Bot aktif membalas setiap aduan masuk baru secara otomatis.' : '⚪ Bot dinonaktifkan sementara. Tidak ada pesan balasan otomatis yang dikirim.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBotIsActive(!botIsActive)}
+                  className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus:outline-none ${
+                    botIsActive ? 'bg-green-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      botIsActive ? 'translate-x-8' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Form Template Pesan */}
+              <form onSubmit={handleSaveBotSetting} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Template Pesan Sambutan WhatsApp
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={botMessage}
+                    onChange={(e) => setBotMessage(e.target.value)}
+                    placeholder="Ketik template pesan sambutan bot..."
+                    className="w-full border border-gray-300 rounded-xl p-3.5 focus:ring-2 focus:ring-blue-500 text-sm leading-relaxed"
+                    required
+                  />
+                  <span className="text-xs text-gray-400 mt-1 block text-right">
+                    {botMessage.length} karakter
+                  </span>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3 text-xs text-blue-800">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 text-blue-600 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Informasi:</span> Pesan ini hanya dikirimkan 1 kali ke pelanggan saat tiket baru pertama kali dibuat. Pesan susulan dari pelanggan tidak akan memicu pesan sambutan bot berulang kali.
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSavingBot}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-sm transition disabled:opacity-50"
+                  >
+                    {isSavingBot ? 'Menyimpan...' : 'Simpan Perubahan'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
