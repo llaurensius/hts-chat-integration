@@ -101,9 +101,12 @@ const handleIncomingMessage = async (req, res) => {
       });
     }
 
-    // 2. Cek apakah ada tiket aktif (status OPEN)
+    // 2. Cek apakah ada tiket aktif (status OPEN atau RESOLVED yang belum ditutup L1)
     const activeTicket = await prisma.ticket.findFirst({
-      where: { customer_id: customer.id, status: 'OPEN' },
+      where: { 
+        customer_id: customer.id, 
+        status: { in: ['OPEN', 'RESOLVED'] } 
+      },
       orderBy: { created_at: 'desc' }
     });
 
