@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle } from 'lucide-react';
+import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download } from 'lucide-react';
 import { format } from 'date-fns';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -10,16 +10,22 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 const socket = io(SOCKET_URL);
 
 function App() {
+  const [currentTab, setCurrentTab] = useState('chat'); // 'chat' atau 'report'
+
+  // --- STATE CHAT ---
   const [tickets, setTickets] = useState([]);
   const [activeTicket, setActiveTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [replyText, setReplyText] = useState('');
   
-  // State untuk Fase 4 (Penutupan & Divisi)
+  // State untuk Modal Penutupan Tiket
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [summaryText, setSummaryText] = useState('');
   const [divisions, setDivisions] = useState([]);
   const [selectedDivisions, setSelectedDivisions] = useState([]);
+
+  // --- STATE REPORT ---
+  const [reportTickets, setReportTickets] = useState([]);
 
   const messagesEndRef = useRef(null);
 
@@ -53,20 +59,26 @@ function App() {
     }
   };
 
+  // Load laporan
+  const loadReports = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/reports/tickets`);
+      setReportTickets(res.data);
+    } catch (error) {
+      console.error('Failed to load reports', error);
+    }
+  };
+
   useEffect(() => {
     loadTickets();
     loadDivisions();
 
-    // Listener realtime dari Socket.io
     socket.on('new_message', (data) => {
-      // Refresh antrean agar cuplikan pesan terakhir terupdate
       loadTickets();
-
-      // Jika pesan yang masuk adalah untuk tiket yang sedang kita buka
       setMessages((prev) => {
         if (activeTicket && data.ticketId === activeTicket.id) {
           return [...prev, {
-            id: Date.now(), // ID sementara untuk UI render
+            id: Date.now(),
             sender_type: data.senderType || 'CUSTOMER',
             message_text: data.text,
             created_at: data.createdAt || new Date().toISOString()
@@ -77,10 +89,12 @@ function App() {
     });
 
     socket.on('ticket_closed', (data) => {
-      loadTickets(); // Refresh antrean untuk menghilangkan tiket yg closed
+      loadTickets(); 
+      if (currentTab === 'report') loadReports(); // Refresh laporan jika ada yang diclose
+      
       if (activeTicket && data.ticketId === activeTicket.id) {
-        setActiveTicket(null); // Tutup obrolan jika tiket ini yang diclose
-        alert('Tiket ini baru saja diselesaikan oleh agen lain.');
+        setActiveTicket(null);
+        alert('Tiket ini baru saja diselesaikan.');
       }
     });
 
@@ -88,16 +102,22 @@ function App() {
       socket.off('new_message');
       socket.off('ticket_closed');
     };
-  }, [activeTicket]); // Dependensi activeTicket agar state di dalam event tidak stale
+  }, [activeTicket, currentTab]); 
 
-  // Setiap tiket pindah, fetch riwayat pesannya
+  // Fetch riwayat pesan jika tiket aktif berubah
   useEffect(() => {
     if (activeTicket) {
       loadMessages(activeTicket.id);
     }
   }, [activeTicket]);
 
-  // Auto-scroll ke pesan paling bawah
+  // Pindah Tab -> Load Data Laporan
+  useEffect(() => {
+    if (currentTab === 'report') {
+      loadReports();
+    }
+  }, [currentTab]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -107,15 +127,13 @@ function App() {
     if (!replyText.trim() || !activeTicket) return;
 
     const textToSend = replyText;
-    setReplyText(''); // Kosongkan input agar user bisa ngetik lagi
+    setReplyText(''); 
 
     try {
       await axios.post(`${API_URL}/chat/send`, {
         ticketId: activeTicket.id,
         text: textToSend
       });
-      // Tidak perlu nambahin ke state messages secara manual, 
-      // karena socket.io akan menangkap eventnya dan menambahkannya untuk kita!
     } catch (error) {
       console.error('Failed to send message', error);
       alert('Gagal mengirim pesan');
@@ -134,7 +152,6 @@ function App() {
         divisionIds: selectedDivisions
       });
       
-      // Reset Modal & State
       setShowCloseModal(false);
       setSummaryText('');
       setSelectedDivisions([]);
@@ -146,183 +163,278 @@ function App() {
     }
   };
 
-
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       
-      {/* PANEL KIRI: Daftar Tiket / Antrean */}
-      <div className="w-1/3 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 bg-gray-50 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-800">Antrean Aduan</h1>
-          <div className="mt-2 relative">
-            <input 
-              type="text" 
-              placeholder="Cari pelapor..." 
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-            />
-            <Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
-          </div>
+      {/* NAVIGASI UTAMA (KIRI) */}
+      <div className="w-16 bg-blue-900 flex flex-col items-center py-6 space-y-8 z-20 shadow-lg">
+        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-900 text-xl shadow-sm">
+          H
         </div>
-        
-        <div className="flex-1 overflow-y-auto">
-          {tickets.length === 0 && (
-            <div className="p-4 text-center text-gray-500 text-sm mt-4">Tidak ada aduan masuk</div>
-          )}
-          {tickets.map(ticket => {
-            const lastMsg = ticket.messages?.[0];
-            return (
-              <div 
-                key={ticket.id} 
-                onClick={() => setActiveTicket(ticket)}
-                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${activeTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
-              >
-                <div className="flex justify-between items-start mb-1">
-                  <h3 className="font-semibold text-gray-800 truncate">{ticket.customer.name}</h3>
-                  <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
-                    {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <p className="text-gray-500 truncate pr-4 text-xs">
-                    {lastMsg ? lastMsg.message_text : 'Belum ada pesan'}
-                  </p>
-                  {ticket.status === 'OPEN' && (
-                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">OPEN</span>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+        <div className="flex flex-col space-y-4 w-full px-2">
+          <button 
+            onClick={() => setCurrentTab('chat')}
+            className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'chat' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
+            title="Live Chat"
+          >
+            <MessageSquare className="w-6 h-6" />
+          </button>
+          <button 
+            onClick={() => setCurrentTab('report')}
+            className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'report' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
+            title="Laporan & Rekap"
+          >
+            <FileText className="w-6 h-6" />
+          </button>
         </div>
       </div>
 
-      {/* PANEL TENGAH: Chat Room */}
-      <div className="w-1/2 flex flex-col bg-slate-50">
-        {activeTicket ? (
-          <>
-            {/* Header Chat */}
-            <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm z-10">
-              <div className="flex items-center">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-3">
-                  {activeTicket.customer.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <h2 className="font-semibold text-gray-800">{activeTicket.customer.name}</h2>
-                  <p className="text-xs text-gray-500">+{activeTicket.customer.wa_number}</p>
-                </div>
+      {currentTab === 'chat' && (
+        <>
+          {/* PANEL KIRI: Daftar Tiket / Antrean */}
+          <div className="w-[30%] bg-white border-r border-gray-200 flex flex-col">
+            <div className="p-4 bg-gray-50 border-b border-gray-200">
+              <h1 className="text-xl font-bold text-gray-800">Antrean Aduan</h1>
+              <div className="mt-2 relative">
+                <input 
+                  type="text" 
+                  placeholder="Cari pelapor..." 
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+                <Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
               </div>
-              <button 
-                onClick={() => setShowCloseModal(true)}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg transition-colors font-medium"
-              >
-                Selesaikan
-              </button>
             </div>
-
-            {/* Bubble Chat Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((msg, idx) => {
-                const isCustomer = msg.sender_type === 'CUSTOMER';
-                // Jika dari bot, kita beri warna agak beda sedikit
-                const isBot = msg.sender_type === 'BOT'; 
-
+            
+            <div className="flex-1 overflow-y-auto">
+              {tickets.length === 0 && (
+                <div className="p-4 text-center text-gray-500 text-sm mt-4">Tidak ada aduan masuk</div>
+              )}
+              {tickets.map(ticket => {
+                const lastMsg = ticket.messages?.[0];
                 return (
-                  <div key={idx} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
-                    <div 
-                      className={`max-w-[70%] rounded-lg p-3 shadow-sm ${
-                        isCustomer 
-                          ? 'bg-white border border-gray-200 text-gray-800' 
-                          : isBot 
-                            ? 'bg-slate-700 text-white' 
-                            : 'bg-blue-600 text-white'
-                      }`}
-                    >
-                      <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message_text}</p>
-                      <span className={`text-[10px] mt-1 block text-right ${isCustomer ? 'text-gray-400' : 'text-blue-200'}`}>
-                        {format(new Date(msg.created_at), 'HH:mm')} 
-                        {isBot && ' (Auto-Reply)'}
+                  <div 
+                    key={ticket.id} 
+                    onClick={() => setActiveTicket(ticket)}
+                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${activeTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 className="font-semibold text-gray-800 truncate">{ticket.customer.name}</h3>
+                      <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                        {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
                       </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <p className="text-gray-500 truncate pr-4 text-xs">
+                        {lastMsg ? lastMsg.message_text : 'Belum ada pesan'}
+                      </p>
+                      {ticket.status === 'OPEN' && (
+                        <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">OPEN</span>
+                      )}
                     </div>
                   </div>
                 )
               })}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Kotak Ketik Balasan */}
-            <div className="p-4 bg-white border-t border-gray-200">
-              <form onSubmit={handleSend} className="flex items-center space-x-2">
-                <input 
-                  type="text" 
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Ketik balasan pesan ke pelapor..." 
-                  className="flex-1 py-2.5 px-4 border border-gray-300 rounded-full focus:outline-none focus:border-blue-500 bg-gray-50 text-sm"
-                />
-                <button 
-                  type="submit" 
-                  disabled={!replyText.trim()}
-                  className="p-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </form>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <Phone className="w-12 h-12 text-gray-300" />
-            </div>
-            <p className="text-lg font-medium text-gray-500">Pilih salah satu chat untuk mulai membalas</p>
-          </div>
-        )}
-      </div>
-
-      {/* PANEL KANAN: Informasi Pelanggan / Detail Tiket */}
-      <div className="w-1/6 bg-white border-l border-gray-200 p-4">
-        <h3 className="font-bold text-gray-800 mb-4 border-b pb-2">Detail Tiket</h3>
-        {activeTicket ? (
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nama Pelapor</label>
-              <div className="flex items-center text-sm font-medium text-gray-800">
-                <User className="w-4 h-4 mr-2 text-gray-400" />
-                {activeTicket.customer.name}
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nomor WA</label>
-              <div className="flex items-center text-sm text-gray-800">
-                <Phone className="w-4 h-4 mr-2 text-gray-400" />
-                +{activeTicket.customer.wa_number}
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Waktu Masuk</label>
-              <div className="flex items-center text-sm text-gray-800">
-                <Clock className="w-4 h-4 mr-2 text-gray-400" />
-                {format(new Date(activeTicket.created_at), 'dd MMM yyyy, HH:mm')}
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Status</label>
-              <div className="flex items-center text-sm text-gray-800 mt-1">
-                <AlertCircle className="w-4 h-4 mr-2 text-green-500" />
-                <span className="bg-green-100 text-green-700 px-2.5 py-0.5 rounded text-xs font-bold">
-                  {activeTicket.status}
-                </span>
-              </div>
             </div>
           </div>
-        ) : (
-          <div className="text-xs text-center text-gray-400 mt-10">
-            Pilih tiket untuk melihat detail
-          </div>
-        )}
-      </div>
 
-      {/* Modal Penutupan Tiket (Fase 4) */}
+          {/* PANEL TENGAH: Chat Room */}
+          <div className="flex-1 flex flex-col bg-slate-50">
+            {activeTicket ? (
+              <>
+                {/* Header Chat */}
+                <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm z-10">
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-3">
+                      {activeTicket.customer.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h2 className="font-semibold text-gray-800">{activeTicket.customer.name}</h2>
+                      <p className="text-xs text-gray-500">+{activeTicket.customer.wa_number}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowCloseModal(true)}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg transition-colors font-medium"
+                  >
+                    Selesaikan
+                  </button>
+                </div>
+
+                {/* Bubble Chat Area */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {messages.map((msg, idx) => {
+                    const isCustomer = msg.sender_type === 'CUSTOMER';
+                    const isBot = msg.sender_type === 'BOT'; 
+
+                    return (
+                      <div key={idx} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
+                        <div 
+                          className={`max-w-[70%] rounded-lg p-3 shadow-sm ${
+                            isCustomer 
+                              ? 'bg-white border border-gray-200 text-gray-800' 
+                              : isBot 
+                                ? 'bg-slate-700 text-white' 
+                                : 'bg-blue-600 text-white'
+                          }`}
+                        >
+                          <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message_text}</p>
+                          <span className={`text-[10px] mt-1 block text-right ${isCustomer ? 'text-gray-400' : 'text-blue-200'}`}>
+                            {format(new Date(msg.created_at), 'HH:mm')} 
+                            {isBot && ' (Auto-Reply)'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Kotak Ketik Balasan */}
+                <div className="p-4 bg-white border-t border-gray-200">
+                  <form onSubmit={handleSend} className="flex items-center space-x-2">
+                    <input 
+                      type="text" 
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Ketik balasan pesan ke pelapor..." 
+                      className="flex-1 py-2.5 px-4 border border-gray-300 rounded-full focus:outline-none focus:border-blue-500 bg-gray-50 text-sm"
+                    />
+                    <button 
+                      type="submit" 
+                      disabled={!replyText.trim()}
+                      className="p-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md"
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
+                  </form>
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                  <Phone className="w-12 h-12 text-gray-300" />
+                </div>
+                <p className="text-lg font-medium text-gray-500">Pilih salah satu chat untuk mulai membalas</p>
+              </div>
+            )}
+          </div>
+
+          {/* PANEL KANAN: Informasi Pelanggan / Detail Tiket */}
+          <div className="w-[20%] bg-white border-l border-gray-200 p-4">
+            <h3 className="font-bold text-gray-800 mb-4 border-b pb-2">Detail Tiket</h3>
+            {activeTicket ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nama Pelapor</label>
+                  <div className="flex items-center text-sm font-medium text-gray-800">
+                    <User className="w-4 h-4 mr-2 text-gray-400" />
+                    {activeTicket.customer.name}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Nomor WA</label>
+                  <div className="flex items-center text-sm text-gray-800">
+                    <Phone className="w-4 h-4 mr-2 text-gray-400" />
+                    +{activeTicket.customer.wa_number}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Waktu Masuk</label>
+                  <div className="flex items-center text-sm text-gray-800">
+                    <Clock className="w-4 h-4 mr-2 text-gray-400" />
+                    {format(new Date(activeTicket.created_at), 'dd MMM yyyy, HH:mm')}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Status</label>
+                  <div className="flex items-center text-sm text-gray-800 mt-1">
+                    <AlertCircle className="w-4 h-4 mr-2 text-green-500" />
+                    <span className="bg-green-100 text-green-700 px-2.5 py-0.5 rounded text-xs font-bold">
+                      {activeTicket.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-center text-gray-400 mt-10">
+                Pilih tiket untuk melihat detail
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* HALAMAN REPORTING (Fase 5) */}
+      {currentTab === 'report' && (
+        <div className="flex-1 bg-gray-50 flex flex-col p-6 overflow-hidden">
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">Rekap Hasil Aduan</h1>
+              <p className="text-sm text-gray-500 mt-1">Laporan historis tiket dan kesimpulan penanganan</p>
+            </div>
+            <button className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors">
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 overflow-hidden flex flex-col">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-gray-600">
+                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">ID</th>
+                    <th className="px-6 py-4 font-semibold">Pelapor (WA)</th>
+                    <th className="px-6 py-4 font-semibold">Status</th>
+                    <th className="px-6 py-4 font-semibold">Waktu Masuk</th>
+                    <th className="px-6 py-4 font-semibold">Divisi Terkait</th>
+                    <th className="px-6 py-4 font-semibold">Durasi</th>
+                    <th className="px-6 py-4 font-semibold min-w-[250px]">Kesimpulan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {reportTickets.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-10 text-center text-gray-400">Tidak ada data pelaporan.</td>
+                    </tr>
+                  ) : (
+                    reportTickets.map(row => (
+                      <tr key={row.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 font-medium">#{row.id}</td>
+                        <td className="px-6 py-4">
+                          <div className="font-semibold text-gray-800">{row.customerName}</div>
+                          <div className="text-xs text-gray-500">+{row.waNumber}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {row.status === 'CLOSED' ? (
+                            <span className="bg-gray-100 text-gray-600 px-2.5 py-0.5 rounded text-[10px] font-bold">CLOSED</span>
+                          ) : (
+                            <span className="bg-green-100 text-green-700 px-2.5 py-0.5 rounded text-[10px] font-bold">OPEN</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-xs whitespace-nowrap">
+                          {format(new Date(row.createdAt), 'dd MMM yy HH:mm')}
+                        </td>
+                        <td className="px-6 py-4 text-xs">
+                          {row.divisions}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-medium">
+                          {row.duration}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-600 line-clamp-2">
+                          {row.summary}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Penutupan Tiket */}
       {showCloseModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-[500px] p-6">

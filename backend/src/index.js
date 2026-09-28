@@ -30,10 +30,12 @@ app.use((req, res, next) => {
 // Import Routes
 const webhookRoutes = require('./routes/webhook');
 const chatRoutes = require('./routes/chat');
+const reportRoutes = require('./routes/report');
 
 // Register Routes
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
