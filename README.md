@@ -1,34 +1,44 @@
 # 💬 HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)
 
-Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk pengelolaan keluhan pelanggan/instansi (PIC) secara *real-time* dengan dukungan **Role-Based Access Control (RBAC)** antara Dispatcher (L1), 3 Tim Teknisi Lapangan (L2: Network, Server, M&E), dan Administrator.
+Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk pengelolaan keluhan pelanggan/instansi (PIC) secara *real-time* dengan dukungan **Role-Based Access Control (RBAC)** antara Dispatcher (L1), 3 Tim Teknisi Lapangan (L2: Network, Server, M&E), Administrator, dan Supervisor.
 
 ---
 
-## 🌟 Fitur Utama (Workflow V2.1)
+## 🌟 Fitur Utama (Workflow V2.2)
 
 - **🔄 Integrasi WhatsApp Dua Arah (Evolution API v2):**
   - Pesan masuk otomatis membuat profil pelanggan (*Customer*) dan tiket baru berstatus `OPEN`.
-  - Pesan sambutan otomatis (*Auto-Reply Bot*) untuk tiket baru.
   - Pesan susulan dari pelanggan otomatis tersambung ke tiket aktif yang sama (baik berstatus `OPEN` maupun `RESOLVED`).
   - Pengiriman pesan keluar langsung ke WhatsApp pelanggan dari dasbor web.
+- **🤖 Sakelar & Kustomisasi Auto-Reply Bot (Khusus L1):**
+  - Toggle sakelar bot ON/OFF langsung di antrean chat L1.
+  - Modal editor template pesan sambutan otomatis yang tersimpan di database `Setting`.
 - **🖼️ Dukungan Media Gambar Lengkap (Bi-directional Images):**
   - Pelanggan dapat mengirim foto kendala via WhatsApp yang langsung diunduh dan tampil di antrean chat web (didukung hingga kapasitas 50MB).
   - Agen Helpdesk dapat mengunggah gambar lampiran penjelasan kembali ke WhatsApp pelanggan.
 - **🛡️ Akses Berbasis Peran (Role-Based Access Control - RBAC):**
-  - **L1 (Dispatcher):** Berkomunikasi langsung dengan pelanggan, menugaskan tiket ke tim L2, dan menutup tiket resmi.
+  - **L1 (Dispatcher):** Berkomunikasi langsung dengan pelanggan, menugaskan tiket ke tim L2, sakelar bot, dan menutup tiket resmi.
   - **L2 (Teknisi):** Mode *View-Only* obrolan pelanggan, kolom *Catatan Internal* (hanya dibaca tim), tombol *Tandai Selesai*, dan *Kembalikan / Lepas*.
-  - **ADMIN:** Akses penuh gabungan (L1 + L2) dan panel **Manajemen Pengguna**.
+  - **ADMIN:** Akses penuh gabungan (L1 + L2), **Manajemen Pengguna**, **Kontak Tim L2**, dan **Pembersihan Rekap Aduan**.
   - **SPV:** Monitoring antrean dan akses laporan rekapitulasi.
-- **👥 Pendelegasian Multi-Assign (Satu atau Banyak Tim Sekaligus):**
+- **👥 Pendelegasian Smart Multi-Assign (Satu atau Banyak Tim Sekaligus):**
   - L1 dapat mencentang lebih dari satu tim teknisi sekaligus (`Network`, `Server`, dan/atau `Mechanical & Electrical (M&E)`).
-  - Tiket otomatis muncul di antrean semua teknisi tim yang dicentang secara bersamaan.
-- **📢 WhatsApp Blast Notifikasi Tugas ke L2:**
-  - Saat Dispatcher menugaskan tiket, bot secara otomatis mengirim notifikasi WhatsApp ke nomor target masing-masing tim yang dicentang.
+  - **Smart Assign Diffing:** Menambah/mengubah tim tidak mereset tim yang sudah aktif bertugas atau yang telah selesai.
+- **📢 WhatsApp Multi-Contact Blast Notifikasi Tugas ke L2:**
+  - Saat Dispatcher menugaskan tiket, sistem membroadcast pesan notifikasi WA ke seluruh nomor/grup yang terdaftar pada tim terkait.
+  - Administrator dapat mengelola daftar kontak (tambah, inline edit, hapus) di tab **Kontak Tim L2**.
+- **🏷️ Identitas Tim Otomatis pada Catatan Internal:**
+  - Setiap catatan internal teknisi L2 otomatis diberi badge identitas tim (misal `[Tim Network]`), baik untuk pesan manual, notifikasi *Tandai Selesai*, maupun *Pengembalian Tiket*.
 - **✅ Penyelesaian Mandiri Per-Tim (*Per-Team Resolution*):**
   - Setiap tim menandai selesai tugas bagiannya sendiri (`is_resolved`).
   - Tiket utama otomatis berubah menjadi `RESOLVED` hanya ketika **seluruh tim yang ditugaskan telah menyatakan selesai**.
 - **🔄 Pelepasan Penugasan Mandiri (*Self-Unassign Return*):**
   - Teknisi dapat melepas penugasan timnya jika bukan kewenangannya dengan menyertakan alasan. Tiket tetap berjalan di tim lain yang masih bertugas.
+- **🎯 Auto Pre-Fill Kategori Masalah Saat Tiket Ditutup:**
+  - Saat L1 menyelesaikan tiket, modal penutupan secara otomatis mencentang kategori masalah sesuai tim L2 yang ditugaskan di awal tiket.
+- **🗑️ Pembersihan Rekap Aduan & Reset Penomoran ID (Admin Only):**
+  - Administrator dapat menghapus tiket selesai terpilih atau menghapus seluruh riwayat data testing.
+  - Saat hapus semua, urutan penomoran auto-increment PostgreSQL otomatis di-reset (`ALTER SEQUENCE tickets_id_seq RESTART WITH 1`) sehingga tiket baru berikutnya kembali bernomor ID #1.
 - **🏷️ Klasifikasi Jenis Layanan (*Service Type*):**
   - Mendukung klasifikasi: `Troubleshooting (Gangguan)`, `Request Layanan`, atau `Monitoring`.
 - **⚡ Komunikasi Real-time (Socket.io):**
@@ -67,7 +77,8 @@ flowchart TD
         L2_NET[Teknisi Network L2]
         L2_SRV[Teknisi Server L2]
         L2_ME[Teknisi M&E L2]
-        ADM[Admin / SPV]
+        ADM[Admin]
+        SPV[Supervisor]
     end
     
     FE --- L1
@@ -75,6 +86,7 @@ flowchart TD
     FE --- L2_SRV
     FE --- L2_ME
     FE --- ADM
+    FE --- SPV
 ```
 
 ---
@@ -136,14 +148,14 @@ Buka browser pada alamat: **`http://localhost:5173`** (atau via IP LAN: `http://
 
 Semua akun terdaftar menggunakan **Password:** `password123`
 
-| Role | Email | Kategori / Akses |
-|---|---|---|
-| **ADMIN** | `admin@helpdesk.go.id` | Akses penuh (L1 + L2) & Manajemen User |
-| **L1 (Dispatcher)** | `l1@helpdesk.go.id` | Chat ke PIC, Multi-Assign L2, Tutup Tiket Resmi |
-| **L2 (Network)** | `l2_network@helpdesk.go.id` | Catatan Internal, Tandai Selesai, Return |
-| **L2 (Server)** | `l2_server@helpdesk.go.id` | Catatan Internal, Tandai Selesai, Return |
-| **L2 (M&E)** | `l2_me@helpdesk.go.id` | Catatan Internal, Tandai Selesai, Return |
-| **SPV (Supervisor)** | `spv@helpdesk.go.id` | Monitoring & Akses Rekap Laporan CSV |
+| Role | Email | Nama Pengguna | Kategori / Hak Akses Utama |
+|---|---|---|---|
+| **ADMIN** | `admin@helpdesk.go.id` | Administrator | Akses Penuh (Chat, Tiket, Users, Kontak L2, Hapus Rekap) |
+| **L1** | `l1@helpdesk.go.id` | Dispatcher L1 | Chat Pelapor, Bot Toggle, Multi-Assign L2, Selesaikan Tiket |
+| **L2** | `l2_network@helpdesk.go.id` | Teknisi Network L2 | Catatan Internal, Tandai Selesai Bagian Network, Return |
+| **L2** | `l2_server@helpdesk.go.id` | Teknisi Server L2 | Catatan Internal, Tandai Selesai Bagian Server, Return |
+| **L2** | `l2_me@helpdesk.go.id` | Teknisi M&E L2 | Catatan Internal, Tandai Selesai Bagian M&E, Return |
+| **SPV** | `spv@helpdesk.go.id` | Supervisor | Monitoring Antrean Tiket & Akses Rekap Laporan CSV |
 
 ---
 
@@ -151,16 +163,17 @@ Semua akun terdaftar menggunakan **Password:** `password123`
 
 Seluruh dokumentasi teknis mendalam tersedia di direktori [`docs/`](./docs/):
 
-1. **[Product Requirements Document (PRD)](docs/PRD_WhatsApp_Helpdesk.md)** - Kebutuhan bisnis, persona pengguna, dan kriteria penerimaan.
-2. **[Database Schema / ERD](docs/Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, dan enum.
-3. **[Spesifikasi API Endpoints](docs/API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, dan Socket.io events.
-4. **[Spesifikasi Keamanan](docs/Security_Specification.md)** - Standar enkripsi JWT, RBAC, Helmet CSP/CORP, dan Rate Limiter.
-5. **[Diagram Alur Sistem (Flowcharts)](docs/System_Flowcharts.md)** - Diagram alur proses sistem menggunakan notasi Mermaid.
+1. **[Product Requirements Document (PRD)](docs/PRD_WhatsApp_Helpdesk.md)** - Kebutuhan bisnis, persona pengguna, dan fitur F01 s/d F17.
+2. **[Database Schema / ERD](docs/Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, enum, dan reset sequence.
+3. **[Spesifikasi API Endpoints](docs/API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, Bot Setting, Multi-Contact L2, dan Socket.io.
+4. **[Spesifikasi Keamanan](docs/Security_Specification.md)** - Standar enkripsi JWT, RBAC matrix lengkap, Helmet CSP/CORP, dan Rate Limiter.
+5. **[Diagram Alur Sistem (Flowcharts)](docs/System_Flowcharts.md)** - Diagram alur proses sistem Mermaid (Inbound, Smart Assign, Resolve, Return, Close, Reset).
 6. **[Arsitektur & Tech Stack](docs/Tech_Stack_Architecture.md)** - Topologi infrastruktur, daftar pustaka, dan dependensi sistem.
 7. **[Panduan Deployment](docs/Deployment_Guide.md)** - Panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
 8. **[Panduan Operasional (SOP)](docs/Operational_Guide.md)** - Panduan operasional harian untuk Dispatcher L1, Teknisi L2, Admin, dan SPV.
-9. **[Rangkuman Lengkap Proyek](docs/summary.md)** - Rekapitulasi perjalanan sistem dari Workflow V1 hingga V2.1.
-10. **[Kredensial Pengguna](docs/user.md)** - Daftar akun pengujian default sistem.
+9. **[Rangkuman Lengkap Proyek](docs/Summary.md)** - Rekapitulasi komprehensif implementasi Workflow V1 hingga V2.2.
+10. **[Kredensial Pengguna & RBAC](docs/User.md)** - Daftar akun pengujian default sistem dan matriks hak akses.
+11. **[Rencana Implementasi V2](docs/Implementation_Plan_V2.md)** - Catatan historis tahapan pengembangan Fase 1 hingga Fase 4.
 
 ---
 

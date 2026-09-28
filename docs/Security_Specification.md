@@ -37,12 +37,15 @@ Sistem menerapkan **Role-Based Access Control (RBAC)** ketat di level API Gatewa
 | **Melihat Antrean Tiket Sesuai Kategori Tim** | ✅ | ✅ | ✅ (Hanya timnya) | ✅ |
 | **Membalas Chat ke WhatsApp Pelapor** | ✅ | ✅ | ❌ (View-Only) | ✅ |
 | **Mengirim Lampiran Gambar ke WhatsApp** | ✅ | ✅ | ❌ | ✅ |
-| **Menugaskan Tiket (Multi-Assign ke L2)** | ✅ | ✅ | ❌ | ❌ |
+| **Menugaskan / Ubah Tim L2 (Multi-Assign)** | ✅ | ✅ | ❌ | ❌ |
+| **Kustomisasi & Toggle Auto-Reply Bot** | ❌ (Khusus L1) | ✅ | ❌ | ❌ |
 | **Menulis Catatan Internal Tim** | ✅ | ✅ | ✅ | ✅ |
 | **Tandai Selesai Penanganan Bagian Tim** | ✅ (Semua tim) | ❌ | ✅ (Bagian timnya) | ❌ |
 | **Kembalikan / Lepas Penugasan Tim** | ✅ (Semua tim) | ❌ | ✅ (Bagian timnya) | ❌ |
 | **Menutup Tiket Resmi (Mandatory Summary)** | ✅ | ✅ | ❌ | ❌ |
 | **Melihat Rekap Aduan & Export CSV** | ✅ | ✅ | ❌ | ✅ |
+| **Hapus Data Rekap (Terpilih & Semua Data)** | ✅ | ❌ | ❌ | ❌ |
+| **Manajemen Kontak & Nomor WA Blast L2** | ✅ | ❌ | ❌ | ❌ |
 | **Manajemen Pengguna (CRUD User)** | ✅ | ❌ | ❌ | ❌ |
 
 ---

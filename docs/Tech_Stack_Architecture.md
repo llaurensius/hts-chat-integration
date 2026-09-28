@@ -1,6 +1,6 @@
 # 🏗️ Arsitektur Teknologi & Tech Stack
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** 2.0 (Workflow V2 Produksi)
+**Versi:** 2.2 (Workflow V2.2 Produksi)
 
 Dokumen ini mendefinisikan tumpukan teknologi (*Tech Stack*), pustaka dependensi, dan topologi arsitektur sistem yang digunakan dalam implementasi nyata.
 

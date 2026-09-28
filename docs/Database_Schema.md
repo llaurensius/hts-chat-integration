@@ -15,6 +15,7 @@ erDiagram
     Category ||--o{ CategoryContact : "memiliki kontak blast"
     Ticket ||--o{ TicketCategory : "memiliki tim"
     Ticket ||--o{ Message : "memiliki percakapan"
+    User ||--o{ Message : "mengirim"
 
     Customer {
         int id PK
@@ -157,7 +158,7 @@ Menyimpan seluruh jejak komunikasi, baik pesan masuk pelapor, pesan keluar agen,
 | `id` | `Int` | PK, Auto Increment | ID pesan |
 | `ticket_id` | `Int` | FK, Not Null | Relasi ke `Ticket` |
 | `sender_type` | `SenderType` | Not Null | Tipe pengirim: `CUSTOMER`, `AGENT`, `BOT` |
-| `sender_id` | `Int` | Nullable | ID user jika pengirim adalah agen/petugas |
+| `sender_id` | `Int` | FK, Nullable | Relasi ke `User` (`onDelete: SetNull`) untuk mencatat identitas agen/teknisi pengirim |
 | `message_text` | `String` | Nullable | Isi teks pesan obrolan atau catatan |
 | `attachment_url`| `String` | Nullable | Path relatif file gambar (misal `/uploads/img_1790595960337.jpg`) |
 | `is_internal` | `Boolean` | Default `false` | `true` jika pesan adalah **Catatan Internal L2** (tidak dikirim ke WA pelapor) |
@@ -165,12 +166,35 @@ Menyimpan seluruh jejak komunikasi, baik pesan masuk pelapor, pesan keluar agen,
 
 ---
 
+### G. Tabel `CategoryContact` (Daftar Kontak WhatsApp Blast Tim L2)
+Menyimpan daftar target nomor WhatsApp personil teknisi maupun ID grup WhatsApp untuk broadcast notifikasi penugasan tiket.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `id` | `Int` | PK, Auto Increment | ID unik kontak |
+| `category_id` | `Int` | FK, Not Null | Relasi ke `Category` (`onDelete: Cascade`) |
+| `name` | `String` | Not Null | Nama personil teknisi (misal: "Budi") atau nama grup (misal: "Grup WA Network") |
+| `wa_target` | `String` | Not Null | Nomor WhatsApp format internasional (`628xxx`) atau ID grup (`xxx@g.us`) |
+| `created_at` | `DateTime` | Default `now()` | Waktu pendaftaran kontak |
+
+---
+
+### H. Tabel `Setting` (Konfigurasi Dinamis Sistem)
+Menyimpan konfigurasi dinamis yang dapat diubah dari dasbor web tanpa merestart server.
+| Kolom | Tipe Data | Atribut | Keterangan |
+|---|---|---|---|
+| `key` | `String` | PK | Kunci konfigurasi unik (misal: `auto_reply`) |
+| `value` | `String (Text)`| Not Null | Nilai konfigurasi (template teks sambutan bot) |
+| `is_active` | `Boolean` | Default `true` | Sakelar status ON / OFF |
+| `updated_at` | `DateTime` | Auto Update | Waktu terakhir konfigurasi diubah |
+
+---
+
 ## 3. Rincian Enum (Tipe Data Konstan)
 
 1. **`Role`**:
-   - `ADMIN`: Hak akses penuh (melihat antrean L1 & L2, CRUD User).
-   - `L1`: Dispatcher (chat ke pelapor, assign ke L2, menutup tiket resmi).
-   - `L2`: Teknisi lapangan (mode baca aduan, catatan internal, resolve per-tim, return penugasan).
+   - `ADMIN`: Hak akses penuh (melihat antrean L1 & L2, CRUD User, CRUD Kontak Tim L2, Hapus Rekap Aduan).
+   - `L1`: Dispatcher (chat ke pelapor, assign ke L2, kustomisasi Auto-Reply Bot, menutup tiket resmi).
+   - `L2`: Teknisi lapangan (mode baca aduan, catatan internal tim, resolve per-tim, return penugasan).
    - `SPV`: Supervisor (monitoring antrean dan laporan rekap).
 2. **`TicketStatus`**:
    - `OPEN`: Tiket aktif baru masuk atau sedang dalam penanganan teknisi L2.
@@ -184,3 +208,19 @@ Menyimpan seluruh jejak komunikasi, baik pesan masuk pelapor, pesan keluar agen,
    - `TROUBLESHOOTING`: Penanganan gangguan atau kerusakan teknis.
    - `REQUEST_LAYANAN`: Permintaan konfigurasi, instalasi, atau permohonan akses.
    - `MONITORING`: Pemantauan rutin performa jaringan atau server.
+
+---
+
+## 4. Pengelolaan Sequence & Reset Nomor ID
+Untuk keperluan pembersihan data testing (*Fresh State Cleanup*), PostgreSQL menggunakan urutan *Sequence*:
+- `Ticket_id_seq`
+- `Message_id_seq`
+- `Customer_id_seq`
+
+Saat Admin mengeksekusi fitur **"Hapus Semua Data"**, selain menghapus seluruh baris data, sistem menjalankan:
+```sql
+ALTER SEQUENCE "Ticket_id_seq" RESTART WITH 1;
+ALTER SEQUENCE "Message_id_seq" RESTART WITH 1;
+ALTER SEQUENCE "Customer_id_seq" RESTART WITH 1;
+```
+Hal ini memastikan tiket dan aduan baru berikutnya akan **selalu mengulang penomoran mulai dari ID 1**.

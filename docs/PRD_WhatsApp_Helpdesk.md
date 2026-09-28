@@ -1,6 +1,6 @@
 # 📋 Product Requirements Document (PRD)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** 2.0 (Workflow V2 - Multi-Assign & RBAC)  
+**Versi:** 2.2 (Workflow V2.2 - Auto-Reply, Multi-Contact WA Blast, Smart Assignment)  
 **Status:** Produksi / Disetujui (*Approved & Implemented*)
 
 ---
@@ -93,3 +93,27 @@ Sistem dirancang untuk:
 
 ### F11. Akses Jaringan Lokal (Multi-Device LAN Access)
 - Seluruh antarmuka web dashboard dapat diakses oleh komputer lain di jaringan LAN / Wi-Fi lokal kantor melalui alamat IP host (port `5173`) secara dinamis tanpa perlu instalasi tambahan di perangkat klien.
+
+### F12. Kustomisasi Auto-Reply Bot & Sakelar ON/OFF (Khusus L1)
+- Halaman konfigurasi khusus bot di sidebar L1 dengan sakelar toggle ON/OFF interaktif dan editor template teks balasan otomatis dengan variabel `{nomor_tiket}`.
+
+### F13. Pembersihan Rekapitulasi Aduan & Reset Nomor ID (Khusus ADMIN)
+- Fitur penghapusan baris aduan terpilih (checkbox batch) dan tombol ⚠️ *"Hapus Semua Data"* dengan konfirmasi ganda yang mereset urutan nomor auto-increment ID kembali ke angka 1 (*fresh state*).
+
+### F14. Manajemen Multi-Kontak & Target WA Blast L2 dengan Inline Edit (Khusus ADMIN)
+- Pengelolaan dinamis daftar kontak teknisi personil (`628xxx`) dan ID Grup WhatsApp (`xxx@g.us`) per tim penanganan L2.
+- Dilengkapi fitur **Inline Edit (Pensil ✏️)** langsung di baris kontak untuk memperbarui nama dan nomor target.
+- WhatsApp Blast dikirimkan ke seluruh nomor kontak terdaftar pada tim yang ditugaskan.
+
+### F15. Catatan Internal L2 dengan Identitas Tim & Teknisi Otomatis
+- Gelembung catatan internal menampilkan badge dinamis nama tim dan teknisi: `🏷️ Catatan Internal - Tim [Network/Server/M&E] ([Nama Teknisi])`.
+- Input box teknisi L2 otomatis menampilkan nama tim teknisi yang sedang login.
+
+### F16. Penugasan Cerdas & Anti-Overwrite (Diffing & Merge)
+- Penugasan ulang tiket tidak menghapus tim yang sedang bekerja.
+- WhatsApp Blast hanya dikirimkan ke tim yang **baru ditambahkan** (mencegah spam berulang).
+- Modal penugasan otomatis tercentang (*pre-fill*) untuk tim yang sedang bertugas disertai badge `(Sedang Ditugaskan)`.
+- Peringatan konfirmasi jika L1 sengaja melepas tim yang sedang aktif.
+
+### F17. Centang Kategori Otomatis saat Selesaikan Tiket
+- Saat L1 mengklik *"Selesaikan"*, modal penutupan tiket otomatis mencentang kategori masalah sesuai tim L2 yang ditugaskan awal (badge `Penugasan L2`), dengan fleksibilitas bagi L1 untuk menambah/menyesuaikan sebelum tiket ditutup resmi.
