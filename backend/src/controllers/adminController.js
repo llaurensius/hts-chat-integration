@@ -152,11 +152,51 @@ const deleteCategoryContact = async (req, res) => {
   }
 };
 
+// Memperbarui kontak kategori tim L2
+const updateCategoryContact = async (req, res) => {
+  const { contactId } = req.params;
+  const { name, wa_target } = req.body;
+  const parsedId = parseInt(contactId, 10);
+
+  if (isNaN(parsedId)) {
+    return res.status(400).json({ error: 'ID kontak tidak valid' });
+  }
+
+  if (!name || !wa_target) {
+    return res.status(400).json({ error: 'Nama dan nomor target WhatsApp wajib diisi' });
+  }
+
+  try {
+    let formattedTarget = wa_target.trim();
+    if (!formattedTarget.endsWith('@g.us')) {
+      formattedTarget = formattedTarget.replace(/[^0-9]/g, '');
+      if (formattedTarget.startsWith('0')) {
+        formattedTarget = '62' + formattedTarget.slice(1);
+      }
+    }
+
+    const contact = await prisma.categoryContact.update({
+      where: { id: parsedId },
+      data: {
+        name: name.trim(),
+        wa_target: formattedTarget
+      }
+    });
+
+    res.json({ success: true, contact });
+  } catch (error) {
+    console.error('[Admin API] Error updating category contact:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   getUsers,
   createUser,
   deleteUser,
   getCategoryContacts,
   addCategoryContact,
-  deleteCategoryContact
+  deleteCategoryContact,
+  updateCategoryContact
 };
+

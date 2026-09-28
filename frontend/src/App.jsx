@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders } from 'lucide-react';
+import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -123,6 +123,8 @@ function Dashboard() {
   // State Multi-Kontak Tim L2 (Khusus Admin)
   const [teamCategories, setTeamCategories] = useState([]);
   const [newContactInputs, setNewContactInputs] = useState({});
+  const [editingContactId, setEditingContactId] = useState(null);
+  const [editContactData, setEditContactData] = useState({ name: '', wa_target: '' });
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -293,6 +295,33 @@ function Dashboard() {
       loadTeamCategories();
     } catch (error) {
       alert(error.response?.data?.error || 'Gagal menghapus kontak');
+    }
+  };
+
+  const handleStartEditContact = (contact) => {
+    setEditingContactId(contact.id);
+    setEditContactData({ name: contact.name, wa_target: contact.wa_target });
+  };
+
+  const handleCancelEditContact = () => {
+    setEditingContactId(null);
+    setEditContactData({ name: '', wa_target: '' });
+  };
+
+  const handleSaveEditContact = async (contactId) => {
+    if (!editContactData.name?.trim() || !editContactData.wa_target?.trim()) {
+      return alert('Nama dan Nomor WA / ID Grup wajib diisi!');
+    }
+    try {
+      await axios.put(`${API_URL}/admin/categories/contacts/${contactId}`, {
+        name: editContactData.name,
+        wa_target: editContactData.wa_target
+      });
+      setEditingContactId(null);
+      setEditContactData({ name: '', wa_target: '' });
+      loadTeamCategories();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Gagal memperbarui kontak');
     }
   };
 
@@ -1076,6 +1105,49 @@ function Dashboard() {
                     ) : (
                       cat.contacts.map(contact => {
                         const isGroup = contact.wa_target?.includes('@g.us');
+                        const isEditing = editingContactId === contact.id;
+
+                        if (isEditing) {
+                          return (
+                            <div key={contact.id} className="p-2.5 bg-blue-50/70 rounded-xl border border-blue-300 shadow-sm space-y-2">
+                              <div>
+                                <input
+                                  type="text"
+                                  placeholder="Nama"
+                                  value={editContactData.name}
+                                  onChange={(e) => setEditContactData(prev => ({ ...prev, name: e.target.value }))}
+                                  className="w-full text-xs px-2.5 py-1.5 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                                  autoFocus
+                                />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  placeholder="No WA (08xx) / ID Grup"
+                                  value={editContactData.wa_target}
+                                  onChange={(e) => setEditContactData(prev => ({ ...prev, wa_target: e.target.value }))}
+                                  className="flex-1 text-xs px-2.5 py-1.5 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white font-mono"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditContact(contact.id)}
+                                  className="bg-green-600 hover:bg-green-700 text-white p-1.5 rounded-lg transition"
+                                  title="Simpan Perubahan"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditContact}
+                                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 p-1.5 rounded-lg transition"
+                                  title="Batal"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
 
                         return (
                           <div key={contact.id} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 transition">
@@ -1090,13 +1162,22 @@ function Dashboard() {
                                 {contact.wa_target}
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleDeleteContact(contact.id)}
-                              className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
-                              title="Hapus Kontak"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleStartEditContact(contact)}
+                                className="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition"
+                                title="Edit Kontak"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteContact(contact.id)}
+                                className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition"
+                                title="Hapus Kontak"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         );
                       })

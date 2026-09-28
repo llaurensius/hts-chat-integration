@@ -6,7 +6,8 @@ const {
   deleteUser,
   getCategoryContacts,
   addCategoryContact,
-  deleteCategoryContact
+  deleteCategoryContact,
+  updateCategoryContact
 } = require('../controllers/adminController');
 
 router.get('/users', getUsers);
@@ -16,6 +17,7 @@ router.delete('/users/:id', deleteUser);
 // Rute Manajemen Multi-Kontak WhatsApp Blast per Tim L2
 router.get('/categories/contacts', getCategoryContacts);
 router.post('/categories/:categoryId/contacts', addCategoryContact);
+router.put('/categories/contacts/:contactId', updateCategoryContact);
 router.delete('/categories/contacts/:contactId', deleteCategoryContact);
 
 module.exports = router;
