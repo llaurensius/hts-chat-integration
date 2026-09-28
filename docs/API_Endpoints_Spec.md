@@ -311,3 +311,56 @@ Mengembalikan tiket berstatus `OPEN` dan `RESOLVED`.
 |---|---|---|---|
 | `new_message` | Server ➡️ Client | `{ ticketId, senderType, text, attachmentUrl, isInternal, createdAt }` | Ditembak saat ada pesan baru dari WhatsApp atau catatan internal agen. |
 | `ticket_closed` | Server ➡️ Client | `{ ticketId }` | Ditembak saat status tiket berubah (di-assign, resolved, atau closed) untuk memicu refresh antrean. |
+
+---
+
+## 7. Modul Pengaturan & Kontak Tim L2 (`/api/settings` & `/api/admin`)
+
+### A. Pengaturan Auto-Reply Bot (Khusus L1)
+*   **Method / Endpoint:** `GET /api/settings/autoreply`
+*   **Akses:** `L1`, `ADMIN`, `SPV`
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "data": {
+        "key": "auto_reply",
+        "value": "Halo! Terima kasih telah menghubungi Helpdesk...",
+        "is_active": true
+      }
+    }
+    ```
+*   **Method / Endpoint:** `PUT /api/settings/autoreply`
+*   **Akses:** `L1` (Role lain: 403 Forbidden)
+*   **Request Body:**
+    ```json
+    {
+      "value": "Template pesan baru...",
+      "is_active": true
+    }
+    ```
+
+### B. Hapus Rekap Hasil Aduan (Khusus ADMIN)
+*   **Method / Endpoint:** `DELETE /api/reports/tickets`
+*   **Akses:** `ADMIN` (Role lain: 403 Forbidden)
+*   **Request Body (Hapus Terpilih):**
+    ```json
+    { "ids": [10, 11, 12] }
+    ```
+*   **Request Body (Hapus Semua Data Testing):**
+    ```json
+    { "all": true }
+    ```
+
+### C. Manajemen Multi-Kontak WhatsApp Blast Tim L2 (Khusus ADMIN)
+*   **Ambil Daftar Kategori & Kontak:** `GET /api/admin/categories/contacts`
+    - Akses: `ADMIN`
+*   **Tambah Kontak Tim:** `POST /api/admin/categories/:categoryId/contacts`
+    - Akses: `ADMIN`
+    - Body: `{ "name": "Teknisi 2", "wa_target": "081234567890" }` (otomatis disanitasi ke `628xxx` atau `@g.us`)
+*   **Perbarui Kontak Tim (Edit):** `PUT /api/admin/categories/contacts/:contactId`
+    - Akses: `ADMIN`
+    - Body: `{ "name": "Teknisi 2 (Updated)", "wa_target": "628999888777" }`
+*   **Hapus Kontak Tim:** `DELETE /api/admin/categories/contacts/:contactId`
+    - Akses: `ADMIN`
+
