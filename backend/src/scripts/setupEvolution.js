@@ -28,7 +28,8 @@ async function setup() {
       });
       console.log('✅ Instance berhasil dibuat.');
     } catch (err) {
-      if (err.response?.data?.message?.includes('already exists')) {
+      const errMsg = err.response?.data?.response?.message?.[0] || err.response?.data?.message || '';
+      if (errMsg.includes('already exists') || errMsg.includes('already in use')) {
         console.log('ℹ️ Instance sudah ada. Lanjut ke setup Webhook.');
       } else {
         throw err;
