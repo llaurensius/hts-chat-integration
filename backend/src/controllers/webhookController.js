@@ -14,6 +14,7 @@ const handleIncomingMessage = async (req, res) => {
     if (payload.event !== 'messages.upsert') return;
     
     const messageData = payload.data;
+
     if (!messageData || !messageData.message) return;
 
     // Filter pesan dari diri sendiri atau dari grup
@@ -34,22 +35,34 @@ const handleIncomingMessage = async (req, res) => {
       if (!conversation) conversation = '[Mengirim Gambar]';
       
       const img = messageData.message.imageMessage;
-      // Jika disetting base64: true di webhook, evolution akan mengirim data base64
-      const base64Data = messageData.base64 || img.base64;
-      if (base64Data) {
-        const buffer = Buffer.from(base64Data, 'base64');
+      // Evolution API v2 tidak mengirim base64 di payload meskipun webhookBase64: true.
+      // Solusi: Download gambar langsung dari Evolution API menggunakan messageId
+      try {
+        const axios = require('axios');
+        const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+        const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
+        const INSTANCE = 'helpdesk-wa';
         
-        const filename = `img_${Date.now()}.jpg`;
-        const uploadDir = path.join(__dirname, '../../uploads');
+        const mediaRes = await axios.post(
+          `${EVO_URL}/chat/getBase64FromMediaMessage/${INSTANCE}`,
+          { message: { key: messageData.key, message: messageData.message } },
+          { headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' } }
+        );
         
-        // Buat folder jika belum ada
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
+        const b64 = mediaRes.data?.base64;
+        if (b64) {
+          const buffer = Buffer.from(b64, 'base64');
+          const filename = `img_${Date.now()}.jpg`;
+          const uploadDir = path.join(__dirname, '../../uploads');
+          if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+          fs.writeFileSync(path.join(uploadDir, filename), buffer);
+          attachmentUrl = `/uploads/${filename}`;
+          console.log(`[Webhook] Downloaded and saved image to ${attachmentUrl}`);
+        } else {
+          console.log('[Webhook] No base64 in media response:', JSON.stringify(mediaRes.data));
         }
-        
-        fs.writeFileSync(path.join(uploadDir, filename), buffer);
-        attachmentUrl = `/uploads/${filename}`;
-        console.log(`[Webhook] Saved image to ${attachmentUrl}`);
+      } catch (mediaErr) {
+        console.error('[Webhook] Failed to download media from Evolution:', mediaErr?.response?.data || mediaErr.message);
       }
     } else if (messageData.message.documentMessage) {
       if (!conversation) conversation = '[Mengirim Dokumen]';
