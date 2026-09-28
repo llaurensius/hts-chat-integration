@@ -20,7 +20,7 @@ const getTicketReports = async (req, res) => {
     }
 
     if (categoryId) {
-      whereClause.categorys = {
+      whereClause.categories = {
         some: {
           category_id: parseInt(categoryId)
         }
@@ -31,7 +31,7 @@ const getTicketReports = async (req, res) => {
       where: whereClause,
       include: {
         customer: true,
-        categorys: {
+        categories: {
           include: {
             category: true
           }
@@ -58,16 +58,21 @@ const getTicketReports = async (req, res) => {
         }
       }
 
+      const serviceTypeStr = t.service_type === 'REQUEST_LAYANAN' ? 'Request Layanan' : 
+                             t.service_type === 'MONITORING' ? 'Monitoring' : 
+                             t.service_type === 'TROUBLESHOOTING' ? 'Troubleshooting' : '-';
+
       return {
         id: t.id,
         customerName: t.customer.name,
         waNumber: t.customer.wa_number,
         status: t.status,
+        serviceType: serviceTypeStr,
         createdAt: t.created_at,
         closedAt: t.closed_at,
         duration: durationStr,
         summary: t.summary || '-',
-        categorys: t.categorys.map(td => td.category.name).join(', ') || 'Belum di-tag'
+        categories: t.categories.map(tc => tc.category.name).join(', ') || 'Belum di-assign'
       };
     });
 

@@ -325,14 +325,14 @@ function Dashboard() {
 
   const exportToCSV = () => {
     if (reportTickets.length === 0) return alert('Tidak ada data');
-    const headers = ['ID Tiket', 'Nama Pelapor', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Divisi Terkait', 'Kesimpulan'];
+    const headers = ['ID Tiket', 'Nama Pelapor', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Tim / Kategori', 'Jenis Layanan', 'Kesimpulan'];
     const csvRows = [headers.join(',')];
     reportTickets.forEach(ticket => {
       const row = [
         ticket.id, `"${ticket.customerName}"`, `"${ticket.waNumber}"`, ticket.status,
         `"${format(new Date(ticket.createdAt), 'yyyy-MM-dd HH:mm:ss')}"`,
         ticket.closedAt ? `"${format(new Date(ticket.closedAt), 'yyyy-MM-dd HH:mm:ss')}"` : '-',
-        `"${ticket.duration}"`, `"${ticket.categories}"`, `"${ticket.summary.replace(/"/g, '""')}"`
+        `"${ticket.duration}"`, `"${ticket.categories || '-'}"`, `"${ticket.serviceType || '-'}"`, `"${(ticket.summary || '-').replace(/"/g, '""')}"`
       ];
       csvRows.push(row.join(','));
     });
@@ -672,7 +672,65 @@ function Dashboard() {
             </button>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 overflow-hidden flex flex-col">
-             <div className="overflow-x-auto p-4">... Area Tabel Rekap (Data disembunyikan untuk ringkas) ...</div>
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-left text-sm text-gray-600">
+                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 uppercase text-xs">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">ID</th>
+                    <th className="px-6 py-4 font-semibold">Pelapor (WA)</th>
+                    <th className="px-6 py-4 font-semibold">Status</th>
+                    <th className="px-6 py-4 font-semibold">Jenis Layanan</th>
+                    <th className="px-6 py-4 font-semibold">Tim Terkait</th>
+                    <th className="px-6 py-4 font-semibold">Waktu Masuk</th>
+                    <th className="px-6 py-4 font-semibold">Durasi</th>
+                    <th className="px-6 py-4 font-semibold min-w-[200px]">Kesimpulan Penanganan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {reportTickets.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
+                        Belum ada data aduan atau tiket yang tercatat.
+                      </td>
+                    </tr>
+                  ) : (
+                    reportTickets.map(row => (
+                      <tr key={row.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 font-medium text-gray-900">#{row.id}</td>
+                        <td className="px-6 py-4">
+                          <div className="font-semibold text-gray-800">{row.customerName}</div>
+                          <div className="text-xs text-gray-500">+{row.waNumber}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            row.status === 'CLOSED' ? 'bg-gray-100 text-gray-700' :
+                            row.status === 'RESOLVED' ? 'bg-blue-100 text-blue-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-xs font-medium text-gray-700">
+                          {row.serviceType || '-'}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-semibold text-orange-700">
+                          {row.categories || '-'}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">
+                          {row.createdAt ? format(new Date(row.createdAt), 'dd MMM yyyy, HH:mm') : '-'}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-medium text-gray-700">
+                          {row.duration}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-600">
+                          {row.summary || '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
