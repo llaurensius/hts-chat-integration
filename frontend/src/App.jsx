@@ -129,16 +129,33 @@ function Dashboard() {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  const handleOpenAssignModal = () => {
+    if (!activeTicket) return;
+    const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
+    setAssignCategoryIds(currentCatIds);
+    setAssignServiceType(activeTicket.service_type || 'TROUBLESHOOTING');
+    setShowAssignModal(true);
+  };
+
   const handleAssignTicket = async () => {
     if (assignCategoryIds.length === 0) return alert('Pilih minimal 1 Tim L2 tujuan terlebih dahulu');
+
+    // Cek apakah ada tim yang sebelumnya ditugaskan kemudian di-uncheck
+    const currentCatIds = activeTicket?.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
+    const removedTeamIds = currentCatIds.filter(id => !assignCategoryIds.includes(id));
+    if (removedTeamIds.length > 0) {
+      const removedNames = categories.filter(c => removedTeamIds.includes(c.id)).map(c => c.name).join(', ');
+      const confirmRemove = window.confirm(`Peringatan: Tim ${removedNames} akan dilepas dari penugasan tiket ini.\n\nApakah Anda yakin ingin memperbarui penugasan?`);
+      if (!confirmRemove) return;
+    }
+
     try {
       const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, {
         categoryIds: assignCategoryIds,
         serviceType: assignServiceType
       });
       setShowAssignModal(false);
-      setAssignCategoryIds([]);
-      alert(res.data?.message || 'Tiket berhasil di-assign. Notifikasi WA otomatis dikirim ke Teknisi L2.');
+      alert(res.data?.message || 'Penugasan tiket berhasil disimpan.');
       loadTickets();
       if (activeTicket) loadMessages(activeTicket.id);
     } catch (error) {
@@ -701,8 +718,15 @@ function Dashboard() {
                   {/* RBAC: L1 bisa Tutup, L2 bisa Tandai Selesai */}
                   {isL1 && (
                     <div className="flex space-x-2">
-                      <button onClick={() => setShowAssignModal(true)} className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-lg font-medium transition">
-                        Assign ke L2
+                      <button 
+                        onClick={handleOpenAssignModal} 
+                        className={`px-3 py-1.5 text-sm rounded-lg font-medium transition flex items-center gap-1 ${
+                          activeTicket.categories && activeTicket.categories.length > 0
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
+                            : 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+                        }`}
+                      >
+                        {activeTicket.categories && activeTicket.categories.length > 0 ? 'Ubah / Tambah Tim L2' : 'Assign ke L2'}
                       </button>
                       <button onClick={() => setShowCloseModal(true)} className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-600 text-gray-700 text-sm rounded-lg font-medium transition">
                         Selesaikan
@@ -1339,28 +1363,42 @@ function Dashboard() {
       {/* MODAL ASSIGN L2 */}
       {showAssignModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-[400px] p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-2">Assign ke Teknisi L2</h2>
-            <p className="text-sm text-gray-500 mb-4">Tiket ini akan dilempar ke antrean L2 dan sistem akan mengirim notifikasi WhatsApp ke tim terkait.</p>
+          <div className="bg-white rounded-xl shadow-xl w-[420px] p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-1">
+              {activeTicket?.categories?.length > 0 ? 'Kelola / Tambah Tim L2' : 'Assign ke Teknisi L2'}
+            </h2>
+            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+              Pilih tim yang akan menangani. Tim yang baru ditambahkan akan otomatis menerima notifikasi WhatsApp Blast.
+            </p>
             <div className="mb-4">
               <label className="block text-sm font-semibold text-gray-700 mb-2">Pilih Tim L2 Tujuan (Bisa Centang Lebih dari 1)</label>
               <div className="space-y-2">
-                {categories.map(cat => (
-                  <label key={cat.id} className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${
-                    assignCategoryIds.includes(cat.id) ? 'bg-blue-50 border-blue-500 text-blue-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                  }`}>
-                    <input 
-                      type="checkbox" 
-                      className="w-4 h-4 text-blue-600 rounded mr-3"
-                      checked={assignCategoryIds.includes(cat.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setAssignCategoryIds([...assignCategoryIds, cat.id]);
-                        else setAssignCategoryIds(assignCategoryIds.filter(id => id !== cat.id));
-                      }}
-                    />
-                    <span>{cat.name}</span>
-                  </label>
-                ))}
+                {categories.map(cat => {
+                  const isCurrentlyAssigned = activeTicket?.categories?.some(tc => (tc.category_id || tc.category?.id) === cat.id);
+                  return (
+                    <label key={cat.id} className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${
+                      assignCategoryIds.includes(cat.id) ? 'bg-blue-50 border-blue-500 text-blue-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                    }`}>
+                      <div className="flex items-center">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 text-blue-600 rounded mr-3"
+                          checked={assignCategoryIds.includes(cat.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) setAssignCategoryIds([...assignCategoryIds, cat.id]);
+                            else setAssignCategoryIds(assignCategoryIds.filter(id => id !== cat.id));
+                          }}
+                        />
+                        <span>{cat.name}</span>
+                      </div>
+                      {isCurrentlyAssigned && (
+                        <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">
+                          Sedang Ditugaskan
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
             </div>
             <div className="mb-6">
@@ -1368,7 +1406,7 @@ function Dashboard() {
               <select 
                 value={assignServiceType} 
                 onChange={e => setAssignServiceType(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white text-sm"
               >
                 <option value="TROUBLESHOOTING">Troubleshooting (Gangguan)</option>
                 <option value="REQUEST_LAYANAN">Request Layanan</option>
@@ -1376,8 +1414,10 @@ function Dashboard() {
               </select>
             </div>
             <div className="flex justify-end space-x-3">
-              <button onClick={() => { setShowAssignModal(false); setAssignCategoryIds([]); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Batal</button>
-              <button onClick={handleAssignTicket} disabled={assignCategoryIds.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors">Tugaskan L2</button>
+              <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors text-sm">Batal</button>
+              <button onClick={handleAssignTicket} disabled={assignCategoryIds.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors text-sm">
+                {activeTicket?.categories?.length > 0 ? 'Simpan Penugasan' : 'Tugaskan L2'}
+              </button>
             </div>
           </div>
         </div>

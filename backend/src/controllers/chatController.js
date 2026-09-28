@@ -296,6 +296,18 @@ const assignTicket = async (req, res) => {
 
     if (categories.length === 0) return res.status(404).json({ error: 'Tim kategori tidak ditemukan' });
 
+    // 1. Ambil relasi penugasan tim yang sudah ada pada tiket ini
+    const existingRelations = await prisma.ticketCategory.findMany({
+      where: { ticket_id: ticket.id },
+      include: { category: true }
+    });
+    const existingCatIds = existingRelations.map(r => r.category_id);
+
+    // Kategori yang baru ditugaskan (belum ada sebelumnya)
+    const newCatIds = targetIds.filter(id => !existingCatIds.includes(id));
+    // Kategori yang dilepas oleh L1 (sebelumnya ada, sekarang di-uncheck)
+    const removedCatIds = existingCatIds.filter(id => !targetIds.includes(id));
+
     // Update service type jika diberikan
     let serviceTypeStr = serviceType || ticket.service_type || 'TROUBLESHOOTING';
     await prisma.ticket.update({
@@ -306,27 +318,57 @@ const assignTicket = async (req, res) => {
       }
     });
 
-    // Hapus penugasan lama untuk tiket ini
-    await prisma.ticketCategory.deleteMany({
-      where: { ticket_id: ticket.id }
-    });
+    // Lepas hanya kategori yang di-uncheck
+    if (removedCatIds.length > 0) {
+      await prisma.ticketCategory.deleteMany({
+        where: {
+          ticket_id: ticket.id,
+          category_id: { in: removedCatIds }
+        }
+      });
+    }
 
-    // Buat relasi baru untuk masing-masing tim L2 yang dicentang
-    await prisma.ticketCategory.createMany({
-      data: categories.map(c => ({
-        ticket_id: ticket.id,
-        category_id: c.id,
-        is_resolved: false
-      }))
-    });
+    // Tambahkan hanya kategori baru (tim yang sudah ada sebelumnya status is_resolved-nya dipertahankan)
+    if (newCatIds.length > 0) {
+      await prisma.ticketCategory.createMany({
+        data: newCatIds.map(catId => ({
+          ticket_id: ticket.id,
+          category_id: catId,
+          is_resolved: false
+        }))
+      });
+    }
 
-    // Format tampilan jenis layanan dan nama tim
+    // Format nama tim untuk log & notifikasi
     const typeDisplay = serviceTypeStr === 'REQUEST_LAYANAN' ? 'Request Layanan' : 
                         serviceTypeStr === 'MONITORING' ? 'Monitoring' : 'Troubleshooting';
-    const teamNames = categories.map(c => c.name).join(', ');
+    
+    const newCategories = categories.filter(c => newCatIds.includes(c.id));
+    const removedCategories = existingRelations.filter(r => removedCatIds.includes(r.category_id)).map(r => r.category);
+    const allActiveCategories = await prisma.ticketCategory.findMany({
+      where: { ticket_id: ticket.id },
+      include: { category: true }
+    });
+    const allActiveTeamNames = allActiveCategories.map(r => r.category.name).join(', ');
 
-    // Buat Internal Note otomatis bahwa tiket ini di-assign
-    const noteText = `[SISTEM] Tiket di-assign ke L2: Tim ${teamNames} | Jenis: ${typeDisplay}`;
+    // Buat Internal Note otomatis yang informatif
+    let noteText = '';
+    if (existingCatIds.length === 0) {
+      noteText = `[SISTEM] Tiket di-assign ke L2: Tim ${allActiveTeamNames} | Jenis: ${typeDisplay}`;
+    } else if (newCatIds.length > 0 && removedCatIds.length > 0) {
+      const addedNames = newCategories.map(c => c.name).join(', ');
+      const removedNames = removedCategories.map(c => c.name).join(', ');
+      noteText = `[SISTEM] Penugasan tim diperbarui oleh L1: Ditambahkan ke Tim ${addedNames}, dilepas dari Tim ${removedNames}. Tim aktif saat ini: ${allActiveTeamNames} | Jenis: ${typeDisplay}`;
+    } else if (newCatIds.length > 0) {
+      const addedNames = newCategories.map(c => c.name).join(', ');
+      noteText = `[SISTEM] Tim tambahan ditugaskan oleh L1: Tim ${addedNames}. Tim aktif saat ini: ${allActiveTeamNames} | Jenis: ${typeDisplay}`;
+    } else if (removedCatIds.length > 0) {
+      const removedNames = removedCategories.map(c => c.name).join(', ');
+      noteText = `[SISTEM] Tim dilepas dari penugasan oleh L1: Tim ${removedNames}. Tim aktif saat ini: ${allActiveTeamNames} | Jenis: ${typeDisplay}`;
+    } else {
+      noteText = `[SISTEM] Data penugasan diperbarui oleh L1: Tim ${allActiveTeamNames} | Jenis: ${typeDisplay}`;
+    }
+
     await prisma.message.create({
       data: {
         ticket_id: ticket.id,
@@ -337,7 +379,8 @@ const assignTicket = async (req, res) => {
       }
     });
 
-    // Blast Notifikasi WA ke setiap tim L2 (Multi-Kontak personil & ID grup) via Evolution API
+    // Blast Notifikasi WA HANYA ke tim yang BARU ditugaskan (newCategories)
+    // agar tim yang sudah ditugaskan sebelumnya tidak menerima spam notifikasi berulang
     const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
     const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
     const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
@@ -345,7 +388,7 @@ const assignTicket = async (req, res) => {
     const dashboardUrl = hostHeader.includes(':') ? `http://${hostHeader.split(':')[0]}:5173` : `http://${hostHeader}:5173`;
 
     const axios = require('axios');
-    for (const cat of categories) {
+    for (const cat of newCategories) {
       const blastMessage = `🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨\n\n*Tim:* ${cat.name}\n*Jenis Layanan:* ${typeDisplay}\n*Pelapor:* ${ticket.customer.name}\n*No WA:* ${ticket.customer.wa_number}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
 
       // Ambil seluruh target WA dari CategoryContact (Multi-Kontak)
