@@ -122,34 +122,47 @@ flowchart TD
 
 ---
 
-### US-04: Eksekusi L2 & Pengisian Penanganan Teknis (Form Teknis Strict)
+### US-04: Eksekusi L2 & Pencatatan Solusi via Modal "Tandai Selesai"
 > **Sebagai** Teknisi L2 (Network / Server / M&E),  
-> **Setelah** saya menyelesaikan penanganan di lapangan,  
-> **Saya ingin** mengisi form penanganan teknis yang sesuai dengan standar HTS Diskomdigi,  
-> **Sehingga** tahapan *"Isi Teknis"* di portal HTS langsung terupdate dan status aduan menjadi Selesai.
+> **Setelah** saya melakukan penanganan kendala di lapangan/sistem,  
+> **Saya ingin** mencatat detail solusi dan foto bukti perbaikan secara langsung saat mengklik tombol *"Tandai Selesai"*,  
+> **Tanpa harus** mengurus akun atau form di portal HTS Diskomdigi,  
+> **Sehingga** saya dapat fokus penuh pada eksekusi teknis lapangan dan data solusi saya otomatis siap digunakan oleh L1.
 
 * **Kriteria Penerimaan (Acceptance Criteria):**
-  1. Saat L2 mengklik tombol *"Tandai Selesai"*, muncul modal *Form Penanganan Teknis* yang mencakup:
-     - **Tanggal Penanganan \*** (default: hari ini).
-     - **Jam Penanganan \*** (default: jam saat ini).
-     - **Detil Penanganan \*** (penjelasan pekerjaan teknis yang dilakukan).
-     - **PIC Penanganan \*** (pilihan dropdown / nama teknisi sesuai master PIC HTS).
-     - **Bukti Penanganan** (unggah foto hasil pekerjaan/screenshot).
-  2. Setelah disimpan, sistem lokal mencatatnya sebagai *Internal Note* bertag tim L2, dan secara otomatis mem-POST ke form *Isi Teknis* HTS (`Simpan penanganan`).
-  3. Status tiket di portal HTS berubah menjadi **SELESAI / CLOSED**.
+  1. Teknisi L2 **tidak memerlukan** akun di portal HTS Diskomdigi.
+  2. Saat teknisi L2 mengklik tombol **"Tandai Selesai"**, sistem tidak lagi sekadar memunculkan alert konfirmasi biasa, melainkan menampilkan **Modal Penyelesaian Teknis L2**:
+     - **Header Modal:** `Penyelesaian Kendala - Tim [Network / Server / M&E]`
+     - **Field Wajib:** **Detail Penanganan / Solusi Teknis \*** (Textarea: langkah/tindakan perbaikan yang telah dilakukan di lapangan).
+     - **Field Opsional:** Upload foto bukti hasil kerja/dokumentasi perbaikan.
+     - **Tombol Aksi:** *Simpan & Tandai Selesai*.
+  3. Setelah tombol simpan ditekan:
+     - Sistem otomatis memposting teks solusi tersebut ke riwayat obrolan sebagai **Catatan Internal** bertag identitas tim dan nama teknisi:  
+       `🏷️ Catatan Internal - Tim [Network] ([Nama Teknisi]): [SOLUSI PENANGANAN] <teks solusi>`
+     - Status per-tim tiket lokal berubah menjadi selesai (`is_resolved = true`).
+     - Jika seluruh tim L2 telah selesai, status tiket lokal otomatis naik menjadi `RESOLVED`.
+     - Teks solusi ini otomatis disimpan untuk nantinya dijadikan bahan **auto pre-fill** pada modal penutupan L1 (*Selesaikan Tiket*).
+
 
 ---
 
-### US-05: Konfirmasi Akhir ke PIC & Penutupan Ganda (Dual-Close)
+### US-05: Konfirmasi PIC & Penutupan Ganda oleh L1 (Auto Submit Teknis HTS + Dual-Close)
 > **Sebagai** Dispatcher L1,  
-> **Setelah** seluruh tim L2 menyelesaikan pekerjaannya (Status Tiket `RESOLVED`),  
-> **Saya ingin** mengonfirmasi kembali ke PIC melalui WhatsApp apakah keluhan sudah tuntas,  
-> **Dan jika sudah oke**, saya menutup tiket resmi (`CLOSED`), memastikan tiket di portal HTS juga telah terverifikasi selesai.
+> **Setelah** seluruh tim L2 menyelesaikan pekerjaannya (Tiket `RESOLVED`) dan saya mengonfirmasi ke PIC WhatsApp bahwa kendala telah normal,  
+> **Saya ingin** menutup tiket di Helpdesk lokal sekaligus mengeksekusi pengisian form teknis (`/submit_teknis`) di portal HTS Diskomdigi secara otomatis,  
+> **Sehingga** tiket di kedua sistem resmi ditutup secara sinkron dalam satu kali klik.
 
 * **Kriteria Penerimaan (Acceptance Criteria):**
-  1. L1 melakukan chat konfirmasi via WhatsApp ke PIC bahwa perbaikan telah selesai dilakukan oleh tim teknisi.
-  2. Jika PIC merespons bahwa layanan sudah kembali normal dan tidak ada komplain lagi, L1 membuka modal *"Selesaikan Tiket"*.
-  3. Sistem memverifikasi bahwa tiket di HTS sudah berstatus selesai (dari tahap Isi Teknis L2), lalu L1 memasukkan kesimpulan akhir untuk menutup tiket di Helpdesk lokal secara permanen.
+  1. L1 menghubungi PIC via WhatsApp untuk memastikan kendala sudah tuntas.
+  2. L1 membuka modal *"Selesaikan Tiket"* di Dasbor Helpdesk:
+     - Form penutupan otomatis mengambil (*auto pre-fill*) ringkasan tindakan dari Catatan Internal L2 sebagai draf solusi.
+     - Pilihan nama PIC Penanganan teknis (sesuai personil teknisi yang menangani).
+     - Tanggal & jam penyelesaian (otomatis terisi waktu saat ini).
+  3. Saat L1 menekan tombol *"Tutup & Selesaikan Tiket"*:
+     - Sistem Helpdesk mengeksekusi `POST /submit_teknis` ke portal HTS menggunakan sesi login L1.
+     - Status tiket di portal HTS resmi berubah menjadi **SOLVED (Selesai)**.
+     - Status tiket di Helpdesk lokal resmi berubah menjadi **CLOSED**.
+
 
 ---
 
@@ -220,14 +233,159 @@ model Ticket {
 
 ---
 
-## 🗺️ 6. Langkah Kerja Selanjutnya (Next Steps)
+## ️ 6. Spesifikasi Teknis Hasil Analisis File HAR (`hts.diskomdigi.jatengprov.go.id.har`)
 
-1. **Inspeksi Master Data HTS:**  
-   Membuka halaman portal HTS bersama pengguna untuk mendokumentasikan nilai pasti (*exact options*) dari:
-   - Daftar nama Instansi/OPD & OPD Induk.
-   - Opsi Kategori & 3 Sub-Kategori Troubleshoot.
-   - Daftar PIC Penanganan Teknis.
-2. **Pengembangan Backend HTS Client Service:**  
-   Modul Node.js untuk menangani login per-user L1, captcha proxy/stream, penyimpanan cookie per user, dan multipart POST form.
-3. **Penyusunan Form UI di Dasbor:**  
-   Dropdown terintegrasi pada Modal Assign L1 (dengan toggle hybrid) dan Modal Selesai L2.
+Dari analisis rekaman browser file HAR, berikut adalah endpoint dan parameter **100% riil** yang digunakan oleh portal HTS Diskomdigi:
+
+### A. Autentikasi Login Petugas
+* **URL:** `POST https://hts.diskomdigi.jatengprov.go.id/login`
+* **Content-Type:** `application/x-www-form-urlencoded`
+* **Payload:**
+  ```urlencoded
+  csrf_test_name=<token_csrf>
+  email=<email_petugas_l1>
+  password=<password_petugas_l1>
+  captcha_code=<kode_captcha>
+  ```
+* **Cookie Response:** Menyimpan cookie `ci_session`.
+* **URL Live Captcha:** `GET https://hts.diskomdigi.jatengprov.go.id/captcha?rand=<timestamp_random>`
+
+---
+
+### B. Tahap 1: Pembuatan Tiket Aduan Baru (`/submit_aduan`)
+* **URL:** `POST https://hts.diskomdigi.jatengprov.go.id/submit_aduan`
+* **Content-Type:** `multipart/form-data`
+* **Headers:** `X-Requested-With: XMLHttpRequest`
+* **Field Payload:**
+
+| Nama Parameter Form | Tipe | Contoh Nilai | Keterangan |
+|---|---|---|---|
+| `csrf_test_name` | String | `900df72eaf97c651...` | Diambil dari halaman `/tshoot` |
+| `cust` | String | `"Testing HTS"` | Nama Pemohon (`Customer.name`) |
+| `wa` | String | `"089999999999"` | No HP/WA (`Customer.wa_number`) |
+| `opd` | String | `"Dinas Komunikasi dan Informatika Provinsi Jawa Tengah"` | Nama Instansi (`Customer.skpd_name`) |
+| `induk_opd_id` | String | `"57"` | ID OPD Induk dari daftar 97 instansi |
+| `tgltshoot` | Date | `"2026-09-29"` | Tanggal kendala (`YYYY-MM-DD`) |
+| `jam_problem` | Time | `"13:17"` | Jam kendala (`HH:mm`) |
+| `kategori` | Enum | `"troubleshoot"` | Opsi: `troubleshoot`, `request`, `monitoring` |
+| `sub-kategori` | Enum | `"DISTRIBUTION NETWORK"` | Opsi: `DISTRIBUTION NETWORK`, `CORE NETWORK`, `SERVER`, `MECHANICAL & ELECTRICAL`, `EMAIL`, `INTERNET DESA` |
+| `detil` | Text | `"Kendala koneksi internet..."` | Detil permasalahan pelanggan |
+| `pic[]` | File Binary | `file lampiran (foto)` | Opsional, max 1MB per file (jpg/png) |
+
+* **Format Respon Server:**
+  ```json
+  {
+    "success": true,
+    "message": "Aduan anda sudah terinput dengan nomor aduan 2025-TShoot-2026-jateng-09 <strong>. Dan saat ini telah dikirimkan ke teknikal terkait."
+  }
+  ```
+  *(Sistem Helpdesk mengekstrak `id_trouble: 2025` dan `no_trouble: 2025-TShoot-2026-jateng-09` dari pesan respon ini).*
+
+---
+
+### C. Tahap 2: Pemindahan Status Aduan (`/submit_aduan_status`)
+* **Tujuan:** Memindahkan tiket dari status `unsubmitted` ke `input-pic`.
+* **URL:** `POST https://hts.diskomdigi.jatengprov.go.id/submit_aduan_status`
+* **Content-Type:** `multipart/form-data`
+* **Payload:**
+  * `id_trouble`: `"2025"`
+  * `csrf_test_name`: `<token_csrf>`
+* **Respon Server:**
+  ```json
+  {
+    "success": true,
+    "message": "Aduan 2025-TShoot-2026-jateng-09 berhasil dikirim ke tim teknis"
+  }
+  ```
+
+---
+
+### D. Tahap 3: Penetapan PIC Penanganan (`/submit_pic`)
+* **Tujuan:** Menugaskan PIC dan memindahkan tiket dari `input-pic` ke `pending` (Proses Penanganan).
+* **URL:** `POST https://hts.diskomdigi.jatengprov.go.id/submit_pic`
+* **Content-Type:** `multipart/form-data`
+* **Payload:**
+  * `id_trouble`: `"2025"`
+  * `pic_id`: `"14"` (contoh: Helpdesk - Ori) atau ID Teknisi L2
+  * `csrf_test_name`: `<token_csrf>`
+* **Respon Server:**
+  ```json
+  {
+    "success": true,
+    "message": "PIC penanganan berhasil ditetapkan untuk aduan 2025-TShoot-2026-jateng-09",
+    "redirect": "https://hts.diskomdigi.jatengprov.go.id/list_aduan"
+  }
+  ```
+
+---
+
+### E. Tahap 4: Pembukaan & Pengisian Form Teknis L2 (`/submit_teknis`)
+* **Trigger Pembuka:**
+  * **URL:** `POST https://hts.diskomdigi.jatengprov.go.id/submit_input_teknis`
+  * **Payload:** `id_trouble: "2025"`, `csrf_test_name: "<token_csrf>"`
+  * **Respon:** Membuka formulir pengisian teknis `GET /submit_teknis_form`.
+
+* **Simpan Penanganan Teknis (Menuntaskan Tiket):**
+  * **URL:** `POST https://hts.diskomdigi.jatengprov.go.id/submit_teknis`
+  * **Content-Type:** `multipart/form-data`
+  * **Field Payload:**
+
+| Nama Parameter Form | Tipe | Contoh Nilai | Keterangan |
+|---|---|---|---|
+| `csrf_test_name` | String | `900df72eaf97c...` | Token CSRF aktif |
+| `id_trouble` | String | `"2025"` | ID tiket di portal HTS |
+| `tglteknis` | Date | `"2026-09-29"` | Tanggal penanganan (`YYYY-MM-DD`) |
+| `jam_problem` | Time | `"13:29"` | Jam penanganan (`HH:mm`) |
+| `detil` | Text | `"cuma untuk testing solved"` | Solusi teknis yang diberikan teknisi |
+| `pic_id` | String | `"14"` | ID Personil PIC penanganan teknis |
+| `pic[]` | File Binary | `file bukti (foto/pdf)` | Opsional lampiran bukti penanganan |
+
+* **Format Respon Server:**
+  ```json
+  {
+    "success": true,
+    "message": "Data penanganan berhasil disimpan untuk aduan 2025-TShoot-2026-jateng-09",
+    "redirect": "https://hts.diskomdigi.jatengprov.go.id/list_aduan"
+  }
+  ```
+  *(Dengan request ini, tiket di portal HTS otomatis berpindah ke tab **"solved"** dengan status resmi **Selesai**).*
+
+---
+
+## 🗺️ 7. Rencana Implementasi Bertahap (Implementation Plan)
+
+Berikut roadmap konkret implementasi integrasi portal HTS ke sistem Helpdesk:
+
+### 🚀 Fase 1: Modul Layanan Backend (`htsClientService.js`) & Sesi Login Per-User
+- [ ] Buat modul `backend/src/services/htsClientService.js` menggunakan `axios` + `tough-cookie` / cookie handling.
+- [ ] Fitur `getCaptcha()`: Stream gambar live captcha dari HTS ke klien.
+- [ ] Fitur `loginHts(userId, email, password, captcha)`: Melakukan autentikasi dan menyimpan cookie sesi terisolasi per `user_id`.
+- [ ] Penyesuaian skema database Prisma (`HtsUserSession`, kolom `hts_ticket_id` & `hts_status` pada `Ticket`).
+- [ ] API endpoint backend:
+  - `GET /api/hts/status`: Mengecek status koneksi sesi HTS user yang sedang login.
+  - `GET /api/hts/captcha`: Mengambil captcha baru.
+  - `POST /api/hts/login`: Melakukan login ke portal HTS.
+
+### 📋 Fase 2: Master Data Caching & Antarmuka Dasbor L1 (Modal Assign Hybrid)
+- [ ] Endpoint backend untuk mengambil list 97 OPD Induk, Kategori, Sub-kategori, dan 17 PIC dari HTS (dengan caching lokal agar cepat).
+- [ ] Widget status koneksi HTS personal di header Dasbor Web Helpdesk (Indikator Hijau/Kuning + Modal Login CAPTCHA).
+- [ ] Pembaruan pada **Modal Assign L2**:
+  - Checkbox toggle `[✔] Sekaligus Buat Tiket Resmi di Portal HTS`.
+  - Dropdown strict OPD Induk & Sub-Kategori.
+  - Auto-submit pipeline berantai: `submit_aduan` ➔ `submit_aduan_status` ➔ `submit_pic`.
+  - Tombol susulan manual `[+ Sinkronkan ke HTS]` pada detail tiket yang belum terhubung.
+
+### 🔧 Fase 3: Integrasi Penutupan Tiket L1 & Otomasi `submit_teknis` HTS
+- [ ] Pembaruan pada **Modal "Selesaikan Tiket" L1**:
+  - Auto pre-fill rangkuman solusi yang diambil otomatis dari Catatan Internal L2 terakhir.
+  - Dropdown pilihan PIC Penanganan teknis (sesuai daftar master PIC di HTS).
+  - Checkbox toggle `[✔] Sekaligus Tutup Tiket di Portal HTS (Submit Penanganan Teknis)` (otomatis tercentang jika tiket ini terhubung ke HTS).
+- [ ] Handler backend untuk mengeksekusi `POST /submit_teknis` ke portal HTS secara instan menggunakan sesi L1.
+- [ ] Status tiket di kedua sistem berubah serentak: di portal HTS menjadi **SOLVED** dan di Helpdesk lokal menjadi **CLOSED**.
+
+### ✅ Fase 4: Pengujian Menyeluruh (End-to-End Testing)
+- [ ] Uji coba skenario lengkap dari pesan masuk WhatsApp PIC ➔ L1 Create Tiket HTS ➔ L2 Catatan Internal & Tandai Selesai ➔ L1 Konfirmasi & Tutup Tiket Bersama.
+- [ ] Penanganan kasus kendala koneksi / fallback jika sesi HTS kedaluwarsa saat penutupan.
+
+
+

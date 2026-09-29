@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia, assignTicket, resolveTicket, returnTicket, addInternalNote, updateCustomer } = require('../controllers/chatController');
+const { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia, assignTicket, resolveTicket, returnTicket, addInternalNote, updateCustomer, syncTicketToHts } = require('../controllers/chatController');
 const { upload } = require('../utils/imageStorage'); // Gunakan imageStorage yang sudah benar
 
 // Endpoint untuk Dashboard
@@ -15,5 +15,6 @@ router.post('/tickets/:ticketId/resolve', resolveTicket);
 router.post('/tickets/:ticketId/return', returnTicket);
 router.post('/tickets/:ticketId/internal-note', addInternalNote);
 router.put('/customers/:customerId', updateCustomer);
+router.post('/tickets/:ticketId/sync-hts', syncTicketToHts);
 
 module.exports = router;

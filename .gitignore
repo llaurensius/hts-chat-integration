@@ -23,6 +23,8 @@ uploads/
 !**/uploads/.gitkeep
 .DS_Store
 *.tmp
+*.har
+docs/*.html
 scratch/
 
 # Editor directories

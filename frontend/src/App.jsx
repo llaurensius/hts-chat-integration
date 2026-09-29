@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X } from 'lucide-react';
+import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -178,12 +178,168 @@ function Dashboard() {
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const activeTicketRef = useRef(activeTicket);
+  useEffect(() => {
+    activeTicketRef.current = activeTicket;
+  }, [activeTicket]);
+
+  // State Integrasi Portal HTS Diskomdigi (Fase 1 V3)
+  const [htsStatus, setHtsStatus] = useState({ isLoggedIn: false, email: '' });
+  const [showHtsModal, setShowHtsModal] = useState(false);
+  const [htsCaptchaImg, setHtsCaptchaImg] = useState('');
+  const [htsEmailInput, setHtsEmailInput] = useState('');
+  const [htsPasswordInput, setHtsPasswordInput] = useState('');
+  const [htsCaptchaInput, setHtsCaptchaInput] = useState('');
+  const [isLoadingCaptcha, setIsLoadingCaptcha] = useState(false);
+  const [isSubmittingHtsLogin, setIsSubmittingHtsLogin] = useState(false);
+  const [htsLoginError, setHtsLoginError] = useState('');
+
+  // State Master Data HTS & Assign Hybrid (Fase 2 V3)
+  const [htsMasterData, setHtsMasterData] = useState({
+    indukOpd: [],
+    kategori: [],
+    subKategori: [],
+    pics: []
+  });
+  const [createHtsTicket, setCreateHtsTicket] = useState(false);
+  const [assignIndukOpdId, setAssignIndukOpdId] = useState('57');
+  const [assignHtsKategori, setAssignHtsKategori] = useState('troubleshoot');
+  const [assignHtsSubKategori, setAssignHtsSubKategori] = useState('DISTRIBUTION NETWORK');
+  const [assignHtsDetil, setAssignHtsDetil] = useState('');
+  const [assignHtsPicId, setAssignHtsPicId] = useState('14');
+  const [opdSearchTerm, setOpdSearchTerm] = useState('');
+  const [isSubmittingAssign, setIsSubmittingAssign] = useState(false);
+
+  // State Standalone Sync Modal HTS (Fase 2 V3)
+  const [showSyncHtsModal, setShowSyncHtsModal] = useState(false);
+  const [syncIndukOpdId, setSyncIndukOpdId] = useState('57');
+  const [syncHtsKategori, setSyncHtsKategori] = useState('troubleshoot');
+  const [syncHtsSubKategori, setSyncHtsSubKategori] = useState('DISTRIBUTION NETWORK');
+  const [syncHtsDetil, setSyncHtsDetil] = useState('');
+  const [syncHtsPicId, setSyncHtsPicId] = useState('14');
+  const [syncOpdSearchTerm, setSyncOpdSearchTerm] = useState('');
+  const [isSubmittingSyncHts, setIsSubmittingSyncHts] = useState(false);
+  const [syncHtsError, setSyncHtsError] = useState('');
+
+  const fetchHtsStatus = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/hts/status`);
+      setHtsStatus(res.data || { isLoggedIn: false });
+    } catch (e) {
+      console.warn('Gagal cek status HTS:', e.message);
+    }
+  };
+
+  const fetchHtsMasterData = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/hts/master-data`);
+      if (res.data) {
+        setHtsMasterData(res.data);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat master data HTS:', err.message);
+    }
+  };
+
+  const fetchHtsCaptcha = async () => {
+    setIsLoadingCaptcha(true);
+    setHtsLoginError('');
+    try {
+      const res = await axios.get(`${API_URL}/hts/captcha`);
+      if (res.data?.captchaImage) {
+        setHtsCaptchaImg(res.data.captchaImage);
+      }
+    } catch (e) {
+      setHtsLoginError(e.response?.data?.error || 'Gagal memuat CAPTCHA dari HTS Diskomdigi');
+    } finally {
+      setIsLoadingCaptcha(false);
+    }
+  };
+
+  const handleOpenHtsModal = () => {
+    setShowHtsModal(true);
+    setHtsCaptchaInput('');
+    setHtsLoginError('');
+    if (!htsEmailInput && (currentUser?.hts_email || htsStatus?.email)) {
+      setHtsEmailInput(currentUser?.hts_email || htsStatus?.email);
+    }
+    fetchHtsCaptcha();
+  };
+
+  const handleHtsLogin = async (e) => {
+    e.preventDefault();
+    if (!htsEmailInput || !htsPasswordInput || !htsCaptchaInput) {
+      setHtsLoginError('Email, password, dan kode captcha wajib diisi');
+      return;
+    }
+
+    setIsSubmittingHtsLogin(true);
+    setHtsLoginError('');
+    try {
+      const res = await axios.post(`${API_URL}/hts/login`, {
+        email: htsEmailInput,
+        password: htsPasswordInput,
+        captcha_code: htsCaptchaInput
+      });
+
+      alert(res.data?.message || 'Berhasil terhubung ke portal HTS!');
+      setShowHtsModal(false);
+      setHtsPasswordInput('');
+      setHtsCaptchaInput('');
+      fetchHtsStatus();
+    } catch (err) {
+      setHtsLoginError(err.response?.data?.error || 'Gagal login ke portal HTS. Silakan coba lagi.');
+      fetchHtsCaptcha();
+    } finally {
+      setIsSubmittingHtsLogin(false);
+    }
+  };
+
+  const handleHtsLogout = async () => {
+    if (!window.confirm('Apakah Anda yakin ingin memutuskan sambungan sesi akun HTS?')) return;
+    try {
+      await axios.post(`${API_URL}/hts/logout`);
+      setHtsStatus({ isLoggedIn: false, email: '' });
+      alert('Koneksi portal HTS berhasil diputus.');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal memutuskan koneksi HTS');
+    }
+  };
 
   const handleOpenAssignModal = () => {
     if (!activeTicket) return;
     const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
     setAssignCategoryIds(currentCatIds);
     setAssignServiceType(activeTicket.service_type || 'TROUBLESHOOTING');
+    
+    // Auto setup HTS
+    const hasHts = Boolean(activeTicket.hts_ticket_no);
+    setCreateHtsTicket(!hasHts && Boolean(htsStatus?.isLoggedIn));
+
+    // Auto match OPD Induk
+    const custSkpd = (activeTicket.customer?.skpd_name || '').toLowerCase();
+    const matchedOpd = htsMasterData.indukOpd?.find(o => 
+      o.name.toLowerCase().includes(custSkpd) || custSkpd.includes(o.name.toLowerCase())
+    );
+    setAssignIndukOpdId(matchedOpd ? matchedOpd.id : '57');
+
+    // Pre-fill first customer complaint
+    const firstCustMsg = messages.find(m => m.sender_type === 'CUSTOMER')?.message_text || '';
+    setAssignHtsDetil(firstCustMsg);
+
+    // Pre-fill sub-kategori
+    const activeNames = (activeTicket.categories || []).map(c => c.category?.name || '').join(' ').toLowerCase();
+    if (activeNames.includes('network')) {
+      setAssignHtsSubKategori('DISTRIBUTION NETWORK');
+    } else if (activeNames.includes('server')) {
+      setAssignHtsSubKategori('SERVER');
+    } else {
+      setAssignHtsSubKategori('DISTRIBUTION NETWORK');
+    }
+
+    setAssignHtsKategori(activeTicket.service_type === 'REQUEST_LAYANAN' ? 'request' : activeTicket.service_type === 'MONITORING' ? 'monitoring' : 'troubleshoot');
+    setAssignHtsPicId('14');
+    setOpdSearchTerm('');
     setShowAssignModal(true);
   };
 
@@ -207,17 +363,76 @@ function Dashboard() {
       if (!confirmRemove) return;
     }
 
+    setIsSubmittingAssign(true);
     try {
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, {
+      const payload = {
         categoryIds: assignCategoryIds,
-        serviceType: assignServiceType
-      });
+        serviceType: assignServiceType,
+        createHtsTicket: createHtsTicket && !activeTicket?.hts_ticket_no,
+        induk_opd_id: assignIndukOpdId,
+        hts_kategori: assignHtsKategori,
+        hts_sub_kategori: assignHtsSubKategori,
+        hts_detil: assignHtsDetil,
+        hts_pic_id: assignHtsPicId
+      };
+
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, payload);
       setShowAssignModal(false);
       alert(res.data?.message || 'Penugasan tiket berhasil disimpan.');
       loadTickets();
       if (activeTicket) loadMessages(activeTicket.id);
     } catch (error) {
       alert(error.response?.data?.error || 'Gagal meng-assign tiket');
+    } finally {
+      setIsSubmittingAssign(false);
+    }
+  };
+
+  const handleOpenSyncHtsModal = () => {
+    if (!activeTicket) return;
+    if (!htsStatus?.isLoggedIn) {
+      alert('Silakan hubungkan akun HTS Diskomdigi Anda terlebih dahulu di panel kanan.');
+      setShowHtsModal(true);
+      return;
+    }
+    const custSkpd = (activeTicket.customer?.skpd_name || '').toLowerCase();
+    const matchedOpd = htsMasterData.indukOpd?.find(o => 
+      o.name.toLowerCase().includes(custSkpd) || custSkpd.includes(o.name.toLowerCase())
+    );
+    setSyncIndukOpdId(matchedOpd ? matchedOpd.id : '57');
+    const firstCustMsg = messages.find(m => m.sender_type === 'CUSTOMER')?.message_text || '';
+    setSyncHtsDetil(firstCustMsg);
+    setSyncHtsKategori(activeTicket.service_type === 'REQUEST_LAYANAN' ? 'request' : activeTicket.service_type === 'MONITORING' ? 'monitoring' : 'troubleshoot');
+    setSyncHtsSubKategori('DISTRIBUTION NETWORK');
+    setSyncHtsPicId('14');
+    setSyncOpdSearchTerm('');
+    setSyncHtsError('');
+    setShowSyncHtsModal(true);
+  };
+
+  const handleSyncTicketToHts = async (e) => {
+    e.preventDefault();
+    if (!activeTicket) return;
+
+    setIsSubmittingSyncHts(true);
+    setSyncHtsError('');
+    try {
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/sync-hts`, {
+        induk_opd_id: syncIndukOpdId,
+        hts_kategori: syncHtsKategori,
+        hts_sub_kategori: syncHtsSubKategori,
+        hts_detil: syncHtsDetil,
+        hts_pic_id: syncHtsPicId
+      });
+
+      alert(res.data?.message || 'Tiket berhasil disinkronkan ke portal HTS!');
+      setShowSyncHtsModal(false);
+      loadTickets();
+      loadMessages(activeTicket.id);
+    } catch (err) {
+      setSyncHtsError(err.response?.data?.error || 'Gagal menyinkronkan tiket ke portal HTS');
+    } finally {
+      setIsSubmittingSyncHts(false);
     }
   };
   // Authentication Check
@@ -235,6 +450,12 @@ function Dashboard() {
     try {
       const res = await axios.get(`${API_URL}/chat/tickets`);
       setTickets(res.data);
+      if (activeTicketRef.current) {
+        const updatedActive = res.data.find(t => t.id === activeTicketRef.current.id);
+        if (updatedActive) {
+          setActiveTicket(updatedActive);
+        }
+      }
     } catch (error) {
       if (error.response?.status === 401 || error.response?.status === 403) navigate('/login');
     }
@@ -400,11 +621,6 @@ function Dashboard() {
     }
   };
 
-  const activeTicketRef = useRef(activeTicket);
-  useEffect(() => {
-    activeTicketRef.current = activeTicket;
-  }, [activeTicket]);
-
   const currentTabRef = useRef(currentTab);
   useEffect(() => {
     currentTabRef.current = currentTab;
@@ -415,6 +631,10 @@ function Dashboard() {
 
     loadTickets();
     loadCategories();
+    if (currentUser?.role === 'L1' || currentUser?.role === 'ADMIN') {
+      fetchHtsStatus();
+      fetchHtsMasterData();
+    }
 
     const handleNewMessage = (data) => {
       loadTickets();
@@ -606,11 +826,13 @@ function Dashboard() {
 
   const exportToCSV = () => {
     if (reportTickets.length === 0) return alert('Tidak ada data');
-    const headers = ['ID Tiket', 'Nama Pelapor', 'Instansi / SKPD', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Tim / Kategori', 'Jenis Layanan', 'Kesimpulan'];
+    const headers = ['ID Tiket', 'No. Tiket Portal HTS', 'Status HTS', 'Nama Pelapor', 'Instansi / SKPD', 'Nomor WA', 'Status', 'Waktu Masuk', 'Waktu Selesai', 'Durasi', 'Tim / Kategori', 'Jenis Layanan', 'Kesimpulan'];
     const csvRows = [headers.join(',')];
     reportTickets.forEach(ticket => {
       const row = [
         ticket.id, 
+        `"${ticket.htsTicketNo ? `#${ticket.htsTicketNo}` : '-'}"`,
+        `"${ticket.htsTicketStatus || '-'}"`,
         `"${ticket.customerName}"`, 
         `"${ticket.skpdName || '-'}"`,
         `"${ticket.waNumber}"`, 
@@ -887,6 +1109,11 @@ function Dashboard() {
                         {activeTicket.service_type && (
                           <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-600 rounded-full border border-blue-200 uppercase">
                             {activeTicket.service_type.replace('_', ' ')}
+                          </span>
+                        )}
+                        {activeTicket.hts_ticket_no && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-800 rounded-full border border-blue-300 flex items-center gap-1 shadow-sm" title={`Portal HTS Diskomdigi: #${activeTicket.hts_ticket_no}`}>
+                            <Globe className="w-3 h-3 text-blue-600" /> HTS: #{activeTicket.hts_ticket_no}
                           </span>
                         )}
                       </h2>
@@ -1166,6 +1393,57 @@ function Dashboard() {
               </div>
             </div>
 
+            {/* KONEKSI PORTAL HTS DISKOMDIGI (L1 & ADMIN) */}
+            {(isL1 || isAdmin) && (
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-6 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-gray-800">
+                    <Globe className="w-4 h-4 text-blue-600" /> Portal HTS
+                  </div>
+                  {htsStatus.isLoggedIn ? (
+                    <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Terhubung
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                      <AlertCircle className="w-3 h-3 text-amber-600" /> Belum Login
+                    </span>
+                  )}
+                </div>
+
+                {htsStatus.isLoggedIn ? (
+                  <div>
+                    <p className="text-[11px] text-gray-600 truncate mb-2">Akun: <strong className="text-gray-800">{htsStatus.email}</strong></p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleOpenHtsModal}
+                        className="flex-1 text-[11px] py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded border border-blue-200 transition"
+                      >
+                        Ganti Sesi
+                      </button>
+                      <button
+                        onClick={handleHtsLogout}
+                        className="text-[11px] py-1 px-2 bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded border border-red-200 transition"
+                        title="Putus Koneksi"
+                      >
+                        Putus
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-[11px] text-gray-500 mb-2 leading-tight">Hubungkan akun portal HTS Anda untuk sinkronisasi tiket resmi.</p>
+                    <button
+                      onClick={handleOpenHtsModal}
+                      className="w-full text-xs py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5"
+                    >
+                      <Key className="w-3.5 h-3.5" /> Hubungkan Akun HTS
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTicket && (
               <>
                 <h3 className="font-bold text-gray-800 mb-4 border-b pb-2">Detail Tiket</h3>
@@ -1201,6 +1479,96 @@ function Dashboard() {
                     <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Waktu Masuk</label>
                     <div className="flex items-center text-sm text-gray-800"><Clock className="w-4 h-4 mr-2 text-gray-400" />{format(new Date(activeTicket.created_at), 'dd MMM yyyy, HH:mm')}</div>
                   </div>
+
+                  {/* Status Portal HTS Diskomdigi */}
+                  <div className="p-3 rounded-xl border bg-gray-50/70 border-gray-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+                        <Globe className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Portal HTS Diskomdigi</span>
+                      </div>
+                      {activeTicket.hts_ticket_no ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full border border-emerald-300">
+                          {activeTicket.hts_ticket_status || 'PROSES'}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
+                          Belum Terhubung
+                        </span>
+                      )}
+                    </div>
+
+                    {activeTicket.hts_ticket_no ? (
+                      <div className="space-y-1 mt-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500 text-[11px]">No. Aduan:</span>
+                          <span className="font-mono font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            #{activeTicket.hts_ticket_no}
+                          </span>
+                        </div>
+                        {activeTicket.hts_synced_at && (
+                          <div className="flex justify-between items-center text-[11px] text-gray-400">
+                            <span>Disinkronkan:</span>
+                            <span>{format(new Date(activeTicket.hts_synced_at), 'dd/MM/yyyy HH:mm')}</span>
+                          </div>
+                        )}
+                        <a
+                          href="https://hts.diskomdigi.jatengprov.go.id/tshoot"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 text-[11px] text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 py-1 font-medium hover:underline"
+                        >
+                          Buka Portal HTS <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">
+                          Tiket ini belum diterbitkan ke portal resmi HTS Diskomdigi.
+                        </p>
+                        {isL1 && (
+                          <button
+                            type="button"
+                            onClick={handleOpenSyncHtsModal}
+                            className="w-full text-xs py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5"
+                          >
+                            <Globe className="w-3.5 h-3.5" /> Sinkronkan ke Portal HTS
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Status Tim Penanganan L2 */}
+                  {activeTicket.categories && activeTicket.categories.length > 0 && (
+                    <div className="p-3 rounded-xl border bg-gray-50/70 border-gray-200">
+                      <label className="text-[10px] uppercase font-bold text-gray-500 block mb-2 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-blue-600" /> Tim Teknisi L2
+                      </label>
+                      <div className="space-y-2">
+                        {activeTicket.categories.map(tc => (
+                          <div key={tc.category_id} className="text-xs bg-white p-2.5 rounded-lg border border-gray-200/80 shadow-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-gray-800">{tc.category?.name || 'Tim'}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                tc.is_resolved 
+                                  ? 'bg-emerald-100 text-emerald-800' 
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {tc.is_resolved ? '✓ Selesai' : '⏳ Proses'}
+                              </span>
+                            </div>
+                            {tc.solution && (
+                              <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[11px] text-gray-600 leading-relaxed bg-gray-50/80 p-1.5 rounded">
+                                <span className="font-medium text-gray-700 block text-[10px] uppercase text-gray-400">Solusi Teknis:</span>
+                                {tc.solution}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -1259,6 +1627,7 @@ function Dashboard() {
                     )}
                     <th className="px-6 py-4 font-semibold">ID</th>
                     <th className="px-6 py-4 font-semibold">Pelapor (WA)</th>
+                    <th className="px-6 py-4 font-semibold">No. Tiket HTS</th>
                     <th className="px-6 py-4 font-semibold">Status</th>
                     <th className="px-6 py-4 font-semibold">Jenis Layanan</th>
                     <th className="px-6 py-4 font-semibold">Tim Terkait</th>
@@ -1270,7 +1639,7 @@ function Dashboard() {
                 <tbody className="divide-y divide-gray-100">
                   {reportTickets.length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="px-6 py-12 text-center text-gray-400">
+                      <td colSpan="10" className="px-6 py-12 text-center text-gray-400">
                         Belum ada data aduan atau tiket yang tercatat.
                       </td>
                     </tr>
@@ -1297,6 +1666,24 @@ function Dashboard() {
                             <div className="text-xs text-blue-600 font-medium">{row.skpdName}</div>
                           )}
                           <div className="text-xs text-gray-500">+{row.waNumber}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {row.htsTicketNo ? (
+                            <div>
+                              <div className="font-mono text-xs font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 inline-flex items-center gap-1">
+                                <Globe className="w-3 h-3 text-blue-600" /> #{row.htsTicketNo}
+                              </div>
+                              {row.htsTicketStatus && (
+                                <span className={`block text-[10px] font-bold mt-1 uppercase ${
+                                  row.htsTicketStatus === 'SOLVED' ? 'text-emerald-700' : 'text-blue-700'
+                                }`}>
+                                  {row.htsTicketStatus}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">Belum terhubung</span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1667,65 +2054,390 @@ function Dashboard() {
         </div>
       )}
 
-      {/* MODAL ASSIGN L2 */}
+      {/* MODAL ASSIGN L2 & INTEGRASI HTS DISKOMDIGI (HYBRID) */}
       {showAssignModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-[420px] p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-1">
-              {activeTicket?.categories?.length > 0 ? 'Kelola / Tambah Tim L2' : 'Assign ke Teknisi L2'}
-            </h2>
-            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-              Pilih tim yang akan menangani. Tim yang baru ditambahkan akan otomatis menerima notifikasi WhatsApp Blast.
-            </p>
-            <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Pilih Tim L2 Tujuan (Bisa Centang Lebih dari 1)</label>
-              <div className="space-y-2">
-                {categories.map(cat => {
-                  const isCurrentlyAssigned = activeTicket?.categories?.some(tc => (tc.category_id || tc.category?.id) === cat.id);
-                  return (
-                    <label key={cat.id} className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${
-                      assignCategoryIds.includes(cat.id) ? 'bg-blue-50 border-blue-500 text-blue-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                    }`}>
-                      <div className="flex items-center">
-                        <input 
-                          type="checkbox" 
-                          className="w-4 h-4 text-blue-600 rounded mr-3"
-                          checked={assignCategoryIds.includes(cat.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) setAssignCategoryIds([...assignCategoryIds, cat.id]);
-                            else setAssignCategoryIds(assignCategoryIds.filter(id => id !== cat.id));
-                          }}
-                        />
-                        <span>{cat.name}</span>
-                      </div>
-                      {isCurrentlyAssigned && (
-                        <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">
-                          Sedang Ditugaskan
-                        </span>
-                      )}
-                    </label>
-                  );
-                })}
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Header */}
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">
+                  {activeTicket?.categories?.length > 0 ? 'Kelola / Tambah Tim L2' : 'Assign ke Teknisi L2'}
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Tugaskan tim teknisi internal dan sinkronkan dengan Portal Resmi HTS Diskomdigi
+                </p>
               </div>
-            </div>
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Jenis Layanan</label>
-              <select 
-                value={assignServiceType} 
-                onChange={e => setAssignServiceType(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+              <button 
+                onClick={() => setShowAssignModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
               >
-                <option value="TROUBLESHOOTING">Troubleshooting (Gangguan)</option>
-                <option value="REQUEST_LAYANAN">Request Layanan</option>
-                <option value="MONITORING">Monitoring</option>
-              </select>
-            </div>
-            <div className="flex justify-end space-x-3">
-              <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors text-sm">Batal</button>
-              <button onClick={handleAssignTicket} disabled={assignCategoryIds.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors text-sm">
-                {activeTicket?.categories?.length > 0 ? 'Simpan Penugasan' : 'Tugaskan L2'}
+                <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto space-y-5">
+              {/* Bagian 1: Tim L2 Internal */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                  1. Pilih Tim L2 Tujuan (Multi-Assign) *
+                </label>
+                <div className="space-y-2">
+                  {categories.map(cat => {
+                    const isCurrentlyAssigned = activeTicket?.categories?.some(tc => (tc.category_id || tc.category?.id) === cat.id);
+                    return (
+                      <label key={cat.id} className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${
+                        assignCategoryIds.includes(cat.id) ? 'bg-blue-50/80 border-blue-500 text-blue-900 font-semibold shadow-sm' : 'bg-gray-50/60 border-gray-200 text-gray-700 hover:bg-gray-100'
+                      }`}>
+                        <div className="flex items-center">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 text-blue-600 rounded mr-3 focus:ring-blue-500"
+                            checked={assignCategoryIds.includes(cat.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAssignCategoryIds([...assignCategoryIds, cat.id]);
+                              else setAssignCategoryIds(assignCategoryIds.filter(id => id !== cat.id));
+                            }}
+                          />
+                          <span className="text-sm">{cat.name}</span>
+                        </div>
+                        {isCurrentlyAssigned && (
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">
+                            Sedang Ditugaskan
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Bagian 2: Jenis Layanan */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                  2. Jenis Layanan
+                </label>
+                <select 
+                  value={assignServiceType} 
+                  onChange={e => setAssignServiceType(e.target.value)}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="TROUBLESHOOTING">Troubleshooting (Gangguan Teknis)</option>
+                  <option value="REQUEST_LAYANAN">Request Layanan (Permintaan Fasilitas/Akses)</option>
+                  <option value="MONITORING">Monitoring (Pengawasan/Cek Rutin)</option>
+                </select>
+              </div>
+
+              {/* Bagian 3: Integrasi Portal HTS Diskomdigi */}
+              <div className="pt-3 border-t border-gray-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                      3. Integrasi Portal HTS Diskomdigi
+                    </span>
+                  </div>
+                </div>
+
+                {/* Kondisi 1: Sudah ada nomor tiket HTS */}
+                {activeTicket?.hts_ticket_no ? (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-800">
+                    <div>
+                      <div className="font-bold flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        Terhubung ke Portal HTS Diskomdigi
+                      </div>
+                      <div className="text-[11px] text-emerald-700 mt-0.5">
+                        No. Aduan: <strong className="font-mono text-emerald-900">#{activeTicket.hts_ticket_no}</strong> ({activeTicket.hts_ticket_status || 'Proses Penanganan'})
+                      </div>
+                    </div>
+                  </div>
+                ) : !htsStatus?.isLoggedIn ? (
+                  /* Kondisi 2: Belum login HTS */
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-2">
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <span>Akun Portal HTS Belum Terhubung</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-amber-700">
+                      Anda belum terhubung ke portal HTS. Tiket tetap bisa ditugaskan ke Tim L2 secara internal, dan dapat disinkronkan ke portal HTS nanti.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAssignModal(false);
+                        handleOpenHtsModal();
+                      }}
+                      className="text-xs px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition inline-flex items-center gap-1"
+                    >
+                      <Key className="w-3 h-3" /> Login ke Portal HTS Sekarang
+                    </button>
+                  </div>
+                ) : (
+                  /* Kondisi 3: Sudah login HTS & belum terbit tiket HTS */
+                  <div className="space-y-3">
+                    <label className="flex items-start gap-2.5 p-3 bg-blue-50/70 border border-blue-200 rounded-xl cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={createHtsTicket}
+                        onChange={(e) => setCreateHtsTicket(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded mt-0.5 focus:ring-blue-500"
+                      />
+                      <div className="text-xs">
+                        <span className="font-semibold text-blue-900 block">
+                          Terbitkan Tiket Resmi di Portal HTS Diskomdigi
+                        </span>
+                        <span className="text-blue-700 text-[11px] leading-tight block mt-0.5">
+                          Otomatis memproses submit aduan, status, dan penugasan PIC di portal hts.diskomdigi.jatengprov.go.id.
+                        </span>
+                      </div>
+                    </label>
+
+                    {createHtsTicket && (
+                      <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-3 animate-in fade-in duration-150">
+                        {/* Search & Pilih OPD Induk */}
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            OPD Induk Pelapor *
+                          </label>
+                          <input 
+                            type="text" 
+                            placeholder="Cari nama OPD..."
+                            value={opdSearchTerm}
+                            onChange={(e) => setOpdSearchTerm(e.target.value)}
+                            className="w-full mb-1.5 px-2.5 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                          />
+                          <select
+                            value={assignIndukOpdId}
+                            onChange={(e) => setAssignIndukOpdId(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          >
+                            {htsMasterData.indukOpd
+                              ?.filter(o => !opdSearchTerm || o.name.toLowerCase().includes(opdSearchTerm.toLowerCase()))
+                              ?.map(o => (
+                                <option key={o.id} value={o.id}>{o.name}</option>
+                              ))
+                            }
+                          </select>
+                        </div>
+
+                        {/* Sub-Kategori HTS */}
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            Sub-Kategori Layanan Portal HTS *
+                          </label>
+                          <select
+                            value={assignHtsSubKategori}
+                            onChange={(e) => setAssignHtsSubKategori(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          >
+                            {htsMasterData.subKategori?.map(s => (
+                              <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Detil Aduan */}
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            Detil Aduan / Permasalahan *
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={assignHtsDetil}
+                            onChange={(e) => setAssignHtsDetil(e.target.value)}
+                            placeholder="Ketik detail keluhan teknis untuk dicatat di portal HTS..."
+                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+
+                        {/* PIC Petugas */}
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            PIC Helpdesk Penerima *
+                          </label>
+                          <select
+                            value={assignHtsPicId}
+                            onChange={(e) => setAssignHtsPicId(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          >
+                            {htsMasterData.pics?.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="p-4 border-t border-gray-100 flex justify-end space-x-2.5 bg-gray-50/50">
+              <button 
+                type="button"
+                onClick={() => setShowAssignModal(false)} 
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition text-xs"
+              >
+                Batal
+              </button>
+              <button 
+                type="button"
+                onClick={handleAssignTicket} 
+                disabled={assignCategoryIds.length === 0 || isSubmittingAssign} 
+                className="px-5 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold transition text-xs shadow-sm flex items-center gap-1.5"
+              >
+                {isSubmittingAssign ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    Menyimpan & Menerbitkan Tiket...
+                  </>
+                ) : (
+                  <>
+                    {createHtsTicket && !activeTicket?.hts_ticket_no ? 'Tugaskan & Terbitkan Tiket HTS' : (activeTicket?.categories?.length > 0 ? 'Simpan Penugasan' : 'Tugaskan L2')}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SINKRONISASI MANUAL KE PORTAL HTS */}
+      {showSyncHtsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Globe className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-sm">Sinkronkan ke Portal HTS Diskomdigi</h3>
+                  <p className="text-[11px] text-gray-500">Terbitkan nomor aduan resmi untuk tiket ini</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSyncHtsModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSyncTicketToHts} className="p-5 overflow-y-auto space-y-3.5">
+              {syncHtsError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{syncHtsError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">OPD Induk Pelapor *</label>
+                <input 
+                  type="text" 
+                  placeholder="Cari nama OPD..."
+                  value={syncOpdSearchTerm}
+                  onChange={(e) => setSyncOpdSearchTerm(e.target.value)}
+                  className="w-full mb-1.5 px-2.5 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                />
+                <select
+                  value={syncIndukOpdId}
+                  onChange={(e) => setSyncIndukOpdId(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  required
+                >
+                  {htsMasterData.indukOpd
+                    ?.filter(o => !syncOpdSearchTerm || o.name.toLowerCase().includes(syncOpdSearchTerm.toLowerCase()))
+                    ?.map(o => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))
+                  }
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Kategori Layanan *</label>
+                <select
+                  value={syncHtsKategori}
+                  onChange={(e) => setSyncHtsKategori(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {htsMasterData.kategori?.map(k => (
+                    <option key={k.id} value={k.id}>{k.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Sub-Kategori Layanan *</label>
+                <select
+                  value={syncHtsSubKategori}
+                  onChange={(e) => setSyncHtsSubKategori(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  required
+                >
+                  {htsMasterData.subKategori?.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Detil Aduan / Permasalahan *</label>
+                <textarea
+                  rows={3}
+                  value={syncHtsDetil}
+                  onChange={(e) => setSyncHtsDetil(e.target.value)}
+                  placeholder="Ketik detail keluhan teknis..."
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">PIC Helpdesk Penerima *</label>
+                <select
+                  value={syncHtsPicId}
+                  onChange={(e) => setSyncHtsPicId(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  required
+                >
+                  {htsMasterData.pics?.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowSyncHtsModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingSyncHts}
+                  className="px-5 py-2 text-xs font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSubmittingSyncHts ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Menerbitkan ke HTS...
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="w-3.5 h-3.5" /> Terbitkan ke Portal HTS
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1854,6 +2566,133 @@ function Dashboard() {
                   className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
                 >
                   {isSavingCustomer ? 'Menyimpan...' : 'Simpan Identitas'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL LOGIN HTS DISKOMDIGI (L1 & ADMIN) */}
+      {showHtsModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shadow-sm">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-base">Hubungkan Akun Portal HTS</h3>
+                  <p className="text-[11px] text-gray-500">hts.diskomdigi.jatengprov.go.id</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowHtsModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {htsLoginError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>{htsLoginError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleHtsLogin} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Email Petugas HTS *</label>
+                <input 
+                  type="email" 
+                  placeholder="email@jatengprov.go.id atau nexa.net.id"
+                  value={htsEmailInput}
+                  onChange={(e) => setHtsEmailInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Password HTS *</label>
+                <input 
+                  type="password" 
+                  placeholder="Password akun portal HTS Anda"
+                  value={htsPasswordInput}
+                  onChange={(e) => setHtsPasswordInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-semibold text-gray-700">Kode Keamanan (CAPTCHA) *</label>
+                  <button 
+                    type="button" 
+                    onClick={fetchHtsCaptcha} 
+                    disabled={isLoadingCaptcha}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isLoadingCaptcha ? 'animate-spin' : ''}`} /> Perbarui Gambar
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-3 bg-gray-50 p-2.5 rounded-xl border border-gray-200 mb-2">
+                  {isLoadingCaptcha ? (
+                    <div className="w-36 h-12 bg-gray-200 animate-pulse rounded-lg flex items-center justify-center text-xs text-gray-400">
+                      Memuat...
+                    </div>
+                  ) : htsCaptchaImg ? (
+                    <img 
+                      src={htsCaptchaImg} 
+                      alt="Captcha HTS" 
+                      className="h-12 border border-gray-300 rounded-lg bg-white px-2 py-1 shadow-sm object-contain"
+                    />
+                  ) : (
+                    <div className="text-xs text-red-500">Gagal memuat CAPTCHA</div>
+                  )}
+                  <p className="text-[11px] text-gray-500 leading-tight">
+                    Ketik karakter yang terlihat pada gambar di samping
+                  </p>
+                </div>
+
+                <input 
+                  type="text" 
+                  placeholder="Ketik kode captcha"
+                  value={htsCaptchaInput}
+                  onChange={(e) => setHtsCaptchaInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm font-mono tracking-widest uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowHtsModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingHtsLogin}
+                  className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSubmittingHtsLogin ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Menghubungkan...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" /> Hubungkan Akun HTS
+                    </>
+                  )}
                 </button>
               </div>
             </form>

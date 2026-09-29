@@ -73,7 +73,10 @@ const getTicketReports = async (req, res) => {
         closedAt: t.closed_at,
         duration: durationStr,
         summary: t.summary || '-',
-        categories: t.categories.map(tc => tc.category.name).join(', ') || 'Belum di-assign'
+        categories: t.categories.map(tc => tc.category.name).join(', ') || 'Belum di-assign',
+        htsTicketNo: t.hts_ticket_no || null,
+        htsTicketStatus: t.hts_ticket_status || null,
+        htsSyncedAt: t.hts_synced_at || null
       };
     });
 

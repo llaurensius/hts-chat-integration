@@ -46,37 +46,55 @@ model Setting {
 }
 
 model User {
-  id          Int        @id @default(autoincrement())
-  name        String
-  email       String     @unique
-  password    String
-  role        Role       @default(L2)
-  category_id Int?
-  category    Category?  @relation(fields: [category_id], references: [id])
-  messages    Message[]
+  id           Int              @id @default(autoincrement())
+  name         String
+  email        String           @unique
+  password     String
+  role         Role             @default(L2)
+  category_id  Int?
+  category     Category?        @relation(fields: [category_id], references: [id])
+  messages     Message[]
+  hts_email    String?          // Email akun HTS petugas (opsional)
+  hts_session  HtsUserSession?  // Sesi aktif HTS petugas
+}
+
+// Model sesi login HTS individual per-user (L1/Admin)
+model HtsUserSession {
+  id           Int      @id @default(autoincrement())
+  user_id      Int      @unique
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  cookie_data  String   @db.Text   // Simpan cookie PHP ci_session
+  is_logged_in Boolean  @default(false)
+  last_login   DateTime @default(now())
+  updated_at   DateTime @updatedAt
 }
 
 model Ticket {
-  id          Int              @id @default(autoincrement())
-  customer_id Int
-  customer    Customer         @relation(fields: [customer_id], references: [id])
-  status      TicketStatus     @default(OPEN)
-  service_type ServiceType?
-  summary     String?
-  created_at  DateTime         @default(now())
-  closed_at   DateTime?
-  categories  TicketCategory[]
-  messages    Message[]
+  id                Int              @id @default(autoincrement())
+  customer_id       Int
+  customer          Customer         @relation(fields: [customer_id], references: [id])
+  status            TicketStatus     @default(OPEN)
+  service_type      ServiceType?
+  summary           String?
+  hts_ticket_id     String?          // ID internal HTS (contoh: "2025")
+  hts_ticket_no     String?          // Nomor aduan resmi HTS (contoh: "2025-TShoot-2026-jateng-09")
+  hts_ticket_status String?          // Status HTS: "UNSUBMITTED" | "INPUT_PIC" | "PENDING" | "SOLVED"
+  hts_synced_at     DateTime?        // Waktu terakhir sinkronisasi HTS
+  created_at        DateTime         @default(now())
+  closed_at         DateTime?
+  categories        TicketCategory[]
+  messages          Message[]
 }
 
 // Tabel relasi Many-to-Many antara Tiket dan Kategori
 model TicketCategory {
   ticket_id   Int
   category_id Int
-  is_resolved Boolean  @default(false)
+  is_resolved Boolean   @default(false)
   resolved_at DateTime?
-  ticket      Ticket   @relation(fields: [ticket_id], references: [id])
-  category    Category @relation(fields: [category_id], references: [id])
+  solution    String?   @db.Text  // Teks solusi teknis dari L2 saat klik Tandai Selesai
+  ticket      Ticket    @relation(fields: [ticket_id], references: [id])
+  category    Category  @relation(fields: [category_id], references: [id])
 
   @@id([ticket_id, category_id])
 }
