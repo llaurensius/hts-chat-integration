@@ -124,3 +124,7 @@ Semua akun terdaftar menggunakan **Password:** `password123`
 10. **[Rangkuman Lengkap Proyek](./Summary.md)** - Rekapitulasi perjalanan sistem dari Workflow V1 hingga V3.0.
 11. **[Spesifikasi Revisi Form HTS](./HTS_Form_Revisions_Spec.md)** - Detail aturan bisnis form HTS (Kategori, Detil, OPD, PIC).
 12. **[Potensi Bug & Edge Cases Sistem](./Potential_Bugs_and_Edge_Cases.md)** - Analisis komprehensif potensi kendala, limitasi teknis, dan mitigasinya.
+13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, dan efisiensi kerja.
+14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, dan skrip migrasi SQL.
+15. **[Panduan Implementasi Bertahap V4](./Implementation_Plan_V4.md)** - Rencana eksekusi terukur 6 fase untuk pengerjaan perlahan dan aman.
+
