@@ -1,8 +1,9 @@
 # 📡 Spesifikasi API Endpoints (Kontrak REST & Webhook)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Base URL:** `http://localhost:3000/api` (atau `http://192.168.10.100:3000/api`)  
+**Base URL:** `http://localhost:3000/api` (atau `http://<IP_SERVER>:3000/api`)  
 **Format:** JSON / Multipart Form-Data  
-**Autentikasi:** Bearer Token JWT (Header `Authorization: Bearer <TOKEN>`)
+**Autentikasi:** Bearer Token JWT (Header `Authorization: Bearer <TOKEN>`)  
+**Status:** Produksi / Workflow V3 (Lengkap dengan Integrasi HTS Diskomdigi)
 
 ---
 
@@ -54,18 +55,7 @@
 
 ### A. Ambil Daftar Semua Pengguna
 *   **Method / Endpoint:** `GET /api/admin/users`
-*   **Response (200 OK):**
-    ```json
-    [
-      {
-        "id": 1,
-        "name": "Administrator",
-        "email": "admin@helpdesk.go.id",
-        "role": "ADMIN",
-        "category": null
-      }
-    ]
-    ```
+*   **Response (200 OK):** Array objek user.
 
 ### B. Tambah Akun Pengguna Baru
 *   **Method / Endpoint:** `POST /api/admin/users`
@@ -82,339 +72,235 @@
 
 ### C. Ubah Akun Pengguna (Edit User)
 *   **Method / Endpoint:** `PUT /api/admin/users/:userId`
-*   **Akses:** `ADMIN`
 *   **Request Body:**
     ```json
     {
-      "name": "Teknisi Network Senior",
+      "name": "Teknisi Senior",
       "email": "l2_network@helpdesk.go.id",
-      "password": "newpassword123", // Opsional: kosongkan jika tidak ingin ganti password
+      "password": "newpassword123",
       "role": "L2",
       "category_id": 7
-    }
-    ```
-*   **Response (200 OK):**
-    ```json
-    {
-      "success": true,
-      "user": {
-        "id": 4,
-        "name": "Teknisi Network Senior",
-        "email": "l2_network@helpdesk.go.id",
-        "role": "L2",
-        "category_id": 7,
-        "category": { "id": 7, "name": "Network" }
-      },
-      "message": "Akun pengguna berhasil diperbarui"
     }
     ```
 
 ### D. Hapus Akun Pengguna
 *   **Method / Endpoint:** `DELETE /api/admin/users/:userId`
+
+---
+
+## 3. Modul Integrasi Portal HTS Diskomdigi (`/api/hts`)
+*Modul komunikasi langsung ke server portal https://hts.diskomdigi.jatengprov.go.id.*
+
+### A. Cek Status Koneksi Sesi HTS Petugas
+*   **Method / Endpoint:** `GET /api/hts/status`
+*   **Akses:** Terproteksi (`L1`, `ADMIN`, `SPV`)
+*   **Response (200 OK - Terhubung):**
+    ```json
+    {
+      "isLoggedIn": true,
+      "email": "petugas@jatengprov.go.id",
+      "lastLogin": "2026-09-30T10:15:00.000Z"
+    }
+    ```
+*   **Response (200 OK - Belum Terhubung):**
+    ```json
+    { "isLoggedIn": false }
+    ```
+
+### B. Ambil CAPTCHA Live Stream & Token CSRF
+*   **Method / Endpoint:** `GET /api/hts/captcha`
+*   **Akses:** Terproteksi (`L1`, `ADMIN`)
 *   **Response (200 OK):**
     ```json
     {
-      "message": "Pengguna berhasil dihapus"
+      "success": true,
+      "captchaImage": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...",
+      "csrfToken": "900df72eaf97c651be66f00e4e7214bf"
+    }
+    ```
+
+### C. Login Petugas ke Portal HTS
+*   **Method / Endpoint:** `POST /api/hts/login`
+*   **Akses:** Terproteksi (`L1`, `ADMIN`)
+*   **Request Body:**
+    ```json
+    {
+      "email": "petugas@jatengprov.go.id",
+      "password": "PasswordHTS123",
+      "captcha_code": "48921"
+    }
+    ```
+*   **Response (200 OK):**
+    ```json
+    {
+      "success": true,
+      "message": "Berhasil terhubung ke portal HTS Diskomdigi sebagai petugas@jatengprov.go.id",
+      "email": "petugas@jatengprov.go.id"
+    }
+    ```
+
+### D. Logout / Putus Koneksi Portal HTS
+*   **Method / Endpoint:** `POST /api/hts/logout`
+*   **Akses:** Terproteksi (`L1`, `ADMIN`)
+*   **Response (200 OK):**
+    ```json
+    { "success": true, "message": "Sesi portal HTS berhasil diputuskan" }
+    ```
+
+### E. Ambil Master Data Dropdown Portal HTS
+*   **Method / Endpoint:** `GET /api/hts/master-data`
+*   **Akses:** Terproteksi (Semua Role)
+*   **Response (200 OK):**
+    ```json
+    {
+      "kategori": [{ "id": "troubleshoot", "name": "Troubleshoot" }, ...],
+      "subKategori": [{ "id": "DISTRIBUTION NETWORK", "name": "DISTRIBUTION NETWORK", "team": "Network" }, ...],
+      "indukOpd": [{ "id": "2", "name": "Badan Kepegawaian Daerah..." }, ...],
+      "pics": [{ "id": "14", "name": "Helpdesk - Ori" }, { "id": "8", "name": "Achmad Julianto, S.Kom" }, ...]
     }
     ```
 
 ---
 
-## 3. Modul Live Chat & Penanganan Tiket (`/api/chat`)
+## 4. Modul Tiket & Percakapan (`/api/chat`)
 
-### A. Mengambil Daftar Antrean Tiket Aktif
-Mengembalikan tiket berstatus `OPEN` dan `RESOLVED`.
+### A. Mengambil Daftar Tiket Aktif
 *   **Method / Endpoint:** `GET /api/chat/tickets`
-*   **Aturan RBAC:**
-    *   Jika peran `L2`: Backend otomatis memfilter hanya tiket yang ditugaskan ke `category_id` milik teknisi tersebut.
-    *   Jika peran `L1` / `ADMIN` / `SPV`: Mengembalikan seluruh tiket aktif.
-*   **Response (200 OK):**
-    ```json
-    [
-      {
-        "id": 10,
-        "customer_id": 1,
-        "status": "OPEN",
-        "service_type": "TROUBLESHOOTING",
-        "created_at": "2026-09-28T15:41:26.869Z",
-        "customer": {
-          "id": 1,
-          "name": "Laurensius Liquori",
-          "wa_number": "628992572654"
-        },
-        "categories": [
-          {
-            "ticket_id": 10,
-            "category_id": 7,
-            "is_resolved": false,
-            "resolved_at": null,
-            "category": { "id": 7, "name": "Network" }
-          },
-          {
-            "ticket_id": 10,
-            "category_id": 8,
-            "is_resolved": true,
-            "resolved_at": "2026-09-28T15:52:21.000Z",
-            "category": { "id": 8, "name": "Server" }
-          }
-        ],
-        "messages": [
-          {
-            "id": 25,
-            "message_text": "Mohon dicek jaringan dan web server",
-            "attachment_url": null,
-            "created_at": "2026-09-28T15:42:00.000Z"
-          }
-        ]
-      }
-    ]
-    ```
+*   **Filter Berdasarkan Peran:**
+    - `L1`, `ADMIN`, `SPV`: Melihat seluruh tiket berstatus `OPEN` dan `RESOLVED`.
+    - `L2`: Hanya melihat tiket `OPEN` dan `RESOLVED` yang ditugaskan ke divisinya.
+*   **Response (200 OK):** Array objek tiket lengkap dengan relasi `customer`, `categories`, status HTS, dan pesan terakhir.
 
-### B. Mengambil Riwayat Pesan Tiket
+### B. Mengambil Riwayat Percakapan Tiket
 *   **Method / Endpoint:** `GET /api/chat/tickets/:ticketId/messages`
-*   **Response (200 OK):**
-    ```json
-    [
-      {
-        "id": 1,
-        "ticket_id": 10,
-        "sender_type": "CUSTOMER",
-        "message_text": "Halo, jaringan mati.",
-        "attachment_url": null,
-        "is_internal": false,
-        "created_at": "2026-09-28T15:41:26.869Z"
-      },
-      {
-        "id": 2,
-        "ticket_id": 10,
-        "sender_type": "AGENT",
-        "message_text": "[SISTEM] Tim Network telah menandai kendala di bagiannya selesai.",
-        "attachment_url": null,
-        "is_internal": true,
-        "created_at": "2026-09-28T15:45:10.000Z"
-      }
-    ]
-    ```
 
-### C. Mengirim Balasan Chat ke WhatsApp Pelapor (L1)
+### C. Mengirim Balasan Chat ke Pelapor WhatsApp
 *   **Method / Endpoint:** `POST /api/chat/send`
-*   **Akses:** `L1`, `ADMIN`, `SPV`
-*   **Request Body:**
-    ```json
-    {
-      "ticketId": 10,
-      "text": "Selamat siang, kendala sudah kami koordinasikan dengan tim terkait."
-    }
-    ```
+*   **Request Body:** `{ "ticketId": 10, "text": "Halo, laporan sedang kami tangani." }`
 
-### D. Mengirim Lampiran Gambar ke WhatsApp Pelapor (L1)
+### D. Mengirim Lampiran Media ke WhatsApp Pelapor
 *   **Method / Endpoint:** `POST /api/chat/sendMedia`
+*   **Content-Type:** `multipart/form-data` (`ticketId`, `caption`, `media` file)
+
+### E. Penugasan Tim L2 (Multi-Assign) & Opsi Terbitkan Tiket HTS
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/assign`
+*   **Content-Type:** `multipart/form-data` atau `application/json`
+*   **Form / Body Data:**
+    - `categoryIds`: `[7, 8]` (ID Tim L2 tujuan)
+    - `serviceType`: `TROUBLESHOOTING` | `REQUEST_LAYANAN` | `MONITORING`
+    - *(Opsi Sinkronisasi HTS Otomatis):*
+      - `syncHts`: `"true"`
+      - `hts_cust`, `hts_opd`, `induk_opd_id`, `hts_tgltshoot`, `hts_jam_problem`, `hts_kategori`, `hts_sub_kategori`, `hts_detil` (min 10 karakter), `hts_pic_ids`, `attachment`
+
+### F. Sinkronisasi Tiket Mandiri ke Portal HTS (Kirim ke Portal HTS)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/sync-hts`
 *   **Content-Type:** `multipart/form-data`
 *   **Form Data:**
-    - `ticketId`: `10`
-    - `caption`: "Berikut tangkapan layar status jaringan" (Opsional)
-    - `media`: (File gambar .jpg / .png maksimal 10MB)
-
-### E. Multi-Assign Tiket ke Tim L2 & WhatsApp Blast
-*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/assign`
-*   **Akses:** `L1`, `ADMIN`
-*   **Request Body:**
-    ```json
-    {
-      "categoryIds": [7, 8],
-      "serviceType": "TROUBLESHOOTING"
-    }
-    ```
+    - `hts_cust`: Nama pelapor (Dinas/Perorangan)
+    - `hts_opd`: Nama instansi/SKPD pelapor
+    - `induk_opd_id`: ID OPD Induk HTS (Opsional)
+    - `hts_tgltshoot`: Tanggal kejadian (`YYYY-MM-DD`)
+    - `hts_jam_problem`: Jam kejadian (`HH:mm`)
+    - `hts_kategori`: `troubleshoot` / `request` / `monitoring`
+    - `hts_sub_kategori`: Sub-kategori (Wajib jika kategori `troubleshoot`)
+    - `hts_detil`: Detil permasalahan (**Wajib minimal 10 karakter**)
+    - `hts_pic_id`: ID PIC utama penerima
+    - `hts_pic_ids`: Array/multiple ID PIC terpilih
+    - `attachment`: File bukti awal (Opsional: `.jpg`, `.jpeg`, `.png`, `.pdf`)
+    - `useChatImage`: `"true"` jika ingin melampirkan gambar percakapan terakhir
 *   **Response (200 OK):**
     ```json
     {
       "success": true,
-      "message": "Tiket berhasil di-assign ke Tim: Network, Server"
+      "message": "Tiket berhasil disinkronkan ke HTS: #2025-TShoot-2026-jateng-09",
+      "ticket": { ... }
     }
     ```
 
-### F. Tandai Selesai Penanganan Per-Tim (L2)
+### G. Tandai Selesai Penanganan Per-Tim (L2)
 *   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/resolve`
 *   **Akses:** `L2`, `ADMIN`
-*   **Keterangan:** Jika masih ada tim lain yang belum selesai, status tiket utama tetap `OPEN`. Jika seluruh tim sudah selesai, status tiket utama otomatis menjadi `RESOLVED`.
-*   **Response (200 OK):**
-    ```json
-    {
-      "success": true,
-      "isFullyResolved": true,
-      "message": "[SISTEM] Tim Server telah menandai kendala di bagiannya selesai. Seluruh tim telah selesai menangani. Tiket berstatus RESOLVED."
-    }
-    ```
-
-### G. Kembalikan / Lepas Penugasan Tim (L2)
-*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/return`
-*   **Akses:** `L2`, `ADMIN`
 *   **Request Body:**
     ```json
     {
-      "reason": "Tidak ada kendala pada tim Server, murni kendala switch network."
+      "solution": "Kabel FO putus di tiang KM 14 sudah disambung menggunakan splicer. Redaman normal -18dBm."
     }
     ```
+*   **Keterangan:** Teks solusi disimpan di `TicketCategory.solution`. Tiket utama menjadi `RESOLVED` jika semua tim selesai.
 
-### H. Menutup Tiket Secara Resmi (L1)
+### H. Kembalikan / Lepas Penugasan Tim (L2)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/return`
+*   **Request Body:** `{ "reason": "Bukan kendala tim Server" }`
+
+### I. Menutup Tiket Resmi & Dual-Close ke Portal HTS (L1)
 *   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/close`
+*   **Akses:** `L1`, `ADMIN`
+*   **Content-Type:** `multipart/form-data`
+*   **Form Data:**
+    - `summary`: Kesimpulan akhir penanganan kendala (**Wajib min 10 karakter**)
+    - `categoryIds`: Array ID tim final
+    - `closeHtsTicket`: `"true"` jika ingin menyelesaikan tiket di HTS sekaligus
+    - `htsSolution`: Teks respon teknis untuk HTS (default: menggunakan `summary`)
+    - `htsPicId`: ID PIC penanganan
+    - `htsPicIds`: Multi PIC penanganan (otomatis di-merge dengan PIC Penerima awal)
+    - `htsTglTeknis`: Tanggal selesai (`YYYY-MM-DD`)
+    - `htsJamTeknis`: Jam selesai (`HH:mm`)
+    - `attachment`: File bukti selesai/foto tindakan (Opsional: `.jpg`, `.jpeg`, `.png`, `.pdf`)
+    - `useChatImage`: `"true"` (opsional jika ambil dari chat)
+*   **Prinsip Keamanan Integritas:** Jika penutupan tiket di portal HTS gagal (misal file tidak valid atau server HTS error), status tiket lokal **batal ditutup** dan percakapan tetap terbuka agar dapat diperiksa kembali.
+
+### J. Selesaikan Tiket HTS yang Berstatus PENDING (Tombol Panel Resume)
+*   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/sync-solve-hts`
 *   **Akses:** `L1`, `ADMIN`
 *   **Request Body:**
     ```json
     {
-      "summary": "Router core telah diganti dan jalur optik kembali normal. Selesai.",
-      "categoryIds": [7]
+      "solution": "Permasalahan telah selesai ditangani secara teknis.",
+      "picId": "14",
+      "picIds": ["14", "8"]
     }
     ```
+*   **Keterangan:** Menyelesaikan tiket di portal HTS yang sebelumnya masih `PENDING` tanpa mengubah status percakapan chat lokal jika sudah closed.
 
-### I. Menulis Catatan Internal (L2 & L1)
+### K. Menulis Catatan Internal (L2 & L1)
 *   **Method / Endpoint:** `POST /api/chat/tickets/:ticketId/internal-note`
-*   **Request Body:**
-    ```json
-    {
-      "ticketId": 10,
-      "text": "Sedang koordinasi dengan pihak provider FO di lapangan."
-    }
-    ```
+*   **Request Body:** `{ "text": "Catatan khusus tim..." }`
 
-### J. Mengambil Daftar Kategori / Tim
+### L. Mengambil Daftar Kategori / Tim
 *   **Method / Endpoint:** `GET /api/chat/categories`
-*   **Response (200 OK):**
-    ```json
-    [
-      { "id": 7, "name": "Network", "wa_target_number": "628000000001" },
-      { "id": 8, "name": "Server", "wa_target_number": "628000000002" },
-      { "id": 9, "name": "Mechanical & Electrical (M&E)", "wa_target_number": "628000000003" }
-    ]
-    ```
 
-### K. Memperbarui Identitas Pelapor (Nama & Instansi/SKPD)
+### M. Memperbarui Identitas Pelapor (Nama & Instansi/SKPD)
 *   **Method / Endpoint:** `PUT /api/chat/customers/:customerId`
-*   **Akses:** `L1`, `ADMIN`, `SPV`
-*   **Request Body:**
-    ```json
-    {
-      "name": "Budi Santoso",
-      "skpd_name": "Diskominfo"
-    }
-    ```
-*   **Response (200 OK):**
-    ```json
-    {
-      "success": true,
-      "customer": {
-        "id": 1,
-        "wa_number": "628992572654",
-        "name": "Budi Santoso",
-        "skpd_name": "Diskominfo",
-        "is_custom_name": true,
-        "created_at": "2026-09-28T09:33:00.644Z"
-      }
-    }
-    ```
+*   **Request Body:** `{ "name": "Nama Baru", "skpd_name": "Dinas Kesehatan" }`
 
 ---
 
-## 4. Modul Laporan & Rekapitulasi (`/api/reports`)
+## 5. Modul Laporan & Rekapitulasi (`/api/reports`)
 
 ### Mengambil Rekap Laporan Aduan
 *   **Method / Endpoint:** `GET /api/reports/tickets`
-*   **Query Parameters (Opsional):**
-    - `status`: `OPEN` / `RESOLVED` / `CLOSED`
-    - `startDate`: `2026-09-01`
-    - `endDate`: `2026-09-30`
-    - `categoryId`: `7`
-*   **Response (200 OK):**
-    ```json
-    [
-      {
-        "id": 10,
-        "customerName": "Laurensius Liquori",
-        "waNumber": "628992572654",
-        "status": "CLOSED",
-        "serviceType": "Troubleshooting",
-        "createdAt": "2026-09-28T15:41:26.869Z",
-        "closedAt": "2026-09-28T16:15:00.000Z",
-        "duration": "33 Menit",
-        "summary": "Router core telah diganti dan jalur optik normal.",
-        "categories": "Network"
-      }
-    ]
-    ```
+*   **Query Parameters (Opsional):** `status`, `startDate`, `endDate`, `categoryId`
+*   **Hapus Rekap Aduan (Admin Only):** `DELETE /api/reports/tickets`
+    - Body hapus terpilih: `{ "ids": [10, 11] }`
+    - Body reset total & reset sequence ke 1: `{ "all": true }`
 
 ---
 
-## 5. Webhook Inbound WhatsApp (`/api/webhook`)
-
-### Menerima Event Pesan Masuk dari Evolution API
+## 6. Webhook WhatsApp Inbound (`/api/webhook/whatsapp`)
 *   **Method / Endpoint:** `POST /api/webhook/whatsapp`
 *   **Event:** `messages.upsert`
 *   **Alur:**
-    1. Cek atau buat kontak `Customer`.
-    2. Cek apakah ada tiket aktif berstatus `OPEN` atau `RESOLVED`.
-    3. Jika tidak ada, buat tiket baru dan kirim **Auto-Reply Bot**.
-    4. Jika pesan berupa media gambar, simpan otomatis ke `/uploads/` dan catat URL lampirannya.
-    5. Broadcast pesan ke Web Dashboard via Socket.io `new_message`.
-*   **Response:** Selalu `200 OK` `{ "status": "success" }`.
+    1. Parse payload Evolution API v2.
+    2. Cek/buat kontak `Customer`.
+    3. Cek tiket aktif (`OPEN`/`RESOLVED`). Jika belum ada, buat tiket baru dan tembakkan template **Auto-Reply Bot**.
+    4. Simpan media/teks dan broadcast via Socket.io `new_message`.
+*   **Response:** `200 OK` `{ "status": "success" }`.
 
 ---
 
-## 6. Event Real-time WebSocket (Socket.io)
+## 7. Event Real-time WebSocket (Socket.io)
 
 | Nama Event | Arah | Payload Utama | Keterangan |
 |---|---|---|---|
-| `new_message` | Server ➡️ Client | `{ ticketId, senderType, text, attachmentUrl, isInternal, createdAt }` | Ditembak saat ada pesan baru dari WhatsApp atau catatan internal agen. |
-| `ticket_closed` | Server ➡️ Client | `{ ticketId }` | Ditembak saat status tiket berubah (di-assign, resolved, atau closed) untuk memicu refresh antrean. |
-
----
-
-## 7. Modul Pengaturan & Kontak Tim L2 (`/api/settings` & `/api/admin`)
-
-### A. Pengaturan Auto-Reply Bot (Khusus L1)
-*   **Method / Endpoint:** `GET /api/settings/autoreply`
-*   **Akses:** `L1`, `ADMIN`, `SPV`
-*   **Response (200 OK):**
-    ```json
-    {
-      "success": true,
-      "data": {
-        "key": "auto_reply",
-        "value": "Halo! Terima kasih telah menghubungi Helpdesk...",
-        "is_active": true
-      }
-    }
-    ```
-*   **Method / Endpoint:** `PUT /api/settings/autoreply`
-*   **Akses:** `L1` (Role lain: 403 Forbidden)
-*   **Request Body:**
-    ```json
-    {
-      "value": "Template pesan baru...",
-      "is_active": true
-    }
-    ```
-
-### B. Hapus Rekap Hasil Aduan (Khusus ADMIN)
-*   **Method / Endpoint:** `DELETE /api/reports/tickets`
-*   **Akses:** `ADMIN` (Role lain: 403 Forbidden)
-*   **Request Body (Hapus Terpilih):**
-    ```json
-    { "ids": [10, 11, 12] }
-    ```
-*   **Request Body (Hapus Semua Data Testing):**
-    ```json
-    { "all": true }
-    ```
-
-### C. Manajemen Multi-Kontak WhatsApp Blast Tim L2 (Khusus ADMIN)
-*   **Ambil Daftar Kategori & Kontak:** `GET /api/admin/categories/contacts`
-    - Akses: `ADMIN`
-*   **Tambah Kontak Tim:** `POST /api/admin/categories/:categoryId/contacts`
-    - Akses: `ADMIN`
-    - Body: `{ "name": "Teknisi 2", "wa_target": "081234567890" }` (otomatis disanitasi ke `628xxx` atau `@g.us`)
-*   **Perbarui Kontak Tim (Edit):** `PUT /api/admin/categories/contacts/:contactId`
-    - Akses: `ADMIN`
-    - Body: `{ "name": "Teknisi 2 (Updated)", "wa_target": "628999888777" }`
-*   **Hapus Kontak Tim:** `DELETE /api/admin/categories/contacts/:contactId`
-    - Akses: `ADMIN`
-
+| `new_message` | Server ➡️ Client | `{ ticketId, senderType, text, attachmentUrl, isInternal, createdAt }` | Ditembakkan saat ada chat masuk, chat keluar, atau catatan sistem/HTS. |
+| `ticket_closed`| Server ➡️ Client | `{ ticketId, summary, categorys }` | Ditembakkan saat tiket di-assign, di-resolve, disinkronkan ke HTS, atau ditutup. |

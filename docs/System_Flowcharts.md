@@ -1,6 +1,6 @@
 # 🔄 Diagram Alur Sistem (System Flowcharts)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Status:** Produksi / Workflow V2.2 (Multi-Assign, Per-Team Resolve, Return, Auto-Reply Toggle, Smart Assign, Multi-Contact Blast, Sequence Reset)
+**Status:** Produksi / Workflow V3.0 (Full HTS Diskomdigi Integration, Smart Assign, Dual-Close & PIC Sync)
 
 Dokumen ini memuat diagram alur proses (*Flowchart*) komprehensif menggunakan notasi Mermaid untuk seluruh skenario operasional sistem.
 
@@ -54,128 +54,143 @@ flowchart TD
     B --> C[Muncul Modal Penugasan]
     C --> D[L1 Centang Tim Tujuan:\n- Network\n- Server\n- M&E]
     D --> E[L1 Pilih / Update Jenis Layanan:\nTroubleshooting / Request / Monitoring]
-    E --> F[Klik 'Tugaskan L2']
+    E --> F[Klik 'Simpan Penugasan']
     
     F --> G[POST /api/chat/tickets/:id/assign]
     G --> H[Update service_type Tiket]
-    H --> I[Hitung Diff Penugasan:\n- Existing (tetap dipertahankan status & is_resolved)\n- Added (buat TicketCategory baru)\n- Removed (hapus tim yang tidak dicentang lagi)]
+    H --> I[Hitung Diff Penugasan:\n- Existing (pertahankan status & is_resolved)\n- Added (buat TicketCategory baru)\n- Removed (hapus tim yang di-uncheck)]
     I --> J[Simpan Perubahan ke Database]
     
     J --> K[Tulis Catatan Internal Otomatis:\n'Tiket di-assign ke Tim: ...']
-    K --> L{Cek Daftar Kontak di CategoryContact\nUntuk Masing-Masing Tim yang Ditugaskan}
+    K --> L{Cek Daftar Kontak di CategoryContact\nUntuk Tim yang Ditugaskan}
     
-    L -- Ada Kontak Terdaftar --> M[Loop Kirim WhatsApp Blast Notifikasi ke Semua Nomor / Grup Tim L2]
+    L -- Ada Kontak Terdaftar --> M[Loop Kirim WhatsApp Blast ke Nomor / Grup Tim L2]
     L -- Tidak Ada Kontak --> N[Lewati Notifikasi WA]
     
     M --> O[Emit Socket.io: 'ticket_closed' & 'new_message']
     N --> O
-    O --> P([Tiket Otomatis Muncul di Layar Teknisi Terkait])
+    O --> P([Antrean Dashboard L2 & L1 Terupdate Seketika])
 ```
 
 ---
 
-## 3. Alur Penyelesaian Mandiri Per-Tim (Per-Team Resolution)
+## 3. Alur Penyelesaian Mandiri Per-Tim (Per-Team Resolution by L2)
 
-Menjelaskan bagaimana masing-masing tim L2 menyelesaikan bagiannya sendiri hingga tiket berstatus `RESOLVED`.
+Menjelaskan alur saat masing-masing teknisi L2 menyelesaikan bagian tugasnya disertai catatan solusi teknis.
 
 ```mermaid
 flowchart TD
-    A([Teknisi L2 Buka Tiket di Antreannya]) --> B[Teknisi Selesai Menangani Masalah Bagiannya]
-    B --> C[Klik Tombol 'Tandai Selesai']
-    C --> D[POST /api/chat/tickets/:id/resolve]
+    A([Teknisi L2 Buka Tiket]) --> B[Periksa Kendala & Lakukan Penanganan Lapangan]
+    B --> C[Pekerjaan Tim Selesai]
+    C --> D[Klik Tombol 'Tandai Selesai']
+    D --> E[Muncul Dialog Isian Solusi Teknis]
+    E --> F[Teknisi Mengisi Solusi Lapangan:\nMisal: 'Splicing kabel FO core 4 tuntas']
+    F --> G[POST /api/chat/tickets/:id/resolve]
     
-    D --> E[Set is_resolved = true & resolved_at = now\nKhusus untuk Kategori Tim Pengguna Tersebut]
-    E --> F[Tulis Catatan Internal dengan Badge Identitas Tim:\n'[Tim Network] Tim Network telah menandai kendala selesai']
+    G --> H[Update TicketCategory:\nis_resolved = true, resolved_at = now, solution = teks]
+    H --> I[Catat Log Catatan Internal Solusi Tim]
+    I --> J{Apakah SEMUA Tim Lain yang Ditugaskan\nSudah is_resolved = true?}
     
-    F --> G{Apakah SEMUA Tim yang Ditugaskan\nSudah is_resolved = true?}
+    J -- Masih Ada Tim Belum Selesai --> K[Tiket Utama Tetap Berstatus OPEN]
+    J -- Seluruh Tim Sudah Selesai --> L[Otomatis Update Status Tiket Utama = RESOLVED]
     
-    G -- Belum (Ada Tim Lain yang Masih Kerja) --> H[Status Tiket Utama TETAP OPEN]
-    H --> I[Layar Tampilkan Badge Status:\n✓ Tim Selesai | ⏳ Tim Masih Kerja]
-    
-    G -- Ya (Semua Tim Sudah Selesai) --> J[Ubah Status Tiket Utama Menjadi RESOLVED]
-    J --> K[Tulis Catatan Internal:\n'Seluruh tim telah selesai menangani. Siap ditutup L1.']
-    
-    I --> L[Emit Socket.io Refresh Data]
-    K --> L
-    L --> M([Tiket Siap Ditindaklanjuti L1])
+    K --> M[Emit Socket.io Refresh Data]
+    L --> M
+    M --> N([Tiket Siap Ditindaklanjuti L1])
 ```
 
 ---
 
-## 4. Alur Pengembalian Tiket / Pelepasan Tim Mandiri (Self-Unassign Return)
+## 4. Alur Autentikasi Sesi HTS Petugas (Bypass CAPTCHA Visual)
 
-Menjelaskan jika teknisi mendapati kendala bukan di bagiannya dan ingin melepas penugasan tanpa mengganggu tim lain.
+Menjelaskan cara Dispatcher L1 menghubungkan akun resmi HTS Diskomdigi ke aplikasi Helpdesk.
 
 ```mermaid
-flowchart TD
-    A([Teknisi L2 Buka Tiket]) --> B[Periksa Kendala & Ternyata Normal di Bagiannya]
-    B --> C[Klik Tombol 'Kembalikan / Lepas']
-    C --> D[Muncul Dialog Isian Alasan Pengembalian]
-    D --> E[Teknisi Isi Alasan:\nMisal: 'Tidak ada kendala di sisi server']
-    E --> F[POST /api/chat/tickets/:id/return]
-    
-    F --> G[Hapus Relasi TicketCategory Milik Tim Pengguna]
-    G --> H[Tulis Catatan Internal Alasan Pengembalian dengan Badge Identitas Tim]
-    H --> I{Apakah Masih Ada Tim Lain yang Ditugaskan?}
-    
-    I -- Ya (Masih Ada Tim Lain) --> J[Tiket Tetap Berjalan di Tim yang Tersisa]
-    I -- Tidak (Semua Tim Sudah Dilepas) --> K[Tiket Kembali Berstatus 'Belum Ditugaskan' di Antrean L1]
-    
-    J --> L[Tiket Hilang dari Antrean Teknisi Ini]
-    K --> L
-    L --> M[Emit Socket.io Refresh Data]
-    M --> N([Antrean Diperbarui Seketika])
+sequenceDiagram
+    autonumber
+    actor Petugas as Dispatcher L1
+    participant UI as Web Dashboard
+    participant Backend as Express Server
+    participant HTS as Server Portal HTS
+
+    Petugas->>UI: Klik "Hubungkan Akun HTS"
+    UI->>Backend: GET /api/hts/captcha
+    Backend->>HTS: GET https://hts.diskomdigi.jatengprov.go.id/
+    HTS-->>Backend: Set-Cookie (ci_session awal) & CSRF Token
+    Backend->>HTS: GET /captcha?rand=xxx (pakai cookie ci_session)
+    HTS-->>Backend: Binary Buffer Gambar PNG Captcha
+    Backend-->>UI: Base64 Data Image & CSRF
+    UI-->>Petugas: Tampilkan Gambar CAPTCHA di Modal
+
+    Petugas->>UI: Masukkan Email, Password, dan Teks CAPTCHA
+    UI->>Backend: POST /api/hts/login (email, password, captcha_code)
+    Backend->>HTS: POST /login (x-www-form-urlencoded)
+    HTS-->>Backend: 302 Redirect & Set-Cookie (ci_session login)
+    Backend->>Backend: Simpan cookie ci_session ke tabel HtsUserSession
+    Backend-->>UI: { success: true, message: "Terhubung sebagai ..." }
+    UI-->>Petugas: Widget Panel Kanan Hijau: Terhubung
 ```
 
 ---
 
-## 5. Alur Penutupan Tiket Resmi oleh Dispatcher L1 (Official Closure)
+## 5. Alur Penerbitan Tiket ke Portal HTS (Pipeline 3-Tahap)
 
-Menjelaskan tahapan akhir di mana L1 mengonfirmasi ke pelanggan dan menutup tiket dengan kesimpulan resmi serta auto pre-fill kategori masalah.
+Menjelaskan bagaimana sebuah tiket aduan di Helpdesk diproses hingga resmi terdaftar di portal HTS dengan nomor aduan dan PIC.
 
 ```mermaid
 flowchart TD
-    A([L1 Melihat Tiket Berstatus RESOLVED]) --> B[L1 Menghubungi Pelapor via Chat Web Helpdesk]
-    B --> C[Pelapor Konfirmasi Masalah Sudah Beres]
-    C --> D[L1 Klik Tombol 'Selesaikan']
-    D --> E[Muncul Modal Penutupan Tiket]
+    A([Dispatcher L1 Klik 'Kirim ke Portal HTS']) --> B[Form Data HTS Terbuka]
+    B --> C[Isi Data: Kategori, Detil min 10 karakter,\nPIC Penerima, OPD Induk opsional, Lampiran]
+    C --> D[POST /api/chat/tickets/:id/sync-hts]
     
-    E --> F[Modal Otomatis Mencentang Kategori Masalah\nSesuai Tim L2 yang Ditugaskan Sebelumnya]
-    F --> G[L1 Sesuaikan / Konfirmasi Kategori jika Perlu]
-    G --> H[L1 Wajib Mengisi Kesimpulan Penanganan\nMinimal 10 Karakter]
-    H --> I[Klik 'Tutup Tiket']
+    D --> E[Ambil Sesi Cookie ci_session Petugas dari HtsUserSession]
     
-    I --> J[POST /api/chat/tickets/:id/close]
-    J --> K[Set Status Tiket = CLOSED]
-    K --> L[Catat Waktu closed_at = now]
-    L --> M[Simpan Teks Kesimpulan ke Kolom summary]
-    M --> N[Tulis Catatan Internal Resmi Penutupan]
+    subgraph Pipeline_HTS [Pipeline 3 Tahap HTS Client Service]
+        E --> F[Tahap 1: POST /submit_aduan]
+        F --> G[HTS Terbitkan Nomor Aduan:\nContoh: #2025-TShoot-2026-jateng-09]
+        G --> H[Query POST /get_aduan_data unsubmitted:\nAmbil id_trouble numerik database HTS]
+        H --> I[Tahap 2: POST /submit_aduan_status\nPindahkan dari unsubmitted ke input-pic]
+        I --> J[Tahap 3: POST /submit_pic\nTetapkan PIC Penerima Awal: pic_id = '14']
+    end
     
-    N --> O[Emit Socket.io: 'ticket_closed']
-    O --> P[Tiket Berpindah ke Menu Rekap Hasil Aduan]
-    P --> Q([Siklus Hidup Tiket Selesai])
+    J --> K[Status di HTS Berubah Menjadi PENDING]
+    K --> L[Simpan ke Database Helpdesk:\n- hts_ticket_id\n- hts_ticket_no\n- hts_ticket_status = PENDING\n- hts_pic_ids = JSON]
+    L --> M[Buat Catatan Internal Tiket Resmi Terbit]
+    M --> N[Emit Socket.io: 'ticket_closed' & 'new_message']
+    N --> O([Nomor HTS Tampil di Header & Panel Resume])
 ```
 
 ---
 
-## 6. Alur Penghapusan Rekap Hasil Aduan & Reset Penomoran ID (Admin Only)
+## 6. Alur Penutupan Tiket Resmi & Dual-Close HTS (PIC Sync)
 
-Menjelaskan pembersihan rekap tiket selesai oleh Administrator untuk keperluan maintenance atau reset data testing.
+Menjelaskan proses saat L1 menutup tiket di Helpdesk dan menyelesaikan tiket di portal HTS secara bersamaan.
 
 ```mermaid
 flowchart TD
-    A([Admin Buka Menu Rekap Hasil Aduan]) --> B[Admin Pilih Tiket Tertentu atau Klik 'Hapus Semua']
-    B --> C[Muncul Konfirmasi Peringatan Penghapusan Permanen]
-    C --> D[Admin Menyetujui Penghapusan]
+    A([L1 Klik Tombol 'Selesaikan Tiket']) --> B[Modal Penutupan Tiket Terbuka]
+    B --> C[Draf Kesimpulan Terisi Otomatis dari Solusi L2]
+    C --> D[PIC Penerima Awal Otomatis Tercentang\nBadge Hijau: PIC Penerima]
+    D --> E[L1 Centang Teknisi L2 Tambahan jika Ada\nBadge Biru: PIC Penanganan]
+    E --> F[L1 Lampirkan Foto Bukti Penyelesaian / Form Teknis]
+    F --> G[Klik 'Tutup Tiket']
     
-    D --> E[DELETE /api/reports/tickets]
-    E --> F{Hapus Semua atau Terpilih?}
+    G --> H[POST /api/chat/tickets/:id/close]
+    H --> I{Apakah Tiket Terhubung ke HTS & closeHtsTicket = true?}
     
-    F -- Terpilih (ids: [1, 2, ...]) --> G[Hapus Tiket CLOSED yang Dipilih Saja Beserta Pesan & Kategorinya]
-    F -- Hapus Semua (all: true) --> H[Hapus SEMUA Tiket CLOSED Beserta Pesan & Kategorinya]
-    H --> I[Cek Jumlah Tiket Aktif Tersisa]
-    I --> J[Reset PostgreSQL Auto-Increment Sequence:\nALTER SEQUENCE tickets_id_seq RESTART WITH 1]
+    I -- Ya --> J[Merge PIC Penerima Awal + PIC Penanganan Akhir\nContoh: ['14', '8']]
+    J --> K[Tahap 1 HTS: POST /submit_input_teknis]
+    K --> L[Tahap 2 HTS: POST /submit_teknis\npic_id = '14,8', detil solusi, foto bukti]
     
-    G --> K[Kirim Response Berhasil]
-    J --> K
-    K --> L[Tabel Rekap Segera Kosong & Tiket Baru Berikutnya Mulai dari ID #1]
+    L --> M{Apakah HTS Berhasil Merespon Success?}
+    M -- Gagal / Error HTS --> N[BATALKAN Penutupan Tiket Lokal!\nKembalikan Error ke UI agar Chat Tetap Aman]
+    M -- Berhasil --> O[Update Status HTS = SOLVED]
+    
+    I -- Tidak (Tiket Non-HTS) --> P[Lewati Submit Teknis HTS]
+    
+    O --> Q[Update Tiket Lokal: status = CLOSED, summary, closed_at]
+    P --> Q
+    Q --> R[Catat Catatan Internal Penutupan]
+    R --> S[Emit Socket.io: 'ticket_closed']
+    S --> T([Tiket Selesai & Berpindah ke Menu Rekap])
+```

@@ -313,6 +313,21 @@ const getActiveUserCookiesAndCsrf = async (userId) => {
   };
 };
 
+// Helper: Parse PIC IDs ke array string
+const parsePicIds = (input) => {
+  if (!input) return ['14'];
+  if (Array.isArray(input)) return input.map(String).filter(Boolean);
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch (e) {}
+    if (input.includes(',')) return input.split(',').map(s => s.trim()).filter(Boolean);
+    return [input.trim()];
+  }
+  return [String(input)];
+};
+
 // 5. Otomasi Pipeline Pembuatan Tiket di Portal HTS (submit_aduan -> submit_aduan_status -> submit_pic)
 const createTicketPipeline = async (userId, ticketData) => {
   const {
@@ -326,6 +341,7 @@ const createTicketPipeline = async (userId, ticketData) => {
     sub_kategori,
     detil,
     pic_id,
+    pic_ids,
     attachmentUrl
   } = ticketData;
 
@@ -356,8 +372,8 @@ const createTicketPipeline = async (userId, ticketData) => {
   form1.append('csrf_test_name', activeCsrf);
   form1.append('cust', (cust || 'Pelapor').trim());
   form1.append('wa', (wa || '').replace(/[^0-9]/g, ''));
-  form1.append('opd', (opd || 'Masyarakat / Instansi').trim());
-  form1.append('induk_opd_id', induk_opd_id ? String(induk_opd_id) : '57');
+  form1.append('opd', (opd || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah').trim());
+  form1.append('induk_opd_id', induk_opd_id ? String(induk_opd_id) : '');
   
   // Format tanggal & jam
   const now = new Date();
@@ -372,13 +388,18 @@ const createTicketPipeline = async (userId, ticketData) => {
     form1.append('sub-kategori', sub_kategori || 'DISTRIBUTION NETWORK');
   }
 
-  form1.append('detil', (detil && detil.trim().length >= 5 ? detil.trim() : 'Keluhan dari WhatsApp Helpdesk').substring(0, 250));
+  const cleanDetil = (detil || '').trim();
+  if (cleanDetil.length < 10) {
+    throw new Error(`Detil Permasalahan wajib diisi minimal 10 karakter untuk portal HTS (saat ini: ${cleanDetil.length} karakter).`);
+  }
+  form1.append('detil', cleanDetil.substring(0, 250));
 
   // Handle lampiran jika ada
   if (attachmentUrl) {
     const path = require('path');
     const fs = require('fs');
-    const localFilePath = path.join(__dirname, '../../', attachmentUrl.replace(/^\//, ''));
+    const cleanPath = attachmentUrl.replace(/^\/uploads\//, '').replace(/^\//, '');
+    const localFilePath = path.join(__dirname, '../../uploads', cleanPath);
     if (fs.existsSync(localFilePath)) {
       const fileBuffer = fs.readFileSync(localFilePath);
       const fileName = path.basename(localFilePath);
@@ -404,14 +425,41 @@ const createTicketPipeline = async (userId, ticketData) => {
     throw new Error(data1?.message || 'Gagal mengirim form aduan ke HTS');
   }
 
-  // Ekstrak no_trouble dan id_trouble dari message
+  // Ekstrak no_trouble dari message
   const match = data1.message.match(/nomor aduan\s+([0-9]+-[A-Za-z0-9_-]+)/i);
   if (!match) {
     throw new Error('Respon HTS tidak memuat format nomor aduan yang valid: ' + data1.message);
   }
 
   const noTrouble = match[1];
-  const idTrouble = noTrouble.split('-')[0];
+
+  // Cari ID trouble numerik yang sebenarnya di database HTS melalui get_aduan_data (unsubmitted)
+  let idTrouble = noTrouble.split('-')[0];
+  try {
+    const listRes = await axios.post(`${HTS_BASE_URL}/get_aduan_data`, {
+      page: 1,
+      limit: 10,
+      status: 'unsubmitted'
+    }, {
+      headers: {
+        'Cookie': formatCookieHeader(cookies),
+        'User-Agent': 'Mozilla/5.0',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-TOKEN': cookies['csrf_cookie_name'] || activeCsrf,
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000
+    });
+
+    if (listRes.data && Array.isArray(listRes.data.data)) {
+      const foundItem = listRes.data.data.find(d => d.no_trouble === noTrouble) || listRes.data.data[0];
+      if (foundItem && foundItem.id_trouble) {
+        idTrouble = String(foundItem.id_trouble);
+      }
+    }
+  } catch (errList) {
+    console.warn('[HTS Service] Gagal query get_aduan_data unsubmitted, fallback ke nomor prefix:', errList.message);
+  }
 
   // TAHAP 2: Submit Aduan Status (/submit_aduan_status)
   // Memindahkan dari unsubmitted ke input-pic
@@ -423,31 +471,40 @@ const createTicketPipeline = async (userId, ticketData) => {
     headers: {
       'Cookie': formatCookieHeader(cookies),
       'Referer': `${HTS_BASE_URL}/list_aduan`,
-      'User-Agent': 'Mozilla/5.0'
+      'User-Agent': 'Mozilla/5.0',
+      'X-Requested-With': 'XMLHttpRequest'
     },
     timeout: 15000
   });
 
   cookies = parseCookies(res2.headers['set-cookie'], cookies);
+  if (res2.data && res2.data.success === false) {
+    throw new Error(res2.data.message || 'Gagal memindahkan status aduan ke input-pic di HTS');
+  }
 
   // TAHAP 3: Submit PIC (/submit_pic)
-  // Menetapkan PIC penanganan dan memindahkan ke pending
-  const targetPicId = pic_id ? String(pic_id) : '14'; // Default: Helpdesk - Ori (14)
+  // Menetapkan satu atau banyak PIC penanganan dan memindahkan ke pending
+  const targetPicIds = parsePicIds(pic_ids || pic_id);
   const form3 = new FormData();
   form3.append('id_trouble', idTrouble);
-  form3.append('pic_id', targetPicId);
   form3.append('csrf_test_name', cookies['csrf_cookie_name'] || activeCsrf);
+  // Sesuai skrip frontend HTS: formData.append('pic_id', selectedPICs.join(','))
+  form3.append('pic_id', targetPicIds.join(','));
 
   const res3 = await axios.post(`${HTS_BASE_URL}/submit_pic`, form3, {
     headers: {
       'Cookie': formatCookieHeader(cookies),
       'Referer': `${HTS_BASE_URL}/input_pic_form/${idTrouble}`,
-      'User-Agent': 'Mozilla/5.0'
+      'User-Agent': 'Mozilla/5.0',
+      'X-Requested-With': 'XMLHttpRequest'
     },
     timeout: 15000
   });
 
   cookies = parseCookies(res3.headers['set-cookie'], cookies);
+  if (res3.data && res3.data.success === false) {
+    throw new Error(res3.data.message || 'Gagal menetapkan PIC di HTS');
+  }
 
   // Perbarui cookie sesi aktif di database
   await prisma.htsUserSession.update({
@@ -463,6 +520,7 @@ const createTicketPipeline = async (userId, ticketData) => {
     idTrouble,
     noTrouble,
     status: 'PENDING',
+    picIds: targetPicIds,
     message: `Tiket resmi HTS #${noTrouble} berhasil diterbitkan dan siap ditangani.`
   };
 };
@@ -482,10 +540,41 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
   } = technicalData;
 
   // Ekstrak ID numerik trouble jika formatnya nomor lengkap seperti "2025-TShoot-2026-jateng-09"
-  const idTrouble = String(htsTicketId).includes('-') ? String(htsTicketId).split('-')[0] : String(htsTicketId);
+  let idTrouble = String(htsTicketId).includes('-') ? String(htsTicketId).split('-')[0] : String(htsTicketId);
 
   // Ambil sesi cookie aktif petugas
   let { cookies, csrfToken: activeCsrf } = await getActiveUserCookiesAndCsrf(userId);
+
+  // Jika input berupa nomor trouble, cari ID trouble numerik yang sebenarnya dari get_aduan_data (pending)
+  if (String(htsTicketId).includes('-')) {
+    try {
+      const pendingRes = await axios.post(`${HTS_BASE_URL}/get_aduan_data`, {
+        page: 1,
+        limit: 20,
+        status: 'pending'
+      }, {
+        headers: {
+          'Cookie': formatCookieHeader(cookies),
+          'User-Agent': 'Mozilla/5.0',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': cookies['csrf_cookie_name'] || activeCsrf,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+
+      if (pendingRes.data && Array.isArray(pendingRes.data.data)) {
+        const matchItem = pendingRes.data.data.find(d => 
+          d.no_trouble === String(htsTicketId) || String(d.id_trouble) === String(htsTicketId)
+        );
+        if (matchItem && matchItem.id_trouble) {
+          idTrouble = String(matchItem.id_trouble);
+        }
+      }
+    } catch (errP) {
+      console.warn('[HTS Service] Gagal query pending aduan, gunakan idTrouble default:', errP.message);
+    }
+  }
 
   // TAHAP 1: Submit Input Teknis (/submit_input_teknis)
   const form1 = new FormData();
@@ -497,7 +586,8 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
       headers: {
         'Cookie': formatCookieHeader(cookies),
         'Referer': `${HTS_BASE_URL}/tshoot`,
-        'User-Agent': 'Mozilla/5.0'
+        'User-Agent': 'Mozilla/5.0',
+        'X-Requested-With': 'XMLHttpRequest'
       },
       timeout: 15000
     });
@@ -533,28 +623,33 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
   form2.append('id_trouble', idTrouble);
   form2.append('tglteknis', tglteknis || new Date().toISOString().split('T')[0]);
   form2.append('jam_problem', jam_problem || new Date().toTimeString().split(' ')[0].substring(0, 5));
-  form2.append('detil', detil || 'Permasalahan telah selesai ditangani secara teknis.');
-  form2.append('pic_id', pic_id ? String(pic_id) : '14');
+  form2.append('detil', detil && detil.trim() ? detil.trim() : 'Permasalahan telah selesai ditangani secara teknis.');
+  const targetPicIds = parsePicIds(technicalData.pic_ids || pic_id);
+  // Sesuai skrip frontend HTS: formData.append('pic_id', selectedPICs.join(','))
+  form2.append('pic_id', targetPicIds.join(','));
 
   // Handle bukti penanganan (pic[]) jika ada
   if (attachmentUrl) {
     try {
       const path = require('path');
       const fs = require('fs');
-      const cleanPath = attachmentUrl.replace(/^\/uploads\//, '');
+      const cleanPath = attachmentUrl.replace(/^\/uploads\//, '').replace(/^\//, '');
       const filePath = path.join(__dirname, '../../uploads', cleanPath);
       if (fs.existsSync(filePath)) {
         const fileBuffer = fs.readFileSync(filePath);
         const fileName = path.basename(filePath);
-        form2.append('pic[]', new Blob([fileBuffer]), fileName);
-      } else {
-        form2.append('pic[]', new Blob([]), '');
+        const ext = path.extname(fileName).toLowerCase();
+        let mime = 'image/jpeg';
+        if (ext === '.png') mime = 'image/png';
+        else if (ext === '.pdf') mime = 'application/pdf';
+        else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+
+        const fileBlob = new Blob([fileBuffer], { type: mime });
+        form2.append('pic[]', fileBlob, fileName);
       }
     } catch (e) {
-      form2.append('pic[]', new Blob([]), '');
+      console.warn('[HTS Service] Gagal memproses file lampiran bukti teknis:', e.message);
     }
-  } else {
-    form2.append('pic[]', new Blob([]), '');
   }
 
   const res2 = await axios.post(`${HTS_BASE_URL}/submit_teknis`, form2, {
@@ -587,6 +682,7 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
     success: true,
     idTrouble,
     status: 'SOLVED',
+    picIds: targetPicIds,
     message: data2.message || `Tiket HTS #${htsTicketId} berhasil diselesaikan.`
   };
 };

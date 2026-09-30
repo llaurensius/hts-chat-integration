@@ -1,6 +1,6 @@
 # 🏗️ Arsitektur Teknologi & Tech Stack
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** 2.2 (Workflow V2.2 Produksi)
+**Versi:** 3.0 (Workflow V3.0 Produksi - Full HTS Diskomdigi Integration)
 
 Dokumen ini mendefinisikan tumpukan teknologi (*Tech Stack*), pustaka dependensi, dan topologi arsitektur sistem yang digunakan dalam implementasi nyata.
 
@@ -13,7 +13,8 @@ Dokumen ini mendefinisikan tumpukan teknologi (*Tech Stack*), pustaka dependensi
 | **WhatsApp Gateway** | **Evolution API v2** | `v2.3.7` | Berjalan di Docker container (`evoapicloud/evolution-api:latest`). Mengelola koneksi protokol WhatsApp (Baileys), autentikasi QR, Webhook event `messages.upsert`, dan API kirim teks/media tanpa biaya langganan cloud. |
 | **Realtime Gateway** | **Socket.io** | `v4.8+` | Mengalirkan data pesan masuk, perubahan status tiket, dan notifikasi seketika (*bi-directional WebSocket*) antara backend dan frontend. |
 | **Backend Core** | **Node.js + Express.js** | `v18+` | REST API engine, controller webhook, manajemen sesi JWT, dan integrasi WhatsApp blast. |
-| **Database & ORM** | **PostgreSQL 15 + Prisma ORM** | `v5.22` | Menyimpan seluruh data relasional (pelanggan, tiket, kategori, multi-assign, pesan, dan pengguna). Prisma menjamin *type safety* dan migrasi skema yang konsisten. |
+| **HTS Integration Service** | **Axios Session Engine** | `v1.7+` | Menangani reverse engineering portal HTS Diskomdigi: persistensi cookie sesi PHP CodeIgniter (`ci_session`), token CSRF dinamis, bypass CAPTCHA visual, dan HTTP multipart/form-data upload. |
+| **Database & ORM** | **PostgreSQL 15 + Prisma ORM** | `v5.22` | Menyimpan seluruh data relasional (pelanggan, tiket, kategori, multi-assign, pesan, pengguna, dan sesi login HTS). Prisma menjamin *type safety* dan migrasi skema yang konsisten. |
 | **Frontend Framework** | **React.js + Vite** | `v18+` | Single Page Application (SPA) dengan performa kompilasi instan. Dilengkapi **React Router DOM** untuk navigasi halaman dan pemisahan antarmuka dinamis berbasis peran (RBAC). |
 | **UI Styling & Icons** | **Tailwind CSS + Lucide React** | `v3+` | Antarmuka modern, responsif, dan ringan dengan ikon visual intuitif. |
 | **Session Cache** | **Redis (Alpine)** | Latest | Penyimpanan cache sesi untuk Evolution API di Docker container. |
@@ -27,7 +28,8 @@ Dokumen ini mendefinisikan tumpukan teknologi (*Tech Stack*), pustaka dependensi
 - **`jsonwebtoken` (JWT)**: Autentikasi sesi berbasis token aman (masa berlaku 12 jam).
 - **`bcryptjs`**: Hashing kata sandi satu arah dengan salt rounds = 10.
 - **`socket.io`**: Komunikasi WebSocket real-time.
-- **`axios`**: Klien HTTP untuk komunikasi antar-layanan ke Evolution API.
+- **`axios`**: Klien HTTP untuk komunikasi antar-layanan ke Evolution API dan Portal HTS Diskomdigi.
+- **`form-data`**: Pustaka pembangun form multipart HTTP untuk mengunggah dokumen/lampiran gambar dan bukti teknis ke portal HTS.
 - **`multer`**: Penanganan upload file media gambar ke direktori statis `/uploads/`.
 - **`helmet`**: Pengamanan HTTP header, CSP (*Content Security Policy*), dan CORP (*Cross-Origin Resource Policy*).
 - **`express-rate-limit`**: Mitigasi serangan DoS dan brute-force pada endpoint API.
@@ -71,6 +73,10 @@ flowchart TD
         BE <-->|WebSocket & REST API| FE
     end
 
+    subgraph Portal Eksternal Pemprov Jateng
+        HTS_SRV[Portal HTS Diskomdigi\nhttps://hts.diskomdigi.jatengprov.go.id]
+    end
+
     subgraph Perangkat Tim Helpdesk (Akses LAN)
         L1_UI[Perangkat Dispatcher L1]
         L2_UI[Perangkat Teknisi L2]
@@ -84,4 +90,6 @@ flowchart TD
     PIC <-->|Protokol WhatsApp| EVO
     EVO -->|Webhook Inbound\nPOST /api/webhook/whatsapp| BE
     BE -->|REST API Outbound\nPOST /message/sendText & sendMedia| EVO
+    
+    BE <-->|Sinkronisasi Tiket & Dual-Close\nCookie ci_session + CSRF Token| HTS_SRV
 ```

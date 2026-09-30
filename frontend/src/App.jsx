@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink } from 'lucide-react';
+import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -103,6 +103,53 @@ function Dashboard() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [chatMode, setChatMode] = useState('public'); // 'public' (balas WA pelapor) | 'internal' (catatan internal L1 ke L2)
   
+  // Helper Waktu & Tanggal Lokal
+  const getTodayDate = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getCurrentTime = () => {
+    const d = new Date();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // Helper penyaring dan pengurut PIC: yang tercentang selalu di urutan atas
+  const getSortedPics = (pics, selectedIds, searchTerm) => {
+    if (!pics || !Array.isArray(pics)) return [];
+    const query = (searchTerm || '').trim().toLowerCase();
+    const selected = [];
+    const unselected = [];
+    pics.forEach(p => {
+      const isSelected = (selectedIds || []).includes(String(p.id));
+      const match = !query || (p.name && p.name.toLowerCase().includes(query));
+      if (isSelected) {
+        selected.push(p);
+      } else if (match) {
+        unselected.push(p);
+      }
+    });
+    return [...selected, ...unselected];
+  };
+
+  // Helper ekstrak PIC awal yang tersimpan pada tiket
+  const getTicketInitialPicIds = (ticket) => {
+    if (!ticket || !ticket.hts_pic_ids) return [];
+    try {
+      const parsed = JSON.parse(ticket.hts_pic_ids);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch (e) {}
+    if (typeof ticket.hts_pic_ids === 'string') {
+      return ticket.hts_pic_ids.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [];
+  };
+
   // State Close Ticket & Categories
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -112,10 +159,17 @@ function Dashboard() {
   const [assignCategoryIds, setAssignCategoryIds] = useState([]);
   const [assignServiceType, setAssignServiceType] = useState('TROUBLESHOOTING');
 
-  // State Dual-Close HTS (Fase 3 & 4)
+  // State Dual-Close HTS (Fase 3 & 4 + Revisi Spec)
   const [closeHtsTicket, setCloseHtsTicket] = useState(true);
   const [closeHtsPicId, setCloseHtsPicId] = useState('');
+  const [closeHtsPicIds, setCloseHtsPicIds] = useState([]);
+  const [closeHtsPicSearch, setCloseHtsPicSearch] = useState('');
   const [closeHtsSolution, setCloseHtsSolution] = useState('');
+  const [closeHtsTanggal, setCloseHtsTanggal] = useState(getTodayDate());
+  const [closeHtsJam, setCloseHtsJam] = useState(getCurrentTime());
+  const [closeHtsFile, setCloseHtsFile] = useState(null);
+  const [closeHtsUseChatImage, setCloseHtsUseChatImage] = useState(false);
+  const [closeHtsChatImagePreview, setCloseHtsChatImagePreview] = useState(null);
   const [isClosingTicket, setIsClosingTicket] = useState(false);
 
   // State L2 Tandai Selesai Modal (Fase 3 & 4)
@@ -213,21 +267,39 @@ function Dashboard() {
     pics: []
   });
   const [createHtsTicket, setCreateHtsTicket] = useState(false);
-  const [assignIndukOpdId, setAssignIndukOpdId] = useState('57');
+  const [assignHtsCust, setAssignHtsCust] = useState('');
+  const [assignHtsOpd, setAssignHtsOpd] = useState('');
+  const [assignIndukOpdId, setAssignIndukOpdId] = useState('');
+  const [assignHtsTanggal, setAssignHtsTanggal] = useState(getTodayDate());
+  const [assignHtsJam, setAssignHtsJam] = useState(getCurrentTime());
   const [assignHtsKategori, setAssignHtsKategori] = useState('troubleshoot');
   const [assignHtsSubKategori, setAssignHtsSubKategori] = useState('DISTRIBUTION NETWORK');
   const [assignHtsDetil, setAssignHtsDetil] = useState('');
-  const [assignHtsPicId, setAssignHtsPicId] = useState('14');
+  const [assignHtsPicId, setAssignHtsPicId] = useState('');
+  const [assignHtsPicIds, setAssignHtsPicIds] = useState([]);
+  const [assignHtsPicSearch, setAssignHtsPicSearch] = useState('');
+  const [assignHtsFile, setAssignHtsFile] = useState(null);
+  const [assignHtsUseChatImage, setAssignHtsUseChatImage] = useState(false);
+  const [assignHtsChatImagePreview, setAssignHtsChatImagePreview] = useState(null);
   const [opdSearchTerm, setOpdSearchTerm] = useState('');
   const [isSubmittingAssign, setIsSubmittingAssign] = useState(false);
 
-  // State Standalone Sync Modal HTS (Fase 2 V3)
+  // State Standalone Sync Modal HTS (Fase 2 V3 + Revisi Spec)
   const [showSyncHtsModal, setShowSyncHtsModal] = useState(false);
-  const [syncIndukOpdId, setSyncIndukOpdId] = useState('57');
+  const [syncHtsCust, setSyncHtsCust] = useState('');
+  const [syncHtsOpd, setSyncHtsOpd] = useState('');
+  const [syncIndukOpdId, setSyncIndukOpdId] = useState('');
+  const [syncHtsTanggal, setSyncHtsTanggal] = useState(getTodayDate());
+  const [syncHtsJam, setSyncHtsJam] = useState(getCurrentTime());
   const [syncHtsKategori, setSyncHtsKategori] = useState('troubleshoot');
   const [syncHtsSubKategori, setSyncHtsSubKategori] = useState('DISTRIBUTION NETWORK');
   const [syncHtsDetil, setSyncHtsDetil] = useState('');
-  const [syncHtsPicId, setSyncHtsPicId] = useState('14');
+  const [syncHtsPicId, setSyncHtsPicId] = useState('');
+  const [syncHtsPicIds, setSyncHtsPicIds] = useState([]);
+  const [syncHtsPicSearch, setSyncHtsPicSearch] = useState('');
+  const [syncHtsFile, setSyncHtsFile] = useState(null);
+  const [syncHtsUseChatImage, setSyncHtsUseChatImage] = useState(false);
+  const [syncHtsChatImagePreview, setSyncHtsChatImagePreview] = useState(null);
   const [syncOpdSearchTerm, setSyncOpdSearchTerm] = useState('');
   const [isSubmittingSyncHts, setIsSubmittingSyncHts] = useState(false);
   const [syncHtsError, setSyncHtsError] = useState('');
@@ -249,6 +321,44 @@ function Dashboard() {
       }
     } catch (err) {
       console.warn('Gagal memuat master data HTS:', err.message);
+    }
+  };
+
+  const handleAssignOpdSearch = (term) => {
+    setOpdSearchTerm(term);
+    if (!term.trim()) {
+      setAssignIndukOpdId('');
+      return;
+    }
+    const filtered = (htsMasterData.indukOpd || []).filter(o => 
+      o.name.toLowerCase().includes(term.toLowerCase())
+    );
+    if (filtered.length > 0) {
+      const alreadyInFiltered = filtered.some(o => String(o.id) === String(assignIndukOpdId));
+      if (!alreadyInFiltered) {
+        setAssignIndukOpdId(String(filtered[0].id));
+      }
+    } else {
+      setAssignIndukOpdId('');
+    }
+  };
+
+  const handleSyncOpdSearch = (term) => {
+    setSyncOpdSearchTerm(term);
+    if (!term.trim()) {
+      setSyncIndukOpdId('');
+      return;
+    }
+    const filtered = (htsMasterData.indukOpd || []).filter(o => 
+      o.name.toLowerCase().includes(term.toLowerCase())
+    );
+    if (filtered.length > 0) {
+      const alreadyInFiltered = filtered.some(o => String(o.id) === String(syncIndukOpdId));
+      if (!alreadyInFiltered) {
+        setSyncIndukOpdId(String(filtered[0].id));
+      }
+    } else {
+      setSyncIndukOpdId('');
     }
   };
 
@@ -317,22 +427,47 @@ function Dashboard() {
     }
   };
 
+  const handleServiceTypeChange = (newType) => {
+    setAssignServiceType(newType);
+    if (newType === 'TROUBLESHOOTING') setAssignHtsKategori('troubleshoot');
+    else if (newType === 'REQUEST_LAYANAN') setAssignHtsKategori('request');
+    else if (newType === 'MONITORING') setAssignHtsKategori('monitoring');
+  };
+
+  const handleAssignHtsKategoriChange = (newCat) => {
+    setAssignHtsKategori(newCat);
+    if (newCat === 'troubleshoot') setAssignServiceType('TROUBLESHOOTING');
+    else if (newCat === 'request') setAssignServiceType('REQUEST_LAYANAN');
+    else if (newCat === 'monitoring') setAssignServiceType('MONITORING');
+  };
+
   const handleOpenAssignModal = () => {
     if (!activeTicket) return;
     const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
     setAssignCategoryIds(currentCatIds);
-    setAssignServiceType(activeTicket.service_type || 'TROUBLESHOOTING');
+    
+    const initialServiceType = activeTicket.service_type || 'TROUBLESHOOTING';
+    setAssignServiceType(initialServiceType);
+    setAssignHtsKategori(initialServiceType === 'REQUEST_LAYANAN' ? 'request' : initialServiceType === 'MONITORING' ? 'monitoring' : 'troubleshoot');
+
+    // Identitas Pelapor HTS Editable
+    setAssignHtsCust(activeTicket.customer?.name || '');
+    setAssignHtsOpd(activeTicket.customer?.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah');
+
+    // Tanggal & Jam Editable
+    setAssignHtsTanggal(getTodayDate());
+    setAssignHtsJam(getCurrentTime());
     
     // Auto setup HTS
     const hasHts = Boolean(activeTicket.hts_ticket_no);
     setCreateHtsTicket(!hasHts && Boolean(htsStatus?.isLoggedIn));
 
-    // Auto match OPD Induk
+    // Auto match OPD Induk (opsional)
     const custSkpd = (activeTicket.customer?.skpd_name || '').toLowerCase();
-    const matchedOpd = htsMasterData.indukOpd?.find(o => 
+    const matchedOpd = custSkpd ? htsMasterData.indukOpd?.find(o => 
       o.name.toLowerCase().includes(custSkpd) || custSkpd.includes(o.name.toLowerCase())
-    );
-    setAssignIndukOpdId(matchedOpd ? matchedOpd.id : '57');
+    ) : null;
+    setAssignIndukOpdId(matchedOpd ? matchedOpd.id : '');
 
     // Pre-fill first customer complaint
     const firstCustMsg = messages.find(m => m.sender_type === 'CUSTOMER')?.message_text || '';
@@ -348,8 +483,23 @@ function Dashboard() {
       setAssignHtsSubKategori('DISTRIBUTION NETWORK');
     }
 
-    setAssignHtsKategori(activeTicket.service_type === 'REQUEST_LAYANAN' ? 'request' : activeTicket.service_type === 'MONITORING' ? 'monitoring' : 'troubleshoot');
-    setAssignHtsPicId('14');
+    // PIC (Multi-PIC - default tidak auto ceklist)
+    setAssignHtsPicId('');
+    setAssignHtsPicIds([]);
+    setAssignHtsPicSearch('');
+
+    // Lampiran Gambar dari Chat WA atau Baru
+    const imgMsg = messages.slice().reverse().find(m => m.attachment_url);
+    if (imgMsg) {
+      const fullImgUrl = imgMsg.attachment_url.startsWith('http') ? imgMsg.attachment_url : `${BASE_URL}${imgMsg.attachment_url}`;
+      setAssignHtsChatImagePreview(fullImgUrl);
+      setAssignHtsUseChatImage(true);
+    } else {
+      setAssignHtsChatImagePreview(null);
+      setAssignHtsUseChatImage(false);
+    }
+    setAssignHtsFile(null);
+
     setOpdSearchTerm('');
     setShowAssignModal(true);
   };
@@ -368,7 +518,29 @@ function Dashboard() {
     setSummaryText(l2Solutions || '');
     setCloseHtsSolution(l2Solutions || '');
     setCloseHtsTicket(!!activeTicket.hts_ticket_no);
-    setCloseHtsPicId(htsMasterData.pics && htsMasterData.pics.length > 0 ? htsMasterData.pics[0].id : '14');
+    
+    // Multi PIC Penyelesaian & Waktu Teknis: Hubungkan PIC Penerima/Awal tiket HTS
+    const initialPicIds = getTicketInitialPicIds(activeTicket);
+    // Jika tiket punya nomor HTS tapi belum tersimpan hts_pic_ids (tiket lama), fallback ke '14' (Helpdesk)
+    const defaultPicIds = initialPicIds.length > 0 ? initialPicIds : (activeTicket.hts_ticket_no ? ['14'] : []);
+    setCloseHtsPicId(defaultPicIds[0] || '');
+    setCloseHtsPicIds(defaultPicIds);
+    setCloseHtsPicSearch('');
+    setCloseHtsTanggal(getTodayDate());
+    setCloseHtsJam(getCurrentTime());
+
+    // Lampiran Gambar Bukti Penyelesaian
+    const imgMsg = messages.slice().reverse().find(m => m.attachment_url);
+    if (imgMsg) {
+      const fullImgUrl = imgMsg.attachment_url.startsWith('http') ? imgMsg.attachment_url : `${BASE_URL}${imgMsg.attachment_url}`;
+      setCloseHtsChatImagePreview(fullImgUrl);
+      setCloseHtsUseChatImage(true);
+    } else {
+      setCloseHtsChatImagePreview(null);
+      setCloseHtsUseChatImage(false);
+    }
+    setCloseHtsFile(null);
+
     setShowCloseModal(true);
   };
 
@@ -384,22 +556,53 @@ function Dashboard() {
       if (!confirmRemove) return;
     }
 
+    const willCreateHts = Boolean(createHtsTicket && !activeTicket?.hts_ticket_no);
+    if (willCreateHts) {
+      if (assignHtsPicIds.length === 0) {
+        return alert('Pilih minimal 1 PIC Penerima/Penanganan untuk portal HTS!');
+      }
+      if (!assignHtsDetil || assignHtsDetil.trim().length < 10) {
+        return alert(`Detil Permasalahan wajib diisi minimal 10 karakter untuk portal HTS! (Saat ini: ${assignHtsDetil ? assignHtsDetil.trim().length : 0} karakter)`);
+      }
+    }
+
     setIsSubmittingAssign(true);
     try {
-      const payload = {
-        categoryIds: assignCategoryIds,
-        serviceType: assignServiceType,
-        createHtsTicket: createHtsTicket && !activeTicket?.hts_ticket_no,
-        induk_opd_id: assignIndukOpdId,
-        hts_kategori: assignHtsKategori,
-        hts_sub_kategori: assignHtsSubKategori,
-        hts_detil: assignHtsDetil,
-        hts_pic_id: assignHtsPicId
-      };
+      const formData = new FormData();
+      assignCategoryIds.forEach(id => formData.append('categoryIds', id));
+      if (assignCategoryIds.length > 0) {
+        formData.append('categoryId', assignCategoryIds[0]);
+      }
+      formData.append('serviceType', assignServiceType);
+      formData.append('createHtsTicket', willCreateHts);
 
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, payload);
+      if (willCreateHts) {
+        formData.append('hts_cust', assignHtsCust);
+        formData.append('hts_opd', assignHtsOpd);
+        formData.append('induk_opd_id', assignIndukOpdId);
+        formData.append('hts_tgltshoot', assignHtsTanggal);
+        formData.append('hts_jam_problem', assignHtsJam);
+        formData.append('hts_kategori', assignHtsKategori);
+        formData.append('hts_sub_kategori', assignHtsSubKategori);
+        formData.append('hts_detil', assignHtsDetil);
+        formData.append('hts_pic_id', assignHtsPicIds[0] || '14');
+        assignHtsPicIds.forEach(pid => formData.append('hts_pic_ids', pid));
+        if (assignHtsFile) {
+          formData.append('attachment', assignHtsFile);
+        } else if (assignHtsUseChatImage) {
+          formData.append('useChatImage', 'true');
+        }
+      }
+
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       setShowAssignModal(false);
-      alert(res.data?.message || 'Penugasan tiket berhasil disimpan.');
+      if (res.data?.htsError) {
+        alert(`Penugasan tim berhasil disimpan, namun sinkronisasi ke portal HTS mengalami kendala:\n${res.data.htsError}\n\nAnda dapat menyinkronkan ulang tiket ke portal HTS nanti.`);
+      } else {
+        alert(res.data?.message || 'Penugasan tiket berhasil disimpan.');
+      }
       loadTickets();
       if (activeTicket) loadMessages(activeTicket.id);
     } catch (error) {
@@ -417,15 +620,36 @@ function Dashboard() {
       return;
     }
     const custSkpd = (activeTicket.customer?.skpd_name || '').toLowerCase();
-    const matchedOpd = htsMasterData.indukOpd?.find(o => 
+    const matchedOpd = custSkpd ? htsMasterData.indukOpd?.find(o => 
       o.name.toLowerCase().includes(custSkpd) || custSkpd.includes(o.name.toLowerCase())
-    );
-    setSyncIndukOpdId(matchedOpd ? matchedOpd.id : '57');
+    ) : null;
+    setSyncIndukOpdId(matchedOpd ? matchedOpd.id : '');
+    setSyncHtsCust(activeTicket.customer?.name || '');
+    setSyncHtsOpd(activeTicket.customer?.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah');
+    setSyncHtsTanggal(getTodayDate());
+    setSyncHtsJam(getCurrentTime());
+
     const firstCustMsg = messages.find(m => m.sender_type === 'CUSTOMER')?.message_text || '';
     setSyncHtsDetil(firstCustMsg);
     setSyncHtsKategori(activeTicket.service_type === 'REQUEST_LAYANAN' ? 'request' : activeTicket.service_type === 'MONITORING' ? 'monitoring' : 'troubleshoot');
     setSyncHtsSubKategori('DISTRIBUTION NETWORK');
-    setSyncHtsPicId('14');
+    
+    // PIC (Multi-PIC - default tidak auto ceklist)
+    setSyncHtsPicId('');
+    setSyncHtsPicIds([]);
+    setSyncHtsPicSearch('');
+
+    const imgMsg = messages.slice().reverse().find(m => m.attachment_url);
+    if (imgMsg) {
+      const fullImgUrl = imgMsg.attachment_url.startsWith('http') ? imgMsg.attachment_url : `${BASE_URL}${imgMsg.attachment_url}`;
+      setSyncHtsChatImagePreview(fullImgUrl);
+      setSyncHtsUseChatImage(true);
+    } else {
+      setSyncHtsChatImagePreview(null);
+      setSyncHtsUseChatImage(false);
+    }
+    setSyncHtsFile(null);
+
     setSyncOpdSearchTerm('');
     setSyncHtsError('');
     setShowSyncHtsModal(true);
@@ -435,15 +659,38 @@ function Dashboard() {
     e.preventDefault();
     if (!activeTicket) return;
 
+    if (syncHtsPicIds.length === 0) {
+      setSyncHtsError('Pilih minimal 1 PIC Penerima/Penanganan untuk portal HTS!');
+      return;
+    }
+
+    if (!syncHtsDetil || syncHtsDetil.trim().length < 10) {
+      setSyncHtsError(`Detil Permasalahan wajib diisi minimal 10 karakter untuk portal HTS! (Saat ini: ${syncHtsDetil ? syncHtsDetil.trim().length : 0} karakter)`);
+      return;
+    }
+
     setIsSubmittingSyncHts(true);
     setSyncHtsError('');
     try {
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/sync-hts`, {
-        induk_opd_id: syncIndukOpdId,
-        hts_kategori: syncHtsKategori,
-        hts_sub_kategori: syncHtsSubKategori,
-        hts_detil: syncHtsDetil,
-        hts_pic_id: syncHtsPicId
+      const formData = new FormData();
+      formData.append('hts_cust', syncHtsCust);
+      formData.append('hts_opd', syncHtsOpd);
+      formData.append('induk_opd_id', syncIndukOpdId);
+      formData.append('hts_tgltshoot', syncHtsTanggal);
+      formData.append('hts_jam_problem', syncHtsJam);
+      formData.append('hts_kategori', syncHtsKategori);
+      formData.append('hts_sub_kategori', syncHtsSubKategori);
+      formData.append('hts_detil', syncHtsDetil);
+      formData.append('hts_pic_id', syncHtsPicIds[0] || '14');
+      syncHtsPicIds.forEach(pid => formData.append('hts_pic_ids', pid));
+      if (syncHtsFile) {
+        formData.append('attachment', syncHtsFile);
+      } else if (syncHtsUseChatImage) {
+        formData.append('useChatImage', 'true');
+      }
+
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/sync-hts`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       alert(res.data?.message || 'Tiket berhasil disinkronkan ke portal HTS!');
@@ -454,6 +701,35 @@ function Dashboard() {
       setSyncHtsError(err.response?.data?.error || 'Gagal menyinkronkan tiket ke portal HTS');
     } finally {
       setIsSubmittingSyncHts(false);
+    }
+  };
+
+  const [isSyncingSolveHts, setIsSyncingSolveHts] = useState(false);
+
+  const handleSyncSolveHts = async () => {
+    if (!activeTicket || !activeTicket.hts_ticket_no) return;
+    if (!htsStatus?.isLoggedIn) {
+      alert('Silakan hubungkan akun HTS Diskomdigi Anda terlebih dahulu di panel kanan.');
+      setShowHtsModal(true);
+      return;
+    }
+
+    const confirmSolve = window.confirm(`Apakah Anda yakin ingin menyelesaikan status tiket #${activeTicket.hts_ticket_no} di portal HTS?`);
+    if (!confirmSolve) return;
+
+    setIsSyncingSolveHts(true);
+    try {
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/sync-solve-hts`, {
+        solution: activeTicket.summary || ''
+      });
+
+      alert(res.data?.message || 'Tiket berhasil diselesaikan di portal HTS!');
+      loadTickets();
+      if (activeTicket) loadMessages(activeTicket.id);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal menyelesaikan tiket di portal HTS');
+    } finally {
+      setIsSyncingSolveHts(false);
     }
   };
   // Authentication Check
@@ -844,7 +1120,7 @@ function Dashboard() {
     }
   };
 
-  // L1 menutup tiket & Dual-Close HTS
+  // L1 menutup tiket & Dual-Close HTS (Revisi Spec)
   const handleCloseTicket = async () => {
     if (summaryText.trim().length < 10) {
       alert('Kesimpulan wajib diisi minimal 10 karakter!');
@@ -852,12 +1128,32 @@ function Dashboard() {
     }
     setIsClosingTicket(true);
     try {
-      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/close`, {
-        summary: summaryText.trim(),
-        categoryIds: selectedCategories,
-        closeHtsTicket: activeTicket.hts_ticket_no ? closeHtsTicket : false,
-        htsPicId: closeHtsPicId,
-        htsSolution: closeHtsSolution || summaryText.trim()
+      const formData = new FormData();
+      formData.append('summary', summaryText.trim());
+      selectedCategories.forEach(cid => formData.append('categoryIds', cid));
+      
+      const willCloseHts = Boolean(activeTicket?.hts_ticket_no && closeHtsTicket);
+      formData.append('closeHtsTicket', willCloseHts);
+
+      if (willCloseHts) {
+        if (closeHtsPicIds.length === 0) {
+          setIsClosingTicket(false);
+          return alert('Pilih minimal 1 PIC Penyelesaian Teknis untuk portal HTS!');
+        }
+        formData.append('htsPicId', closeHtsPicIds[0]);
+        closeHtsPicIds.forEach(pid => formData.append('htsPicIds', pid));
+        formData.append('htsSolution', closeHtsSolution || summaryText.trim());
+        formData.append('htsTglTeknis', closeHtsTanggal);
+        formData.append('htsJamTeknis', closeHtsJam);
+        if (closeHtsFile) {
+          formData.append('attachment', closeHtsFile);
+        } else if (closeHtsUseChatImage) {
+          formData.append('useChatImage', 'true');
+        }
+      }
+
+      await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/close`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
       setShowCloseModal(false);
       setSummaryText('');
@@ -1549,7 +1845,11 @@ function Dashboard() {
                         <span>Portal HTS Diskomdigi</span>
                       </div>
                       {activeTicket.hts_ticket_no ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full border border-emerald-300">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          activeTicket.hts_ticket_status === 'SOLVED' 
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                            : 'bg-amber-100 text-amber-800 border-amber-300'
+                        }`}>
                           {activeTicket.hts_ticket_status || 'PROSES'}
                         </span>
                       ) : (
@@ -1573,6 +1873,33 @@ function Dashboard() {
                             <span>{format(new Date(activeTicket.hts_synced_at), 'dd/MM/yyyy HH:mm')}</span>
                           </div>
                         )}
+
+                        {/* Tombol Selesaikan ke Portal HTS jika tiket lokal closed / tim sudah selesai tapi di HTS masih pending */}
+                        {isL1 && activeTicket.hts_ticket_status !== 'SOLVED' && (
+                          <div className="pt-2 mt-2 border-t border-gray-200">
+                            <p className="text-[10px] text-amber-800 mb-1.5 leading-tight">
+                              Status di portal HTS masih <strong>{activeTicket.hts_ticket_status || 'PENDING'}</strong>. Selesaikan aduan di portal HTS:
+                            </p>
+                            <button
+                              type="button"
+                              onClick={handleSyncSolveHts}
+                              disabled={isSyncingSolveHts}
+                              className="w-full text-xs py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            >
+                              {isSyncingSolveHts ? (
+                                <>
+                                  <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                  Menyelesaikan di HTS...
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="w-3.5 h-3.5" /> Selesaikan ke Portal HTS
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
+
                         <a
                           href="https://hts.diskomdigi.jatengprov.go.id/tshoot"
                           target="_blank"
@@ -2181,7 +2508,7 @@ function Dashboard() {
                 </label>
                 <select 
                   value={assignServiceType} 
-                  onChange={e => setAssignServiceType(e.target.value)}
+                  onChange={e => handleServiceTypeChange(e.target.value)}
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
                   <option value="TROUBLESHOOTING">Troubleshooting (Gangguan Teknis)</option>
@@ -2257,76 +2584,286 @@ function Dashboard() {
 
                     {createHtsTicket && (
                       <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-3 animate-in fade-in duration-150">
-                        {/* Search & Pilih OPD Induk */}
+                        {/* 1. Nama Pemohon Editable */}
                         <div>
                           <label className="block text-xs font-semibold text-gray-700 mb-1">
-                            OPD Induk Pelapor *
+                            Nama Pemohon *
                           </label>
-                          <input 
-                            type="text" 
-                            placeholder="Cari nama OPD..."
-                            value={opdSearchTerm}
-                            onChange={(e) => setOpdSearchTerm(e.target.value)}
-                            className="w-full mb-1.5 px-2.5 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                          />
-                          <select
-                            value={assignIndukOpdId}
-                            onChange={(e) => setAssignIndukOpdId(e.target.value)}
+                          <input
+                            type="text"
+                            value={assignHtsCust}
+                            onChange={e => setAssignHtsCust(e.target.value)}
+                            placeholder="Nama pemohon / pelapor..."
                             className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                          >
-                            {htsMasterData.indukOpd
-                              ?.filter(o => !opdSearchTerm || o.name.toLowerCase().includes(opdSearchTerm.toLowerCase()))
-                              ?.map(o => (
-                                <option key={o.id} value={o.id}>{o.name}</option>
-                              ))
-                            }
-                          </select>
+                            required
+                          />
                         </div>
 
-                        {/* Sub-Kategori HTS */}
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-1">
-                            Sub-Kategori Layanan Portal HTS *
-                          </label>
-                          <select
-                            value={assignHtsSubKategori}
-                            onChange={(e) => setAssignHtsSubKategori(e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                          >
-                            {htsMasterData.subKategori?.map(s => (
-                              <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
-                            ))}
-                          </select>
+                        {/* 2. Instansi Pelapor & OPD Induk */}
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                              Instansi / Unit Kerja Pelapor *
+                            </label>
+                            <input
+                              type="text"
+                              value={assignHtsOpd}
+                              onChange={e => setAssignHtsOpd(e.target.value)}
+                              placeholder="Nama instansi/unit kerja pemohon..."
+                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              required
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                              OPD Induk (Klasifikasi HTS) <span className="text-gray-400 font-normal">(Opsional)</span>
+                            </label>
+                            <div className="relative mb-1.5">
+                              <input 
+                                type="text" 
+                                placeholder="Cari nama OPD Induk..."
+                                value={opdSearchTerm}
+                                onChange={(e) => handleAssignOpdSearch(e.target.value)}
+                                className="w-full pl-2.5 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                              />
+                              {opdSearchTerm && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAssignOpdSearch('')}
+                                  className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                                  title="Reset / Kosongkan pencarian"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                            <select
+                              value={assignIndukOpdId}
+                              onChange={(e) => setAssignIndukOpdId(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                            >
+                              {!opdSearchTerm && (
+                                <option value="">-- Tanpa OPD Induk (Kosongkan) --</option>
+                              )}
+                              {htsMasterData.indukOpd
+                                ?.filter(o => !opdSearchTerm || o.name.toLowerCase().includes(opdSearchTerm.toLowerCase()))
+                                ?.map(o => (
+                                  <option key={o.id} value={o.id}>{o.name}</option>
+                                ))
+                              }
+                              {opdSearchTerm && htsMasterData.indukOpd?.filter(o => o.name.toLowerCase().includes(opdSearchTerm.toLowerCase())).length === 0 && (
+                                <option value="" disabled>-- Tidak ada OPD yang cocok --</option>
+                              )}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* 3. Tanggal & Jam Problem */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                              Tanggal Problem *
+                            </label>
+                            <input
+                              type="date"
+                              value={assignHtsTanggal}
+                              onChange={e => setAssignHtsTanggal(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5 text-gray-500" />
+                              Jam Problem *
+                            </label>
+                            <input
+                              type="time"
+                              value={assignHtsJam}
+                              onChange={e => setAssignHtsJam(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        {/* 4. Kategori & Sub-Kategori Layanan Portal HTS */}
+                        <div className={`grid ${assignHtsKategori === 'troubleshoot' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                              Kategori HTS *
+                            </label>
+                            <select
+                              value={assignHtsKategori}
+                              onChange={e => handleAssignHtsKategoriChange(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                            >
+                              {htsMasterData.kategori?.map(k => (
+                                <option key={k.id} value={k.id}>{k.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {assignHtsKategori === 'troubleshoot' && (
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Sub-Kategori HTS *
+                              </label>
+                              <select
+                                value={assignHtsSubKategori}
+                                onChange={(e) => setAssignHtsSubKategori(e.target.value)}
+                                className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              >
+                                {htsMasterData.subKategori?.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                         </div>
 
                         {/* Detil Aduan */}
                         <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-1">
-                            Detil Aduan / Permasalahan *
-                          </label>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="block text-xs font-semibold text-gray-700">
+                              Detil Aduan / Permasalahan *
+                            </label>
+                            <span className={`text-[10px] font-medium ${assignHtsDetil.trim().length < 10 ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                              {assignHtsDetil.trim().length < 10 
+                                ? `Minimal 10 karakter (${assignHtsDetil.trim().length}/10)` 
+                                : `${assignHtsDetil.trim().length} karakter`}
+                            </span>
+                          </div>
                           <textarea
                             rows={3}
                             value={assignHtsDetil}
                             onChange={(e) => setAssignHtsDetil(e.target.value)}
-                            placeholder="Ketik detail keluhan teknis untuk dicatat di portal HTS..."
-                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                            placeholder="Ketik detail keluhan teknis untuk dicatat di portal HTS (minimal 10 karakter)..."
+                            className={`w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 bg-white ${assignHtsDetil.trim().length > 0 && assignHtsDetil.trim().length < 10 ? 'border-red-300 focus:ring-red-400' : 'border-gray-300 focus:ring-blue-500'}`}
+                            minLength={10}
+                            required
                           />
                         </div>
 
-                        {/* PIC Petugas */}
+                        {/* 5. PIC Helpdesk Penerima (Multi-PIC + Search + Checked di Atas) */}
                         <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-1">
-                            PIC Helpdesk Penerima *
+                          <div className="flex justify-between items-center mb-1.5">
+                            <label className="block text-xs font-semibold text-gray-700">
+                              PIC Penerima / Penanganan *
+                            </label>
+                            <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                              {assignHtsPicIds.length} PIC Terpilih
+                            </span>
+                          </div>
+
+                          {/* Kotak Pencarian PIC */}
+                          <div className="relative mb-1.5">
+                            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
+                            <input
+                              type="text"
+                              value={assignHtsPicSearch}
+                              onChange={e => setAssignHtsPicSearch(e.target.value)}
+                              placeholder="Cari nama petugas PIC..."
+                              className="w-full pl-8 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                            />
+                            {assignHtsPicSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setAssignHtsPicSearch('')}
+                                className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* List PIC (Terpilih Selalu di Atas) */}
+                          <div className="max-h-36 overflow-y-auto border border-gray-300 rounded-lg p-1 bg-white divide-y divide-gray-100">
+                            {getSortedPics(htsMasterData.pics, assignHtsPicIds, assignHtsPicSearch).map(p => {
+                              const isChecked = assignHtsPicIds.includes(String(p.id));
+                              return (
+                                <label key={p.id} className={`flex items-center justify-between py-1.5 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                                      checked={isChecked}
+                                      onChange={(e) => {
+                                        const strId = String(p.id);
+                                        if (e.target.checked) {
+                                          setAssignHtsPicIds([...assignHtsPicIds, strId]);
+                                        } else {
+                                          setAssignHtsPicIds(assignHtsPicIds.filter(id => id !== strId));
+                                        }
+                                      }}
+                                    />
+                                    <span className="truncate">{p.name}</span>
+                                  </div>
+                                  {isChecked && (
+                                    <span className="text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.2 rounded font-bold ml-2">
+                                      Terpilih
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                            {getSortedPics(htsMasterData.pics, assignHtsPicIds, assignHtsPicSearch).length === 0 && (
+                              <div className="p-3 text-center text-xs text-gray-400">
+                                Tidak ada petugas PIC yang cocok
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 6. Lampiran Gambar Bukti */}
+                        <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                          <label className="block text-xs font-semibold text-gray-700">
+                            Lampiran Bukti / Gambar (Opsional)
                           </label>
-                          <select
-                            value={assignHtsPicId}
-                            onChange={(e) => setAssignHtsPicId(e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                          >
-                            {htsMasterData.pics?.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </select>
+                          {assignHtsChatImagePreview && (
+                            <label className="flex items-center gap-2.5 p-2 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={assignHtsUseChatImage && !assignHtsFile}
+                                disabled={!!assignHtsFile}
+                                onChange={e => setAssignHtsUseChatImage(e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded"
+                              />
+                              <img src={assignHtsChatImagePreview} alt="Bukti WA" className="w-8 h-8 object-cover rounded border border-blue-300" />
+                              <div className="text-[11px] leading-tight">
+                                <span className="font-semibold text-blue-900 block">Gunakan foto dari chat WhatsApp</span>
+                                <span className="text-blue-700 text-[10px]">Lampirkan gambar kendala yang dikirim pelapor</span>
+                              </div>
+                            </label>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <label className="flex-1 border border-dashed border-gray-300 hover:border-blue-400 rounded-lg p-1.5 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={e => {
+                                  if (e.target.files?.[0]) {
+                                    setAssignHtsFile(e.target.files[0]);
+                                    setAssignHtsUseChatImage(false);
+                                  }
+                                }}
+                              />
+                              <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                              <span className="truncate max-w-[200px]">{assignHtsFile ? assignHtsFile.name : 'Upload file gambar baru'}</span>
+                            </label>
+                            {assignHtsFile && (
+                              <button
+                                type="button"
+                                onClick={() => setAssignHtsFile(null)}
+                                className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs"
+                                title="Batal upload file"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -2396,81 +2933,280 @@ function Dashboard() {
                 </div>
               )}
 
+              {/* 1. Nama Pemohon */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">OPD Induk Pelapor *</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Nama Pemohon *</label>
                 <input 
                   type="text" 
-                  placeholder="Cari nama OPD..."
-                  value={syncOpdSearchTerm}
-                  onChange={(e) => setSyncOpdSearchTerm(e.target.value)}
-                  className="w-full mb-1.5 px-2.5 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  value={syncHtsCust}
+                  onChange={(e) => setSyncHtsCust(e.target.value)}
+                  placeholder="Nama pemohon / pelapor..."
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  required
                 />
-                <select
-                  value={syncIndukOpdId}
-                  onChange={(e) => setSyncIndukOpdId(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  required
-                >
-                  {htsMasterData.indukOpd
-                    ?.filter(o => !syncOpdSearchTerm || o.name.toLowerCase().includes(syncOpdSearchTerm.toLowerCase()))
-                    ?.map(o => (
-                      <option key={o.id} value={o.id}>{o.name}</option>
-                    ))
-                  }
-                </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Kategori Layanan *</label>
-                <select
-                  value={syncHtsKategori}
-                  onChange={(e) => setSyncHtsKategori(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  {htsMasterData.kategori?.map(k => (
-                    <option key={k.id} value={k.id}>{k.name}</option>
-                  ))}
-                </select>
+              {/* 2. Instansi Pelapor & OPD Induk */}
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Instansi / Unit Kerja Pelapor *</label>
+                  <input 
+                    type="text" 
+                    value={syncHtsOpd}
+                    onChange={(e) => setSyncHtsOpd(e.target.value)}
+                    placeholder="Nama instansi/unit kerja pemohon..."
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    OPD Induk (Klasifikasi HTS) <span className="text-gray-400 font-normal">(Opsional)</span>
+                  </label>
+                  <div className="relative mb-1.5">
+                    <input 
+                      type="text" 
+                      placeholder="Cari nama OPD Induk..."
+                      value={syncOpdSearchTerm}
+                      onChange={(e) => handleSyncOpdSearch(e.target.value)}
+                      className="w-full pl-2.5 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    />
+                    {syncOpdSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => handleSyncOpdSearch('')}
+                        className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                        title="Reset / Kosongkan pencarian"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={syncIndukOpdId}
+                    onChange={(e) => setSyncIndukOpdId(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    {!syncOpdSearchTerm && (
+                      <option value="">-- Tanpa OPD Induk (Kosongkan) --</option>
+                    )}
+                    {htsMasterData.indukOpd
+                      ?.filter(o => !syncOpdSearchTerm || o.name.toLowerCase().includes(syncOpdSearchTerm.toLowerCase()))
+                      ?.map(o => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))
+                    }
+                    {syncOpdSearchTerm && htsMasterData.indukOpd?.filter(o => o.name.toLowerCase().includes(syncOpdSearchTerm.toLowerCase())).length === 0 && (
+                      <option value="" disabled>-- Tidak ada OPD yang cocok --</option>
+                    )}
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Sub-Kategori Layanan *</label>
-                <select
-                  value={syncHtsSubKategori}
-                  onChange={(e) => setSyncHtsSubKategori(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  required
-                >
-                  {htsMasterData.subKategori?.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
-                  ))}
-                </select>
+              {/* 3. Tanggal & Jam Problem */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                    Tanggal Problem *
+                  </label>
+                  <input
+                    type="date"
+                    value={syncHtsTanggal}
+                    onChange={e => setSyncHtsTanggal(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-gray-500" />
+                    Jam Problem *
+                  </label>
+                  <input
+                    type="time"
+                    value={syncHtsJam}
+                    onChange={e => setSyncHtsJam(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    required
+                  />
+                </div>
               </div>
 
+              {/* 4. Kategori & Sub-Kategori Layanan */}
+              <div className={`grid ${syncHtsKategori === 'troubleshoot' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Kategori Layanan *</label>
+                  <select
+                    value={syncHtsKategori}
+                    onChange={(e) => setSyncHtsKategori(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    {htsMasterData.kategori?.map(k => (
+                      <option key={k.id} value={k.id}>{k.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {syncHtsKategori === 'troubleshoot' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Sub-Kategori Layanan *</label>
+                    <select
+                      value={syncHtsSubKategori}
+                      onChange={(e) => setSyncHtsSubKategori(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      required
+                    >
+                      {htsMasterData.subKategori?.map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Detil Aduan */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Detil Aduan / Permasalahan *</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    Detil Aduan / Permasalahan *
+                  </label>
+                  <span className={`text-[10px] font-medium ${syncHtsDetil.trim().length < 10 ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                    {syncHtsDetil.trim().length < 10 
+                      ? `Minimal 10 karakter (${syncHtsDetil.trim().length}/10)` 
+                      : `${syncHtsDetil.trim().length} karakter`}
+                  </span>
+                </div>
                 <textarea
                   rows={3}
                   value={syncHtsDetil}
                   onChange={(e) => setSyncHtsDetil(e.target.value)}
-                  placeholder="Ketik detail keluhan teknis..."
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  placeholder="Ketik detail keluhan teknis untuk dicatat di portal HTS (minimal 10 karakter)..."
+                  className={`w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 bg-white ${syncHtsDetil.trim().length > 0 && syncHtsDetil.trim().length < 10 ? 'border-red-300 focus:ring-red-400' : 'border-gray-300 focus:ring-blue-500'}`}
+                  minLength={10}
                   required
                 />
               </div>
 
+              {/* 5. PIC Helpdesk Penerima (Multi-PIC + Search + Checked di Atas) */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">PIC Helpdesk Penerima *</label>
-                <select
-                  value={syncHtsPicId}
-                  onChange={(e) => setSyncHtsPicId(e.target.value)}
-                  className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  required
-                >
-                  {htsMasterData.pics?.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-semibold text-gray-700">
+                    PIC Penerima / Penanganan *
+                  </label>
+                  <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                    {syncHtsPicIds.length} PIC Terpilih
+                  </span>
+                </div>
+
+                {/* Kotak Pencarian PIC */}
+                <div className="relative mb-1.5">
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    value={syncHtsPicSearch}
+                    onChange={e => setSyncHtsPicSearch(e.target.value)}
+                    placeholder="Cari nama petugas PIC..."
+                    className="w-full pl-8 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  />
+                  {syncHtsPicSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setSyncHtsPicSearch('')}
+                      className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* List PIC (Terpilih Selalu di Atas) */}
+                <div className="max-h-36 overflow-y-auto border border-gray-300 rounded-lg p-1 bg-white divide-y divide-gray-100">
+                  {getSortedPics(htsMasterData.pics, syncHtsPicIds, syncHtsPicSearch).map(p => {
+                    const isChecked = syncHtsPicIds.includes(String(p.id));
+                    return (
+                      <label key={p.id} className={`flex items-center justify-between py-1.5 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const strId = String(p.id);
+                              if (e.target.checked) {
+                                setSyncHtsPicIds([...syncHtsPicIds, strId]);
+                              } else {
+                                setSyncHtsPicIds(syncHtsPicIds.filter(id => id !== strId));
+                              }
+                            }}
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        {isChecked && (
+                          <span className="text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.2 rounded font-bold ml-2">
+                            Terpilih
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                  {getSortedPics(htsMasterData.pics, syncHtsPicIds, syncHtsPicSearch).length === 0 && (
+                    <div className="p-3 text-center text-xs text-gray-400">
+                      Tidak ada petugas PIC yang cocok
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 6. Lampiran Gambar Bukti */}
+              <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                <label className="block text-xs font-semibold text-gray-700">
+                  Lampiran Bukti / Gambar (Opsional)
+                </label>
+                {syncHtsChatImagePreview && (
+                  <label className="flex items-center gap-2.5 p-2 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={syncHtsUseChatImage && !syncHtsFile}
+                      disabled={!!syncHtsFile}
+                      onChange={e => setSyncHtsUseChatImage(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <img src={syncHtsChatImagePreview} alt="Bukti WA" className="w-8 h-8 object-cover rounded border border-blue-300" />
+                    <div className="text-[11px] leading-tight">
+                      <span className="font-semibold text-blue-900 block">Gunakan foto dari chat WhatsApp</span>
+                      <span className="text-blue-700 text-[10px]">Lampirkan gambar kendala yang dikirim pelapor</span>
+                    </div>
+                  </label>
+                )}
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 border border-dashed border-gray-300 hover:border-blue-400 rounded-lg p-1.5 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => {
+                        if (e.target.files?.[0]) {
+                          setSyncHtsFile(e.target.files[0]);
+                          setSyncHtsUseChatImage(false);
+                        }
+                      }}
+                    />
+                    <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="truncate max-w-[200px]">{syncHtsFile ? syncHtsFile.name : 'Upload file gambar baru'}</span>
+                  </label>
+                  {syncHtsFile && (
+                    <button
+                      type="button"
+                      onClick={() => setSyncHtsFile(null)}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs"
+                      title="Batal upload file"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
@@ -2539,18 +3275,169 @@ function Dashboard() {
                   </label>
                 </div>
                 {closeHtsTicket && (
-                  <div className="space-y-2 mt-2 pt-2 border-t border-blue-200">
+                  <div className="space-y-2.5 mt-2.5 pt-2.5 border-t border-blue-200">
+                    {/* Tanggal & Jam Penyelesaian Teknis */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-blue-800 mb-1 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-blue-600" />
+                          Tanggal Penanganan *
+                        </label>
+                        <input
+                          type="date"
+                          value={closeHtsTanggal}
+                          onChange={e => setCloseHtsTanggal(e.target.value)}
+                          className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 outline-none"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-blue-800 mb-1 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-blue-600" />
+                          Jam Penanganan *
+                        </label>
+                        <input
+                          type="time"
+                          value={closeHtsJam}
+                          onChange={e => setCloseHtsJam(e.target.value)}
+                          className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 outline-none"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Multi PIC Penyelesaian (Search + Checked di Atas) */}
                     <div>
-                      <label className="block text-[11px] font-semibold text-blue-800 mb-1">PIC Penyelesaian HTS</label>
-                      <select 
-                        value={closeHtsPicId} 
-                        onChange={e => setCloseHtsPicId(e.target.value)}
-                        className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none"
-                      >
-                        {htsMasterData.pics?.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </select>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-[11px] font-semibold text-blue-800">
+                          PIC Penyelesaian Teknis HTS *
+                        </label>
+                        <span className="text-[10px] text-blue-700 font-bold bg-white px-2 py-0.5 rounded-full border border-blue-200">
+                          {closeHtsPicIds.length} PIC Terpilih
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-blue-700 mb-1.5 leading-tight">
+                        PIC Penerima/Awal otomatis tersambung. Anda dapat mencentang teknisi tambahan sebagai PIC Penanganan.
+                      </p>
+
+                      {/* Kotak Pencarian PIC */}
+                      <div className="relative mb-1.5">
+                        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
+                        <input
+                          type="text"
+                          value={closeHtsPicSearch}
+                          onChange={e => setCloseHtsPicSearch(e.target.value)}
+                          placeholder="Cari nama teknisi PIC..."
+                          className="w-full pl-8 pr-7 py-1 text-xs border border-blue-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                        />
+                        {closeHtsPicSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setCloseHtsPicSearch('')}
+                            className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* List PIC (Terpilih Selalu di Atas) */}
+                      <div className="max-h-32 overflow-y-auto border border-blue-200 rounded-lg p-1 bg-white divide-y divide-gray-100">
+                        {getSortedPics(htsMasterData.pics, closeHtsPicIds, closeHtsPicSearch).map(p => {
+                          const isChecked = closeHtsPicIds.includes(String(p.id));
+                          const initialPics = getTicketInitialPicIds(activeTicket);
+                          const isInitialPic = initialPics.length > 0 
+                            ? initialPics.includes(String(p.id))
+                            : String(p.id) === '14';
+                          return (
+                            <label key={p.id} className={`flex items-center justify-between py-1 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const strId = String(p.id);
+                                    if (e.target.checked) {
+                                      setCloseHtsPicIds([...closeHtsPicIds, strId]);
+                                    } else {
+                                      setCloseHtsPicIds(closeHtsPicIds.filter(id => id !== strId));
+                                    }
+                                  }}
+                                />
+                                <span className="truncate">{p.name}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {isChecked && isInitialPic && (
+                                  <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.2 rounded font-bold ml-2">
+                                    PIC Penerima
+                                  </span>
+                                )}
+                                {isChecked && !isInitialPic && (
+                                  <span className="text-[9px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded font-bold ml-2">
+                                    PIC Penanganan
+                                  </span>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                        {getSortedPics(htsMasterData.pics, closeHtsPicIds, closeHtsPicSearch).length === 0 && (
+                          <div className="p-2 text-center text-xs text-gray-400">
+                            Tidak ada teknisi PIC yang cocok
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Lampiran Bukti Penyelesaian */}
+                    <div className="space-y-1.5 pt-2 border-t border-blue-200">
+                      <label className="block text-[11px] font-semibold text-blue-800">
+                        Bukti Lampiran Selesai / Foto Tindakan (Opsional)
+                      </label>
+                      {closeHtsChatImagePreview && (
+                        <label className="flex items-center gap-2.5 p-2 bg-white border border-blue-300 rounded-lg cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={closeHtsUseChatImage && !closeHtsFile}
+                            disabled={!!closeHtsFile}
+                            onChange={e => setCloseHtsUseChatImage(e.target.checked)}
+                            className="w-4 h-4 text-blue-600 rounded"
+                          />
+                          <img src={closeHtsChatImagePreview} alt="Bukti WA" className="w-8 h-8 object-cover rounded border border-blue-300" />
+                          <div className="text-[11px] leading-tight">
+                            <span className="font-semibold text-blue-900 block">Gunakan foto dari chat WhatsApp</span>
+                            <span className="text-blue-700 text-[10px]">Foto kendala/penanganan yang tersimpan</span>
+                          </div>
+                        </label>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg p-1.5 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={e => {
+                              if (e.target.files?.[0]) {
+                                setCloseHtsFile(e.target.files[0]);
+                                setCloseHtsUseChatImage(false);
+                              }
+                            }}
+                          />
+                          <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                          <span className="truncate max-w-[200px]">{closeHtsFile ? closeHtsFile.name : 'Upload file foto penyelesaian'}</span>
+                        </label>
+                        {closeHtsFile && (
+                          <button
+                            type="button"
+                            onClick={() => setCloseHtsFile(null)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs"
+                            title="Batal upload file"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}

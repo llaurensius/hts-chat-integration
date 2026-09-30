@@ -1,10 +1,9 @@
 # 🚀 Implementation Plan V3: Integrasi Otomasi Portal HTS Diskomdigi Jateng
-
 **Dokumen:** Rencana Implementasi Teknis & Panduan Pengembangan Bertahap  
 **Target:** Integrasi Penuh Sistem Helpdesk WhatsApp dengan Portal HTS Diskomdigi (`https://hts.diskomdigi.jatengprov.go.id`)  
 **Basis Dokumen:** [`docs/user-stories-v2.md`](./user-stories-v2.md)  
-**Status:** Fase 1 Selesai, Menuju Fase 2  
-**Tanggal Diperbarui:** 29 September 2026  
+**Status:** ✅ Selesai 100% (Seluruh Fase Terimplementasi & Teruji)  
+**Tanggal Diperbarui:** 30 September 2026  
 
 ---
 
@@ -15,12 +14,15 @@ flowchart TD
     subgraph Frontend [React Dasbor Web]
         UI_CAPTCHA[Widget Status HTS & Modal CAPTCHA]
         UI_ASSIGN[Modal Assign L1: Hybrid Create HTS]
+        UI_SYNC[Modal Kirim ke Portal HTS Mandiri]
         UI_L2[Modal Selesai L2: Input Solusi & Bukti]
         UI_CLOSE[Modal Close L1: Auto Pre-fill Solusi & Dual-Close]
+        UI_PENDING[Tombol Panel Resume: Selesaikan ke Portal HTS]
     end
 
     subgraph Backend [Node.js Express API :3000]
         CTRL_HTS[htsController.js]
+        CTRL_CHAT[chatController.js]
         SVC_HTS[htsClientService.js<br/>Session & Scraper Engine]
         DB[(PostgreSQL / Prisma ORM)]
     end
@@ -28,24 +30,26 @@ flowchart TD
     subgraph Portal_HTS [Portal HTS Diskomdigi]
         HTS_AUTH[POST /login + Captcha]
         HTS_CREATE[POST /submit_aduan<br/>POST /submit_aduan_status<br/>POST /submit_pic]
-        HTS_SOLVE[POST /submit_teknis]
+        HTS_SOLVE[POST /submit_input_teknis<br/>POST /submit_teknis]
     end
 
     UI_CAPTCHA <-->|REST API| CTRL_HTS
-    UI_ASSIGN <-->|REST API| CTRL_HTS
-    UI_L2 <-->|REST API| CTRL_HTS
-    UI_CLOSE <-->|REST API| CTRL_HTS
+    UI_ASSIGN <-->|REST API| CTRL_CHAT
+    UI_SYNC <-->|REST API| CTRL_CHAT
+    UI_L2 <-->|REST API| CTRL_CHAT
+    UI_CLOSE <-->|REST API| CTRL_CHAT
+    UI_PENDING <-->|REST API| CTRL_CHAT
 
     CTRL_HTS <--> SVC_HTS
+    CTRL_CHAT <--> SVC_HTS
     CTRL_HTS <--> DB
-    SVC_HTS <-->|HTTPS + Cookie Jar| Portal_HTS
+    CTRL_CHAT <--> DB
+    SVC_HTS <-->|HTTPS + Cookie Jar ci_session| Portal_HTS
 ```
 
 ---
 
-## 🗄️ 2. Penyesuaian Skema Database (`schema.prisma`)
-
-Perubahan skema Prisma untuk mengelola sesi akun HTS individual per-petugas L1 serta menyimpan status tiket HTS:
+## 🗄️ 2. Skema Database Final (`schema.prisma`)
 
 ```prisma
 // 1. Relasi sesi HTS pada User
@@ -84,6 +88,7 @@ model Ticket {
   hts_ticket_id      String?          // ID internal HTS (contoh: "2025")
   hts_ticket_no      String?          // Nomor aduan resmi HTS (contoh: "2025-TShoot-2026-jateng-09")
   hts_ticket_status  String?          // Status HTS: "UNSUBMITTED" | "INPUT_PIC" | "PENDING" | "SOLVED"
+  hts_pic_ids        String?          // JSON array ID PIC penerima & penanganan HTS
   hts_synced_at      DateTime?        // Waktu terakhir sinkronisasi HTS
   created_at         DateTime         @default(now())
   closed_at          DateTime?
@@ -107,67 +112,53 @@ model TicketCategory {
 
 ---
 
-## 🗺️ 3. Rencana Eksekusi Bertahap (Fase 1 s/d Fase 4)
+## 🗺️ 3. Rekapitulasi Eksekusi Bertahap (Fase 1 s/d Fase 4)
 
 ### ✅ FASE 1: Gateway Sesi Portal HTS, Solver CAPTCHA & Layanan Backend (SELESAI)
-**Tujuan:** Memungkinkan setiap petugas L1 menghubungkan akun portal HTS pribadinya ke Helpdesk dan mempertahankan sesi aktif.
-
-#### Rincian Penyelesaian:
-1. **Modul Layanan `backend/src/services/htsClientService.js`:**
-   - [x] Parsing dan serialization cookie PHP `ci_session` & `csrf_cookie_name`.
-   - [x] `getCaptchaStream(userId)`: Mengambil live image captcha dari HTS dan mengonversi ke base64 data URL.
-   - [x] `login(userId, email, password, captchaCode)`: Melakukan POST login ke HTS dan menyimpan sesi cookie ke database.
-   - [x] `checkSession(userId)`: Verifikasi status sesi aktif.
-   - [x] `logout(userId)`: Putus sambungan sesi.
-2. **Endpoint API di `backend/src/routes/hts.js` & `htsController.js`:**
-   - [x] `GET /api/hts/status`: Status sesi user saat ini.
-   - [x] `GET /api/hts/captcha`: Live captcha base64 & token CSRF.
-   - [x] `POST /api/hts/login`: Login akun HTS per-petugas.
-   - [x] `POST /api/hts/logout`: Logout sesi HTS.
-3. **Database Prisma:**
-   - [x] Migrasi model `HtsUserSession`, kolom `hts_*` di `Ticket`, dan `solution` di `TicketCategory` via `prisma db push`.
-4. **Antarmuka Frontend Dasbor (`frontend/src/App.jsx`):**
-   - [x] Card status koneksi HTS di panel kanan dasbor (khusus L1 & Admin) dengan indikator Terhubung / Belum Login.
-   - [x] Modal popup login HTS dengan preview live image captcha, tombol refresh, dan validasi form.
-   - [x] Build frontend sukses tanpa error.
+- [x] Parsing dan serialization cookie PHP `ci_session` & `csrf_cookie_name`.
+- [x] `getCaptchaStream(userId)`: Mengambil live image captcha numerik dari HTS dan mengonversi ke base64 data URL.
+- [x] `login(userId, email, password, captchaCode)`: Melakukan POST login ke HTS dan menyimpan sesi cookie ke database.
+- [x] `checkSession(userId)`: Verifikasi status sesi aktif via ping ringan `/api/notif`.
+- [x] `logout(userId)`: Putus sambungan sesi.
+- [x] Endpoint API di `backend/src/routes/hts.js` & `htsController.js` (`/status`, `/captcha`, `/login`, `/logout`).
+- [x] Widget status koneksi HTS di panel kanan dasbor (khusus L1 & Admin) dengan indikator Terhubung / Belum Login.
+- [x] Modal popup login HTS dengan preview live image captcha, tombol refresh, dan validasi form.
 
 ---
 
-### 📋 FASE 2: Master Data Caching & Otomasi Pembuatan Tiket L1 (Modal Assign Hybrid)
-**Tujuan:** L1 dapat mendelegasikan tiket ke L2 internal sekaligus membuatkan tiket resmi di HTS dalam 1 klik.
-
-#### Rencana Tugas:
-1. **Master Data Cache di Backend:**
-   - Endpoint `GET /api/hts/master-data` (97 OPD Induk, Kategori, 6 Sub-kategori, 17 PIC).
-2. **Fungsi Otomasi Pipeline di `htsClientService.js`:**
-   - `createTicketPipeline(userId, ticketData, attachmentFile)`:
-     - `POST /submit_aduan` ➔ `POST /submit_aduan_status` ➔ `POST /submit_pic`.
-     - Simpan `hts_ticket_id`, `hts_ticket_no`, dan status `PENDING`.
-3. **Pembaruan Modal Assign L2 di Frontend:**
-   - Checkbox toggle: `[✔] Sekaligus Buat Tiket Resmi di Portal HTS Diskomdigi`.
-   - Dropdown pencarian OPD Induk, Kategori, dan Sub-kategori.
-   - Tombol susulan `[+ Sinkronkan ke HTS]` pada detail tiket.
-
----
-
-### 🔧 FASE 3: Penyelesaian Teknis L2 & Penutupan Ganda L1 (Dual-Close)
-**Tujuan:** L2 mengisi solusi teknis di modal "Tandai Selesai" internal, dan L1 menutup tiket sekaligus mengeksekusi `submit_teknis` di portal HTS.
-
-#### Rencana Tugas:
-1. **Modal Penyelesaian Teknis L2 di Frontend:**
-   - Modal saat L2 klik *"Tandai Selesai"*: Input solusi perbaikan + upload foto bukti.
-   - Auto-posting ke Catatan Internal bertag tim L2.
-2. **Fungsi Penyelesaian HTS di `htsClientService.js`:**
-   - `solveTicketHts(userId, htsTicketId, { solutionText, picId, solvedDate, solvedTime, proofFile })`:
-     - `POST /submit_input_teknis` ➔ `POST /submit_teknis`.
-3. **Pembaruan Modal "Selesaikan Tiket" L1:**
-   - Auto pre-fill solusi dari catatan internal L2 terakhir.
-   - Dropdown PIC teknisi penanganan HTS.
-   - Eksekusi serentak penutupan tiket lokal (`CLOSED`) dan tiket HTS (`SOLVED`).
+### ✅ FASE 2: Master Data Caching & Otomasi Pembuatan Tiket L1 (SELESAI)
+- [x] Master data JSON cache `htsMasterData.json` (OPD Induk, Kategori, Sub-kategori, PIC teknisi) diekspos via `GET /api/hts/master-data`.
+- [x] Fungsi Otomasi Pipeline di `htsClientService.js`:
+  - `createTicketPipeline(userId, ticketData)` mengeksekusi urutan 3 endpoint HTS:
+    1. `POST /submit_aduan` (menerbitkan nomor aduan resmi HTS).
+    2. Lookup `id_trouble` numerik asli database HTS via `POST /get_aduan_data` (status: `unsubmitted`).
+    3. `POST /submit_aduan_status` (memindahkan status dari unsubmitted ke input-pic).
+    4. `POST /submit_pic` (menetapkan PIC awal penerima aduan).
+- [x] Modal Penugasan L2 Hybrid: Checkbox toggle sinkronisasi HTS langsung saat assign.
+- [x] Modal Mandiri "Kirim ke Portal HTS": Form khusus pada tiket aktif untuk sinkronisasi kapan saja.
+- [x] Penyempurnaan Form HTS:
+  - Sub-kategori HTS dinonaktifkan jika kategori bukan *Troubleshoot*.
+  - OPD Induk bersifat opsional dengan pencarian typeahead interaktif.
+  - Validasi detil permasalahan minimal 10 karakter dengan live counter.
 
 ---
 
-### ✅ FASE 4: Pengujian Menyeluruh (End-to-End) & Penanganan Kasus Kendala
-- [ ] Fallback sesi kedaluwarsa & retry mechanism.
-- [ ] Kolom Nomor Tiket HTS pada Laporan Rekapitulasi & Export CSV.
+### ✅ FASE 3: Penyelesaian Teknis L2 & Penutupan Ganda L1 (Dual-Close) (SELESAI)
+- [x] Modal Penyelesaian Teknis L2: Input teks solusi perbaikan saat L2 klik *"Tandai Selesai"*, disimpan ke `TicketCategory.solution`.
+- [x] Auto-agregasi teks solusi teknis dari seluruh tim L2 ke draf kesimpulan penutupan L1.
+- [x] Fungsi Penyelesaian HTS di `htsClientService.js` (`solveTicketHts`):
+  - `POST /submit_input_teknis` ➔ `POST /submit_teknis` (mengirim detil penanganan, array PIC koma `"14,8"`, waktu, dan lampiran bukti).
+- [x] Modal Penutupan Tiket L1:
+  - Checkbox Dual-Close: Menyelesaikan tiket lokal sekaligus tiket HTS.
+  - Lampiran bukti penanganan teknis (dukungan format `.jpg`, `.jpeg`, `.png`, `.pdf`).
+  - Proteksi Integritas: Jika penyelesaian HTS gagal, penutupan tiket lokal dibatalkan agar percakapan tetap terbuka.
+- [x] Fitur Tombol "Selesaikan ke Portal HTS" di panel resume kanan untuk tiket yang berstatus lokal closed tetapi di HTS masih pending.
 
+---
+
+### ✅ FASE 4: Sinkronisasi & Penyambungan PIC Penerima & PIC Penanganan (SELESAI)
+- [x] Kolom `hts_pic_ids` pada basis data `Ticket` untuk mencatat riwayat ID PIC awal.
+- [x] Pre-fill & Auto-check PIC Penerima awal saat modal penutupan tiket dibuka oleh L1.
+- [x] Pembeda visual pada daftar PIC modal close: Badge hijau **`PIC Penerima`** vs Badge biru **`PIC Penanganan`**.
+- [x] Penggabungan (*Merge tanpa duplikat*) antara PIC Penerima awal dan PIC Penanganan akhir di backend sebelum dikirim ke HTS.
+- [x] Pengiriman format string koma (`pic_id = "14,8"`) yang sesuai dengan spesifikasi form script portal HTS Diskomdigi.
