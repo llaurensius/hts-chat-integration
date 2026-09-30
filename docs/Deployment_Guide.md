@@ -164,7 +164,9 @@ Sistem sudah dilengkapi deteksi hostname dinamis (`window.location.hostname`):
 1. Buka browser dan akses dasbor/endpoint Evolution API atau gunakan skrip pairing:
    ```bash
    cd backend
-   node setupEvolution.js
+   node src/scripts/setupEvolution.js
+   # atau:
+   # npm run setup:evolution
    ```
 2. Scan QR Code yang dihasilkan melalui aplikasi WhatsApp di ponsel Helpdesk (*Perangkat Tertaut / Linked Devices*).
 3. Pastikan status koneksi bernilai `"state": "open"`.

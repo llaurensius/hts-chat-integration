@@ -112,6 +112,17 @@ function Dashboard() {
   const [assignCategoryIds, setAssignCategoryIds] = useState([]);
   const [assignServiceType, setAssignServiceType] = useState('TROUBLESHOOTING');
 
+  // State Dual-Close HTS (Fase 3 & 4)
+  const [closeHtsTicket, setCloseHtsTicket] = useState(true);
+  const [closeHtsPicId, setCloseHtsPicId] = useState('');
+  const [closeHtsSolution, setCloseHtsSolution] = useState('');
+  const [isClosingTicket, setIsClosingTicket] = useState(false);
+
+  // State L2 Tandai Selesai Modal (Fase 3 & 4)
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [resolveSolutionText, setResolveSolutionText] = useState('');
+  const [isResolving, setIsResolving] = useState(false);
+
   // State Reporting
   const [reportTickets, setReportTickets] = useState([]);
   const [selectedReportIds, setSelectedReportIds] = useState([]);
@@ -347,7 +358,17 @@ function Dashboard() {
     if (!activeTicket) return;
     const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
     setSelectedCategories(currentCatIds);
-    setSummaryText('');
+
+    // Ambil solusi teknis dari catatan L2 jika sudah ada
+    const l2Solutions = activeTicket.categories
+      ?.filter(tc => tc.solution)
+      ?.map(tc => `${tc.category?.name ? `[${tc.category.name}] ` : ''}${tc.solution}`)
+      .join('\n\n') || '';
+
+    setSummaryText(l2Solutions || '');
+    setCloseHtsSolution(l2Solutions || '');
+    setCloseHtsTicket(!!activeTicket.hts_ticket_no);
+    setCloseHtsPicId(htsMasterData.picList && htsMasterData.picList.length > 0 ? htsMasterData.picList[0].id : '14');
     setShowCloseModal(true);
   };
 
@@ -778,15 +799,34 @@ function Dashboard() {
     }
   };
 
-  const handleMarkResolved = async () => {
-    if(!window.confirm('Tandai bahwa kendala pada bagian tim Anda telah selesai ditangani?')) return;
+  // L2 membuka modal penanganan selesai
+  const handleOpenResolveModal = () => {
+    setResolveSolutionText('');
+    setShowResolveModal(true);
+  };
+
+  // L2 submit konfirmasi selesai & solusi teknis
+  const handleConfirmResolve = async (e) => {
+    if (e) e.preventDefault();
+    if (!resolveSolutionText.trim()) {
+      alert('Mohon tuliskan catatan solusi / penanganan teknis yang telah dikerjakan!');
+      return;
+    }
+    setIsResolving(true);
     try {
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/resolve`);
-      alert(res.data?.message || 'Berhasil menandai selesai');
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/resolve`, {
+        solution: resolveSolutionText.trim()
+      });
+      alert(res.data?.message || 'Berhasil menandai tiket selesai');
+      setShowResolveModal(false);
+      setResolveSolutionText('');
       loadTickets();
       if (activeTicket) loadMessages(activeTicket.id);
     } catch (error) {
+      console.error('Error resolving ticket:', error);
       alert(error.response?.data?.error || 'Gagal menandai tiket selesai');
+    } finally {
+      setIsResolving(false);
     }
   };
 
@@ -804,15 +844,20 @@ function Dashboard() {
     }
   };
 
+  // L1 menutup tiket & Dual-Close HTS
   const handleCloseTicket = async () => {
     if (summaryText.trim().length < 10) {
       alert('Kesimpulan wajib diisi minimal 10 karakter!');
       return;
     }
+    setIsClosingTicket(true);
     try {
       await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/close`, {
-        summary: summaryText,
-        categoryIds: selectedCategories
+        summary: summaryText.trim(),
+        categoryIds: selectedCategories,
+        closeHtsTicket: activeTicket.hts_ticket_no ? closeHtsTicket : false,
+        htsPicId: closeHtsPicId,
+        htsSolution: closeHtsSolution || summaryText.trim()
       });
       setShowCloseModal(false);
       setSummaryText('');
@@ -820,7 +865,10 @@ function Dashboard() {
       setActiveTicket(null);
       loadTickets();
     } catch (error) {
-      alert('Gagal menutup tiket');
+      console.error('Error closing ticket:', error);
+      alert(error.response?.data?.error || 'Gagal menutup tiket');
+    } finally {
+      setIsClosingTicket(false);
     }
   };
 
@@ -1155,22 +1203,35 @@ function Dashboard() {
                     </div>
                   )}
                   {isL2 && (() => {
-                    const myCatRelation = activeTicket.categories?.find(tc => tc.category_id === currentUser.category_id);
+                    const myCatRelation = activeTicket.categories?.find(tc => 
+                      tc.category_id === currentUser.category_id || 
+                      tc.category?.id === currentUser.category_id ||
+                      tc.category?.name === currentUser.category ||
+                      (typeof currentUser.category === 'object' && (tc.category_id === currentUser.category?.id || tc.category?.name === currentUser.category?.name))
+                    );
                     const isMyTeamResolved = myCatRelation?.is_resolved;
 
                     return (
                       <div className="flex items-center space-x-2">
-                        <button onClick={handleReturnTicket} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm rounded-lg font-medium transition">
-                          Kembalikan / Lepas
-                        </button>
-                        {isMyTeamResolved ? (
-                          <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-sm rounded-lg font-semibold flex items-center border border-emerald-200">
-                            <CheckCircle className="w-4 h-4 mr-1 text-emerald-600"/> Bagian Anda Selesai
-                          </span>
+                        {myCatRelation ? (
+                          <>
+                            <button onClick={handleReturnTicket} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm rounded-lg font-medium transition">
+                              Kembalikan / Lepas
+                            </button>
+                            {isMyTeamResolved ? (
+                              <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-sm rounded-lg font-semibold flex items-center border border-emerald-200">
+                                <CheckCircle className="w-4 h-4 mr-1 text-emerald-600"/> Bagian Anda Selesai
+                              </span>
+                            ) : (
+                              <button onClick={handleOpenResolveModal} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-medium transition flex items-center shadow-sm">
+                                <CheckCircle className="w-4 h-4 mr-1"/> Tandai Selesai
+                              </button>
+                            )}
+                          </>
                         ) : (
-                          <button onClick={handleMarkResolved} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-medium transition flex items-center shadow-sm">
-                            <CheckCircle className="w-4 h-4 mr-1"/> Tandai Selesai
-                          </button>
+                          <span className="px-2.5 py-1 text-xs text-amber-700 bg-amber-50 rounded-lg border border-amber-200 font-medium">
+                            Bukan Bagian Tim Anda
+                          </span>
                         )}
                       </div>
                     );
@@ -2442,29 +2503,78 @@ function Dashboard() {
         </div>
       )}
 
-      {/* MODAL TUTUP TIKET */}
+      {/* MODAL TUTUP TIKET & DUAL-CLOSE HTS */}
       {showCloseModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-[500px] p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Selesaikan Tiket</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-start mb-4 pb-2 border-b border-gray-100">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Selesaikan Tiket</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Penutupan resmi tiket aduan pelanggan oleh Helpdesk (L1)</p>
+              </div>
+              <button 
+                onClick={() => setShowCloseModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Banner HTS Dual-Close jika tiket terhubung ke HTS */}
+            {activeTicket?.hts_ticket_no && (
+              <div className="mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
+                <div className="flex items-center justify-between font-bold mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <span>Terhubung ke Portal HTS: #{activeTicket.hts_ticket_no}</span>
+                  </div>
+                  <label className="inline-flex items-center gap-1 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={closeHtsTicket} 
+                      onChange={e => setCloseHtsTicket(e.target.checked)}
+                      className="rounded text-blue-600 focus:ring-blue-500" 
+                    />
+                    <span className="text-[11px] font-semibold text-blue-700">Tutup di HTS</span>
+                  </label>
+                </div>
+                {closeHtsTicket && (
+                  <div className="space-y-2 mt-2 pt-2 border-t border-blue-200">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-blue-800 mb-1">PIC Penyelesaian HTS</label>
+                      <select 
+                        value={closeHtsPicId} 
+                        onChange={e => setCloseHtsPicId(e.target.value)}
+                        className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none"
+                      >
+                        {htsMasterData.picList.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Tag Kategori Masalah (Penting untuk Report)</label>
-              <p className="text-[11px] text-gray-500 mb-2.5">
-                Otomatis tercentang sesuai penugasan Tim L2. Anda dapat menambah atau menyesuaikan jika diperlukan.
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Tag Kategori Tim</label>
+              <p className="text-[11px] text-gray-500 mb-2">
+                Otomatis tercentang sesuai penugasan Tim L2.
               </p>
               <div className="flex flex-wrap gap-2">
                 {categories.map(cat => {
                   const isAssigned = activeTicket?.categories?.some(tc => (tc.category_id || tc.category?.id) === cat.id);
                   const isChecked = selectedCategories.includes(cat.id);
                   return (
-                    <label key={cat.id} className={`inline-flex items-center px-3 py-1.5 rounded-full cursor-pointer transition border text-sm ${
+                    <label key={cat.id} className={`inline-flex items-center px-3 py-1.5 rounded-full cursor-pointer transition border text-xs ${
                       isChecked 
                         ? 'bg-blue-50 border-blue-400 text-blue-900 font-medium' 
                         : 'bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200'
                     }`}>
                       <input 
                         type="checkbox" 
-                        className="rounded text-blue-600 focus:ring-blue-500 mr-2"
+                        className="rounded text-blue-600 focus:ring-blue-500 mr-1.5"
                         checked={isChecked}
                         onChange={(e) => {
                           if (e.target.checked) setSelectedCategories([...selectedCategories, cat.id]);
@@ -2473,8 +2583,8 @@ function Dashboard() {
                       />
                       <span>{cat.name}</span>
                       {isAssigned && (
-                        <span className="text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold ml-1.5">
-                          Penugasan L2
+                        <span className="text-[9px] bg-blue-200 text-blue-800 px-1 py-0.2 rounded font-bold ml-1">
+                          L2
                         </span>
                       )}
                     </label>
@@ -2482,19 +2592,110 @@ function Dashboard() {
                 })}
               </div>
             </div>
+
             <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Kesimpulan Penanganan (Min. 10 karakter)</label>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Kesimpulan Penanganan (Min. 10 karakter)</label>
+                {activeTicket?.categories?.some(tc => tc.solution) && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium">
+                    ✓ Catatan L2 Terisi Otomatis
+                  </span>
+                )}
+              </div>
               <textarea 
                 rows="4" 
                 value={summaryText}
-                onChange={e => setSummaryText(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
+                onChange={e => {
+                  setSummaryText(e.target.value);
+                  if (closeHtsTicket) setCloseHtsSolution(e.target.value);
+                }}
+                placeholder="Rangkum hasil penyelesaian kendala di lapangan/lab..."
+                className="w-full border border-gray-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               ></textarea>
             </div>
+
             <div className="flex justify-end space-x-3">
-              <button onClick={() => setShowCloseModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Batal</button>
-              <button onClick={handleCloseTicket} disabled={summaryText.trim().length < 10} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors">Tutup Tiket</button>
+              <button 
+                onClick={() => setShowCloseModal(false)} 
+                disabled={isClosingTicket}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={handleCloseTicket} 
+                disabled={summaryText.trim().length < 10 || isClosingTicket} 
+                className="px-5 py-2 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-medium transition-colors shadow-sm flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                {isClosingTicket ? 'Memproses...' : (activeTicket?.hts_ticket_no && closeHtsTicket ? 'Selesaikan & Tutup HTS' : 'Tutup Tiket')}
+              </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL L2 TANDAI SELESAI & INPUT SOLUSI */}
+      {showResolveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-start mb-4 pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-green-100 text-green-700 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">Tandai Selesai Penanganan</h2>
+                  <p className="text-xs text-gray-500">
+                    {currentUser.category ? `Tim ${typeof currentUser.category === 'object' ? currentUser.category?.name : currentUser.category}` : 'Teknisi L2'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowResolveModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmResolve}>
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Catatan Solusi / Rincian Penanganan Teknis <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Tuliskan tindakan teknis yang telah dikerjakan di lapangan atau lab. Catatan ini akan otomatis masuk ke Catatan Internal dan dijadikan rujukan oleh L1 saat menutup tiket di portal HTS.
+                </p>
+                <textarea
+                  rows="4"
+                  required
+                  value={resolveSolutionText}
+                  onChange={e => setResolveSolutionText(e.target.value)}
+                  placeholder="Contoh: Kabel LAN diganti dengan Cat6 baru di port 3, tes ping stabil 1ms, akses intranet OPD kembali normal..."
+                  className="w-full border border-gray-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResolveModal(false)}
+                  disabled={isResolving}
+                  className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResolving || !resolveSolutionText.trim()}
+                  className="px-5 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  {isResolving ? 'Menyimpan...' : 'Konfirmasi Selesai'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

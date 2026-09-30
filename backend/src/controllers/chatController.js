@@ -604,9 +604,22 @@ const resolveTicket = async (req, res) => {
     let noteText = '';
     let isFullyResolved = false;
 
+    // Ambil category_id user (fallback ke DB jika token belum memuat category_id)
+    let effectiveCategoryId = user?.category_id;
+    if (user && user.role === 'L2' && !effectiveCategoryId) {
+      const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+      if (dbUser && dbUser.category_id) {
+        effectiveCategoryId = dbUser.category_id;
+      }
+    }
+
     // Jika yang resolve adalah L2 dengan kategori tertentu
-    if (user && user.role === 'L2' && user.category_id) {
-      const myCatRelation = ticket.categories.find(c => c.category_id === user.category_id);
+    if (user && user.role === 'L2') {
+      if (!effectiveCategoryId) {
+        return res.status(403).json({ error: 'Akun teknisi Anda belum terhubung ke Tim Kategori manapun. Silakan hubungi Administrator.' });
+      }
+
+      const myCatRelation = ticket.categories.find(c => c.category_id === effectiveCategoryId);
       
       if (!myCatRelation) {
         return res.status(403).json({ error: 'Tim Anda tidak ditugaskan pada tiket ini' });
@@ -617,7 +630,7 @@ const resolveTicket = async (req, res) => {
         where: {
           ticket_id_category_id: {
             ticket_id: ticket.id,
-            category_id: user.category_id
+            category_id: effectiveCategoryId
           }
         },
         data: {
@@ -697,7 +710,7 @@ const resolveTicket = async (req, res) => {
     });
   } catch (error) {
     console.error('[Chat API] Error resolving ticket:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };
 

@@ -44,6 +44,7 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        category_id: user.category_id,
         category: user.category ? user.category.name : null
       }
     });
@@ -58,9 +59,16 @@ const getMe = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, name: true, email: true, role: true, category: true }
+      select: { id: true, name: true, email: true, role: true, category_id: true, category: true }
     });
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, category: user.category ? user.category.name : null });
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      category_id: user.category_id,
+      category: user.category ? user.category.name : null
+    });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
   }
