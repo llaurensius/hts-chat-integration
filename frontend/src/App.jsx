@@ -368,7 +368,7 @@ function Dashboard() {
     setSummaryText(l2Solutions || '');
     setCloseHtsSolution(l2Solutions || '');
     setCloseHtsTicket(!!activeTicket.hts_ticket_no);
-    setCloseHtsPicId(htsMasterData.picList && htsMasterData.picList.length > 0 ? htsMasterData.picList[0].id : '14');
+    setCloseHtsPicId(htsMasterData.pics && htsMasterData.pics.length > 0 ? htsMasterData.pics[0].id : '14');
     setShowCloseModal(true);
   };
 
@@ -2547,7 +2547,7 @@ function Dashboard() {
                         onChange={e => setCloseHtsPicId(e.target.value)}
                         className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 outline-none"
                       >
-                        {htsMasterData.picList.map(p => (
+                        {htsMasterData.pics?.map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </select>
@@ -2563,7 +2563,7 @@ function Dashboard() {
                 Otomatis tercentang sesuai penugasan Tim L2.
               </p>
               <div className="flex flex-wrap gap-2">
-                {categories.map(cat => {
+                {categories?.map(cat => {
                   const isAssigned = activeTicket?.categories?.some(tc => (tc.category_id || tc.category?.id) === cat.id);
                   const isChecked = selectedCategories.includes(cat.id);
                   return (
