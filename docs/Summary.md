@@ -1,140 +1,80 @@
-# 📋 Rangkuman Lengkap Perkembangan Proyek (Project Summary)
+# 📋 Rangkuman Lengkap Proyek (Project Summary)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi Sistem:** Workflow V4.0 (Multi-HTS Architecture, General Chat, Multimedia L2, Redesign 3 Kolom, SLA, Quick Replies & Manual Link Recovery)  
+**Versi Sistem:** Workflow V4.0 Produksi (Multi-HTS, General Chat, Multimedia L2, Quick Replies & Disaster Recovery)  
 **Terakhir Diperbarui:** 01 Oktober 2026  
 
 ---
 
 ## 📌 1. Ringkasan Eksekutif
 
-Sistem Helpdesk **HTS Chat Integration** adalah platform terintegrasi untuk menangani aduan masyarakat atau Organisasi Perangkat Daerah (OPD) melalui saluran resmi **WhatsApp** yang terhubung secara *real-time* ke dasbor web Helpdesk dan secara otomatis tersinkronisasi dua arah ke portal tiket resmi **HTS Diskomdigi Provinsi Jawa Tengah** (`https://hts.diskomdigi.jatengprov.go.id`).
+Sistem Helpdesk **HTS Chat Integration** adalah platform terintegrasi untuk mengelola aduan masyarakat maupun Organisasi Perangkat Daerah (OPD) melalui saluran komunikasi resmi **WhatsApp** yang terhubung secara *real-time* ke dasbor web Helpdesk dan tersinkronisasi dua arah ke portal tiket resmi **HTS Diskomdigi Provinsi Jawa Tengah** (`https://hts.diskomdigi.jatengprov.go.id`).
 
-Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**, **PostgreSQL (Prisma ORM)**, dan **React.js + Tailwind CSS**, sistem ini menerapkan tata kelola kerja modern berbasis peran (**Role-Based Access Control - RBAC**) antara **Administrator**, **Dispatcher (L1)**, **Supervisor (SPV)**, dan **3 Pilar Teknisi Lapangan (L2: Network, Server, Mechanical & Electrical)**.
+Dibangun dengan arsitektur **Evolution API v2 (Baileys WhatsApp)**, **Node.js Express + Socket.io**, **PostgreSQL (Prisma ORM)**, dan **React.js + Tailwind CSS**, sistem ini menerapkan tata kelola kerja modern berbasis peran (**Role-Based Access Control - RBAC**) antara **Administrator**, **Dispatcher (L1)**, **Supervisor (SPV)**, dan **3 Pilar Teknisi Lapangan (L2: Network, Server, Mechanical & Electrical)**.
 
 ---
 
 ## 🚀 2. Rekapitulasi Tahapan Pengembangan
 
-### A. Fondasi Sistem (Workflow V1 - Selesai)
+### A. Fondasi Sistem (Workflow V1)
 - **Fase 0 (Infrastruktur):** Setup Docker Compose (PostgreSQL 15, Redis, Evolution API v2) dan inisialisasi skema Prisma ORM.
 - **Fase 1 (Inbound Webhook):** Penerimaan webhook WhatsApp, auto-create profil pelanggan & tiket baru, serta balasan otomatis *Auto-Reply Bot*.
 - **Fase 2 (Outbound Chat):** Pengiriman pesan balasan langsung dari web dashboard ke WhatsApp pelapor via REST API Evolution.
-- **Fase 3 (Real-time Live Chat):** Integrasi WebSocket Socket.io untuk pembaruan gelembung chat dan status tiket secara seketika tanpa refresh.
+- **Fase 3 (Real-time Live Chat):** Integrasi WebSocket Socket.io untuk pembaruan gelembung chat dan status tiket seketika.
 - **Fase 4 (Multi-Tagging & Mandatory Summary):** Tagging kategori masalah dan kewajiban mengisi kesimpulan penanganan saat penutupan tiket.
-- **Fase 5 (Reporting & Analytics):** Halaman dasbor rekapitulasi aduan dengan fitur **Export to CSV**.
+- **Fase 5 (Reporting & Analytics):** Dasbor rekapitulasi aduan dengan fitur **Export to CSV**.
 - **Fase 6 (Keamanan Dasar):** Pemasangan HTTP Headers `helmet` dan pembatasan laju permintaan `express-rate-limit`.
 
 ---
 
-### B. Penyempurnaan Tata Kelola & Bisnis (Workflow V2 - Selesai)
-- **Fase 1 (Perombakan Skema Database):** Mengganti model lama *Division* menjadi model terstruktur **`Category`** yang dilengkapi nomor target WhatsApp (`wa_target_number`), status tiket baru `RESOLVED`, dan penanda `is_internal` pada pesan catatan tim.
-- **Fase 2 (Autentikasi JWT & RBAC Middleware):** Endpoint login `/api/auth/login` dengan enkripsi `bcryptjs` dan tokenisasi `jsonwebtoken` (masa berlaku 12 jam) yang memproteksi seluruh rute internal.
-- **Fase 3 (Dukungan Media Gambar Dua Arah):** Pengiriman gambar dari Helpdesk ke WhatsApp pelapor (via Multer & Evolution API) dan penerimaan gambar dari WhatsApp pelapor langsung ke web chat.
-- **Fase 4 (Antarmuka Dinamis L1 vs L2):** Pembelahan UI di mana Dispatcher L1 memiliki kendali komunikasi ke pelanggan, sedangkan Teknisi L2 berada dalam mode *View-Only* khusus percakapan pelanggan dan berfokus pada kolom *Catatan Internal*.
-- **Fase 4.5 (Akun Admin & Manajemen Pengguna):** Penambahan peran `ADMIN` dengan akses penuh serta antarmuka khusus Manajemen Pengguna untuk membuat, melihat, dan menghapus akun L1/L2.
-- **Fase 5 (Pendelegasian Tugas & WhatsApp Blast):** L1 dapat mendelegasikan tiket ke L2 disertai tembakan pesan notifikasi otomatis (*WhatsApp Blast*) ke nomor teknisi/grup WhatsApp terkait.
+### B. Penyempurnaan Tata Kelola & Bisnis (Workflow V2)
+- **Fase 1 (Perombakan Skema Database):** Model terstruktur **`Category`** dilengkapi nomor target WhatsApp (`wa_target_number`), status baru `RESOLVED`, dan penanda `is_internal`.
+- **Fase 2 (Autentikasi JWT & RBAC):** Proteksi seluruh rute internal dengan token JWT (masa berlaku 12 jam) dan enkripsi password `bcryptjs`.
+- **Fase 3 (Media Gambar Dua Arah):** Pengiriman dan penerimaan file gambar antara WhatsApp pelanggan dan web chat.
+- **Fase 4 (Antarmuka Dinamis L1 vs L2):** Pembelahan UI di mana Dispatcher L1 memiliki kendali komunikasi ke pelanggan, sedangkan Teknisi L2 berada dalam mode *View-Only* khusus obrolan pelanggan dan berfokus pada kolom *Catatan Internal*.
+- **Fase 4.5 (Akun Admin & Manajemen Pengguna):** Peran `ADMIN` dengan antarmuka CRUD pengguna, reset password, dan kontak blast L2.
+- **Fase 5 (Pendelegasian Tugas & WhatsApp Blast):** L1 dapat mendelegasikan tiket ke L2 disertai tembakan notifikasi otomatis (*WhatsApp Blast*) ke nomor personil/grup teknisi.
 - **Fase 6 (Siklus Hidup Tiket L2):** Teknisi L2 menandai selesai (`RESOLVED`) dan Dispatcher L1 yang berhak menutup tiket secara resmi (`CLOSED`).
 
 ---
 
-### C. Peningkatan Fitur Mutakhir (Workflow V2.1 & V2.2 - Selesai)
+### C. Peningkatan Fitur Mutakhir (Workflow V2.1 & V2.2)
 1. **3 Pilar Utama Tim Teknisi L2:** `Network`, `Server`, dan `Mechanical & Electrical (M&E)`.
-2. **Pendelegasian Multi-Assign:** L1 dapat mencentang lebih dari satu tim sekaligus pada tiket.
-3. **Penyelesaian Mandiri Per-Tim (*Per-Team Resolution*):** Kolom `is_resolved` pada `TicketCategory` mencatat status per tim. Tiket utama otomatis `RESOLVED` ketika seluruh tim selesai.
-4. **Pelepasan Penugasan Mandiri (*Self-Unassign Return*):** L2 dapat melepas penugasan timnya jika salah kamar penugasan tanpa membatalkan tim lain.
+2. **Pendelegasian Multi-Assign:** L1 dapat mencentang lebih dari satu tim sekaligus pada tiket tanpa mereset tim yang sedang bertugas.
+3. **Penyelesaian Mandiri Per-Tim (*Per-Team Resolution*):** Kolom `is_resolved` mencatat status per tim. Tiket utama otomatis `RESOLVED` hanya saat seluruh tim selesai.
+4. **Pelepasan Penugasan Mandiri (*Self-Unassign Return*):** L2 dapat melepas tugas jika salah penugasan tanpa membatalkan tim lain.
 5. **Klasifikasi Jenis Layanan (*Service Type*):** `Troubleshooting`, `Request Layanan`, atau `Monitoring`.
-6. **Kustomisasi Auto-Reply Bot & Sakelar ON/OFF (Khusus L1):** Menu robot 🤖 di sidebar L1 untuk mengubah template pesan sambutan WhatsApp dan toggle aktif/nonaktif.
-7. **Pembersihan Data Rekap Aduan & Reset Sequence ID ke 1 (Khusus ADMIN):** Menghapus data testing dan mereset urutan ID auto-increment kembali ke 1.
-8. **Manajemen Multi-Kontak WhatsApp Blast Tim L2 (Khusus ADMIN):** Mendaftarkan banyak nomor personil (`628xxx`) maupun ID Grup WA (`xxx@g.us`) per tim dengan fitur Inline Edit.
-9. **Dual Tab Chat L1 (Balas WhatsApp vs Catatan Internal):** Memungkinkan L1 mengirim catatan internal rahasia berbadge kuning yang tidak terkirim ke WhatsApp pelapor.
+6. **Kustomisasi Auto-Reply Bot:** Menu pengaturan template teks bot dan sakelar ON/OFF.
+7. **Pembersihan Data Testing & Reset ID Sequence:** Fitur admin untuk mereset urutan ID auto-increment database PostgreSQL kembali ke 1.
+8. **Dual-Tab Chat L1:** Tab 💬 Balas WhatsApp Pelanggan vs Tab 🔒 Catatan Internal rahasia berbadge kuning.
 
 ---
 
-### D. Integrasi Penuh Portal HTS Diskomdigi (Workflow V3.0 - Selesai)
-1. **Arsitektur Sesi Login HTS Berbasis Cookie:**
-   - Model `HtsUserSession` menyimpan cookie PHP `ci_session` dan token CSRF per-petugas L1/Admin.
-   - Sesi diperiksa secara berkala via endpoint `/api/notif` portal HTS untuk mendeteksi keaktifan login.
-2. **Bypass CAPTCHA Live Interaktif:**
-   - Menghubungkan akun HTS secara aman langsung dari browser menggunakan streaming gambar CAPTCHA numerik dari server portal HTS.
-3. **Pipeline 3-Tahap Penerbitan Tiket HTS:**
-   - **Tahap 1 (`/submit_aduan`):** Mengirimkan data pelapor, OPD, waktu problem, kategori & sub-kategori, detil kendala, dan lampiran. Mengembalikan nomor aduan (misal: `#2025-TShoot-2026-jateng-09`).
-   - **Tahap 2 (`/submit_aduan_status`):** Memindahkan status dari *unsubmitted* ke *input-pic* menggunakan ID trouble numerik yang di-lookup secara real-time via `/get_aduan_data`.
-   - **Tahap 3 (`/submit_pic`):** Menetapkan PIC Penerima Aduan awal ke status *pending* dengan format string ID koma (`pic_id = "14,8"`).
-4. **Sinkronisasi PIC Tersambung (PIC Penerima $\leftrightarrow$ PIC Penanganan):**
-   - ID PIC awal yang dipilih saat pembuatan tiket disimpan ke kolom `hts_pic_ids` pada basis data `Ticket`.
-   - Saat modal penutupan tiket dibuka, PIC Penerima awal otomatis tercentang dengan badge khusus **`PIC Penerima`**.
-   - Saat L1 mencentang teknisi penanganan tambahan (**`PIC Penanganan`**), backend secara otomatis menggabungkan (*merge tanpa duplikat*) kedua PIC tersebut dan mengirimkannya ke endpoint `/submit_teknis` HTS. Hal ini menjamin di portal HTS kedua PIC tercatat bersamaan dan tidak terputus.
-5. **Fitur Tombol "Selesaikan ke Portal HTS":**
-   - Menampilkan tombol langsung pada panel resume tiket untuk menyelesaikan tiket di HTS yang masih berstatus `PENDING` meskipun tiket lokal sudah ditutup atau diselesaikan oleh L2.
-6. **Dual-Close dengan Proteksi Integritas Percakapan:**
-   - Saat L1 menutup tiket di Helpdesk dan mencentang opsi penyelesaian HTS, backend melakukan submit teknis ke portal HTS.
-   - **Prinsip Keamanan:** Jika penutupan di portal HTS gagal (misal file ditolak atau server HTS gangguan), tiket lokal **batal ditutup** dan percakapan tetap terbuka agar petugas dapat mengecek dan tidak ada chat yang terputus sepihak.
-7. **Penyempurnaan Form HTS:**
-   - Sub-kategori HTS hanya aktif untuk kategori *Troubleshoot*, dan dinonaktifkan untuk *Request Layanan* / *Monitoring*.
-   - Pilihan OPD Induk (Klasifikasi HTS) bersifat opsional dengan pencarian typeahead responsif.
-   - Validasi detil permasalahan minimal 10 karakter dengan live counter di frontend.
-   - Dukungan file lampiran bukti teknis lengkap (`.jpg`, `.jpeg`, `.png`, `.pdf`) dengan penanganan MIME-type dinamis.
+### D. Integrasi Penuh Portal HTS Diskomdigi (Workflow V3.0)
+1. **Sesi Login HTS Berbasis Cookie:** Model `HtsUserSession` menyimpan cookie PHP `ci_session` dan token CSRF per petugas.
+2. **Bypass CAPTCHA Live Interaktif:** Streaming gambar CAPTCHA numerik langsung dari portal HTS ke layar login web helpdesk.
+3. **Pipeline 3-Tahap Penerbitan Tiket HTS:** `/submit_aduan` $\rightarrow$ `/submit_aduan_status` (unsubmitted ke input-pic) $\rightarrow$ `/submit_pic` (input-pic ke pending).
+4. **Sinkronisasi PIC:** Menggabungkan (*merge tanpa duplikat*) PIC penerima awal dan PIC penanganan teknis akhir ke form submit HTS.
+5. **Dual-Close dengan Proteksi Integritas:** Jika penutupan di portal HTS gagal (misal file ditolak), tiket lokal **batal ditutup** agar obrolan tidak terputus sepihak.
 
 ---
 
-### E. Arsitektur Terpadu V4 (Multi-HTS, General Chat, Multimedia L2, Redesign 3 Kolom & SLA - Selesai)
-1. **Pemisahan Percakapan Biasa vs Aduan Teknis (`is_aduan` & `GENERAL_CHAT`):**
-   - Mendukung penanganan pesan WhatsApp yang bukan aduan (sapaan santai, konsultasi umum, atau salah sambung).
-   - Petugas L1 dapat menyelesaikan percakapan biasa secara instan dengan satu tombol `[ ✅ Selesaikan Percakapan ]` tanpa perlu mengisi form aduan HTS atau input solusi L2.
-   - Percakapan biasa diisolasi 100% dari antrean teknisi L2 (`whereClause.is_aduan = true`) dan dikecualikan secara mutlak dari metrik SLA / MTTR agar tidak merusak laporan performa.
-   - Auto-Promotion: Jika obrolan biasa ditugaskan ke tim teknisi atau diterbitkan ke portal HTS, sistem otomatis mengubahnya menjadi aduan teknis.
-2. **Arsitektur Multi-HTS (1 Obrolan $\rightarrow$ Banyak Tiket Portal HTS):**
-   - Model baru `TicketHts` yang memungkinkan satu sesi chat menerbitkan beberapa nomor tiket resmi HTS ke divisi berbeda (misal Network dan Server sekaligus).
-   - Menampilkan status tiket HTS secara independen dengan kemampuan penyelesaian parsial (*partial resolution*).
-3. **Catatan Internal Multimedia Dua Arah (L1 $\leftrightarrow$ L2):**
-   - Petugas L1 dan Teknisi L2 dapat saling mengirim foto/dokumen teknis internal melalui panel khusus.
-   - Dijamin 100% rahasia (`is_internal = true`) dan tidak pernah bocor atau terkirim ke WhatsApp pelanggan.
-   - Foto catatan internal dapat dipilih langsung sebagai bukti lampiran penutupan tiket di portal HTS tanpa perlu re-upload.
-4. **Pembagian Riwayat Lampau (*Timeline Divider & Backfill*):**
-   - Menghubungkan seluruh riwayat chat lampau dari nomor WhatsApp pelanggan yang sama dengan pembatas visual yang jelas (*Timeline Divider*).
-   - Tombol *Tarik Riwayat WA Lama* untuk mengambil percakapan sebelum sistem Helpdesk diaktifkan via Evolution API.
-5. **Redesign UI/UX 3 Kolom & Drawer Responsif (1366×768 Friendly):**
-   - Layout 3 kolom adaptif: Kolom 1 (Daftar Percakapan), Kolom 2 (Chat Bubble Interaktif), Kolom 3 (Pusat Kendali Adaptif).
-   - Penggantian modal pop-up dengan *Slide-Over Drawer* di sisi kanan dengan *Sticky Header & Footer* sehingga form tidak pernah terpotong pada layar laptop 1366×768 maupun ponsel mobile.
-6. **Efisiensi Kerja (Quick Replies, Audio Chime & Metrik SLA SPV):**
-   - Suggester Balasan Cepat (*Quick Replies*) saat mengetik tanda garis miring (`/`) dengan navigasi keyboard panah dan enter.
-   - Synthesized Web Audio Chime native (D5 $\rightarrow$ A5) dan HTML5 Desktop Notification saat tab diminimize.
-   - Metrik KPI SLA di Dasbor SPV (Total Aduan Teknis, Total Percakapan Biasa, Rata-rata FRT, dan Rata-rata MTTR Aduan Murni) beserta fitur Export CSV.
-7. **Penautan Manual & Pemulihan Tiket HTS (Disaster Recovery) — Fase 7:**
-   - Mencegah tiket duplikat di portal HTS saat terjadi kegagalan jaringan/database pasca-submit.
-   - Fungsi `lookupTicketByNumber()` dan `completePicPipeline()` di `htsClientService.js` untuk verifikasi dan pemulihan.
-   - Endpoint `POST /tickets/:ticketId/link-hts` dengan deteksi duplikasi lokal (409 Conflict + parameter `force`).
-   - Endpoint `POST /tickets/:ticketId/hts/:htsTicketId/complete-pic` untuk menaikkan tiket gantung dari `INPUT_PIC` ke `PENDING`.
-   - Auto-Promotion otomatis mengubah `is_aduan = true` saat nomor HTS resmi ditautkan.
-   - UI Tab Drawer: `[ ➕ Terbitkan Tiket Baru ]` vs `[ 🔗 Tautkan yang Sudah Ada ]` dengan form input nomor aduan manual.
-   - Tombol **`[ ⚡ Lengkapi Penugasan PIC di HTS ]`** untuk tiket yang gantung di status `INPUT_PIC`.
-   - Pencatatan otomatis pesan internal sistem saat penautan dilakukan.
-   - ⚠️ **Status Saat Ini:** Kode selesai, tetapi masih ada error frontend yang belum teridentifikasi (dalam investigasi di sesi berikutnya).
+### E. Arsitektur Terpadu V4 (Multi-HTS, General Chat, Multimedia L2 & Disaster Recovery)
+1. **Pemisahan Percakapan Biasa vs Aduan Teknis (`GENERAL_CHAT` vs `is_aduan`):**
+   - Mendukung penanganan pesan WhatsApp umum (sapaan santai, konsultasi, salah sambung).
+   - Tombol instan `[ ✅ Selesaikan Percakapan ]` tanpa form HTS atau solusi teknisi.
+   - Diisolasi dari antrean teknisi L2 dan dikecualikan 100% dari metrik SLA (MTTR).
+   - Auto-Promotion menjadi aduan teknis saat ditugaskan ke tim L2 atau ditautkan ke portal HTS.
+2. **Arsitektur Multi-HTS (One-to-Many):** Satu obrolan WhatsApp dapat menerbitkan beberapa tiket resmi HTS secara mandiri ke divisi berbeda (`TicketHts`).
+3. **Catatan Internal Multimedia Dua Arah (L1 ↔ L2):** Kirim foto/dokumen teknis rahasia di tab internal, dan foto dapat langsung dijadikan bukti penutupan tiket HTS.
+4. **Timeline Divider & Penarikan Arsip WhatsApp:** Melihat tiket-tiket lampau yang sudah closed secara terlipat dan tombol penarikan riwayat chat lama langsung dari WhatsApp.
+5. **Redesign UI 3 Kolom & Slide-Over Drawer:** Tampilan responsif nyaman di laptop 1366×768 maupun ponsel.
+6. **Balasan Cepat (Quick Replies) & Audio Chime:** Navigasi popup `/canned`, nada D5 $\rightarrow$ A5 native saat pesan masuk, dan notifikasi desktop.
+7. **Penautan Manual & Disaster Recovery:** Menautkan nomor tiket yang sudah terlanjur terbit di portal HTS dan tombol pemulihan tiket berstatus `INPUT_PIC`.
+8. **Sinkronisasi Balasan HP Fisik Helpdesk:** Balasan langsung dari ponsel WhatsApp resmi tersinkronisasi otomatis ke web dashboard sebagai balon pesan agen (`AGENT`).
 
 ---
 
-## 🛠️ 3. Rekap Penanganan Bug & Stabilitas Teknis
-
-| Masalah / Bug | Penyebab Teknis | Solusi yang Diterapkan |
-|---|---|---|
-| **Antrean L2 Tercampur** | Query `getTickets` mengambil semua tiket `OPEN` tanpa memfilter `category_id` | Menambahkan filter query Prisma berbasis `req.user.category_id` khusus peran L2. |
-| **Pesan Susulan Pelanggan Membuka Tiket Baru** | Webhook hanya mencari tiket `OPEN`; tiket yang berstatus `RESOLVED` dianggap tidak ada | Memperbarui query webhook menjadi `status: { in: ['OPEN', 'RESOLVED'] }`. |
-| **Gambar dari WA Pelapor Gagal Masuk** | Express body-parser default hanya 100KB (`PayloadTooLargeError: 413`) | Menaikkan limit parser menjadi `50mb` dan mengecualikan webhook dari rate limiter. |
-| **Gambar di Web Rusak / Broken Icon** | File upload tersimpan tanpa ekstensi dan diblokir oleh CORP | Menggunakan Multer diskStorage dengan ekstensi asli dan menyetel `crossOriginResourcePolicy: cross-origin`. |
-| **Tabel Rekap Aduan Tidak Muncul** | Typo `categorys` pada query Prisma report | Menyelaraskan query relasi `categories` dan merestorasi tabel 8 kolom. |
-| **Penugasan Pertama Hilang saat Assign Ulang** | `assignTicket` menjalankan `ticketCategory.deleteMany()` membabi buta | Menerapkan logika *diffing & merge*: tim lama dipertahankan, tim baru ditambahkan, dan blast hanya dikirim ke tim baru. |
-| **Nomor ID Aduan Melanjutkan Angka Lama Setelah Dihapus** | Perintah `deleteMany()` PostgreSQL tidak mereset sequence auto-increment | Menambahkan perintah `ALTER SEQUENCE ... RESTART WITH 1` di dalam transaksi reset database. |
-| **Tiket Masuk ke "Belum Submit" di HTS** | ID aduan yang diparsing dari nomor string tidak sesuai dengan auto-increment database HTS | Mengambil `id_trouble` numerik asli via request `POST /get_aduan_data` (status: `unsubmitted`) dan menyertakan header `X-Requested-With: XMLHttpRequest`. |
-| **Detil Masalah HTS Kurang dari 10 Karakter** | Portal HTS menolak teks keluhan di bawah 10 karakter tanpa pesan yang jelas | Menambahkan validasi minimum 10 karakter, counter karakter live, dan proteksi submit di frontend dan backend. |
-| **Tipe File Ditolak HTS saat Tutup Tiket** | File lampiran dikirim dengan MIME type default `application/octet-stream` atau blob kosong | Menggunakan deteksi ekstensi dinamis (`image/jpeg`, `image/png`, `application/pdf`) dan mencegah penambahan form blob kosong jika tidak ada lampiran. |
-| **PIC Penutupan Menimpa PIC Awal di HTS** | PIC penutupan dikirim sebagai nilai tunggal dan mengosongkan PIC awal yang menerima tiket | Menyimpan `hts_pic_ids` awal di basis data, otomatis mencentang PIC penerima di modal closing, menggabungkan (*merge*) PIC awal dan akhir, serta mengirim format koma (`"14,8"`). |
-| **Error Prisma `Unknown argument hts_pic_ids`** | Field baru `hts_pic_ids String?` belum dideklarasikan di `schema.prisma` dan belum di-push ke database | Menambahkan field ke model `Ticket` di `schema.prisma` dan menjalankan `npx prisma db push`. |
-| **Babel Syntax Error `Unexpected token` di App.jsx baris 5472** | Regex literal `/"/g` di dalam template string pada fungsi `exportToCSV()` mengganggu parser Babel | Mengganti `.replace(/"/g, '""')` dengan `.replaceAll('"', '""')` pada baris 1596 `App.jsx`. |
-
----
-
-## 👥 4. Daftar Akun Pengujian Sistem (Seeding)
+## 👥 3. Daftar Akun Pengujian Sistem (Seeding)
 
 Semua akun terdaftar menggunakan **Password:** `password123`
 
@@ -142,43 +82,27 @@ Semua akun terdaftar menggunakan **Password:** `password123`
 |---|---|---|:---:|---|
 | **ADMIN** | Administrator | `admin@helpdesk.go.id` | - | Akses penuh (L1 + L2), Manajemen Pengguna, Kontak Tim L2, Hapus Rekap Aduan |
 | **L1** | Dispatcher L1 | `l1@helpdesk.go.id` | - | Chat ke Pelapor, Multi-Assign L2, Auto-Reply Bot, Integrasi HTS, Tutup Tiket Resmi |
-| **SPV** | Supervisor | `spv@helpdesk.go.id` | - | Monitoring Antrean, Laporan Rekap, Export CSV |
-| **L2 (Network)**| Teknisi Network L2 | `l2_network@helpdesk.go.id` | Network | View-Only, Catatan Internal Tim Network, Solusi Teknis, Tandai Selesai, Return |
-| **L2 (Server)** | Teknisi Server L2 | `l2_server@helpdesk.go.id` | Server | View-Only, Catatan Internal Tim Server, Solusi Teknis, Tandai Selesai, Return |
-| **L2 (M&E)** | Teknisi M&E L2 | `l2_me@helpdesk.go.id` | M&E | View-Only, Catatan Internal Tim M&E, Solusi Teknis, Tandai Selesai, Return |
+| **SPV** | Supervisor | `spv@helpdesk.go.id` | - | Monitoring Antrean, Laporan Rekap, Export CSV, Analisis Metrik SLA |
+| **L2 (Network)**| Teknisi Network L2 | `l2_network@helpdesk.go.id` | Network | View-Only Chat Pelanggan, Catatan Internal Tim, Solusi Teknis, Tandai Selesai, Return |
+| **L2 (Server)** | Teknisi Server L2 | `l2_server@helpdesk.go.id` | Server | View-Only Chat Pelanggan, Catatan Internal Tim, Solusi Teknis, Tandai Selesai, Return |
+| **L2 (M&E)** | Teknisi M&E L2 | `l2_me@helpdesk.go.id` | M&E | View-Only Chat Pelanggan, Catatan Internal Tim, Solusi Teknis, Tandai Selesai, Return |
 
 ---
 
-## 📂 5. Indeks Dokumentasi Aktif di Folder `/docs`
+## 📂 4. Indeks Dokumentasi Aktif di Folder `/docs`
 
-1. **[Product Requirements Document (PRD)](./PRD_WhatsApp_Helpdesk.md)** - Spesifikasi kebutuhan bisnis, persona pengguna, dan kriteria penerimaan.
-2. **[Database Schema / ERD](./Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, dan enum (V3.0).
-3. **[Spesifikasi API Endpoints](./API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, Integrasi HTS, dan Socket.io events.
-4. **[Spesifikasi Keamanan](./Security_Specification.md)** - Standar enkripsi JWT, RBAC, Helmet CSP/CORP, dan Rate Limiter.
-5. **[Diagram Alur Sistem (Flowcharts)](./System_Flowcharts.md)** - Diagram alur proses sistem menggunakan notasi Mermaid.
-6. **[Arsitektur & Tech Stack](./Tech_Stack_Architecture.md)** - Topologi infrastruktur, daftar pustaka, dan dependensi sistem.
-7. **[Panduan Deployment](./Deployment_Guide.md)** - Panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
-8. **[Panduan Operasional (SOP)](./Operational_Guide.md)** - Panduan operasional harian untuk Dispatcher L1, Teknisi L2, Admin, dan SPV.
-9. **[Daftar Akun & Kredensial Pengguna](./User.md)** - Panduan akun pengujian dan matriks hak akses.
-10. **[Rangkuman Lengkap Proyek](./Summary.md)** - Rekapitulasi perjalanan sistem dari Workflow V1 hingga V3.0.
-11. **[Spesifikasi Revisi Form HTS](./HTS_Form_Revisions_Spec.md)** - Detail aturan bisnis form HTS (Kategori, Detil, OPD, PIC).
-12. **[Potensi Bug & Edge Cases Sistem](./Potential_Bugs_and_Edge_Cases.md)** - Analisis komprehensif potensi kendala, limitasi teknis, dan mitigasinya.
-13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, efisiensi kerja, dan penanganan percakapan biasa vs aduan teknis.
-14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, flag `is_aduan`, dan skrip migrasi SQL.
-1. **[Product Requirements Document (PRD)](./PRD_WhatsApp_Helpdesk.md)** - Spesifikasi kebutuhan bisnis, persona pengguna, dan kriteria penerimaan.
-2. **[Database Schema / ERD](./Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, dan enum (V4.0).
-3. **[Spesifikasi API Endpoints](./API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, Integrasi HTS, dan Socket.io events.
-4. **[Spesifikasi Keamanan](./Security_Specification.md)** - Standar enkripsi JWT, RBAC, Helmet CSP/CORP, dan Rate Limiter.
-5. **[Diagram Alur Sistem (Flowcharts)](./System_Flowcharts.md)** - Diagram alur proses sistem menggunakan notasi Mermaid.
-6. **[Arsitektur & Tech Stack](./Tech_Stack_Architecture.md)** - Topologi infrastruktur, daftar pustaka, dan dependensi sistem.
-7. **[Panduan Deployment](./Deployment_Guide.md)** - Panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
-8. **[Panduan Operasional (SOP)](./Operational_Guide.md)** - Panduan operasional harian untuk Dispatcher L1, Teknisi L2, Admin, dan SPV.
-9. **[Daftar Akun & Kredensial Pengguna](./User.md)** - Panduan akun pengujian dan matriks hak akses.
-10. **[Rangkuman Lengkap Proyek](./Summary.md)** - Rekapitulasi perjalanan sistem dari Workflow V1 hingga V4.0.
-11. **[Spesifikasi Revisi Form HTS](./HTS_Form_Revisions_Spec.md)** - Detail aturan bisnis form HTS (Kategori, Detil, OPD, PIC).
-12. **[Potensi Bug & Edge Cases Sistem](./Potential_Bugs_and_Edge_Cases.md)** - Analisis komprehensif potensi kendala, limitasi teknis, dan mitigasinya.
-13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, efisiensi kerja, dan penanganan percakapan biasa vs aduan teknis.
-14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, flag `is_aduan`, dan skrip migrasi SQL.
-15. **[Panduan Implementasi Bertahap V4](./Implementation_Plan_V4.md)** - Rencana eksekusi terukur 7 fase (Fase 1–6 selesai, Fase 7 hampir selesai).
-16. **[Spesifikasi Penautan Manual & Pemulihan Tiket HTS](./HTS_Manual_Link_and_Recovery_Spec.md)** - Standar penautan nomor tiket yang sudah terbit di portal HTS, pencegahan tiket duplikat, dan tombol *recovery* tiket gantung.
-17. **[Catatan Progres Harian & Status Bug](./Daily_Progress_Log.md)** - Log pekerjaan aktif sesi per sesi, status bug terkini, dan daftar langkah verifikasi untuk sesi berikutnya.
+| No | Dokumen | Deskripsi |
+|:--:|---|---|
+| 1 | **[Fitur & Kemampuan Sistem (V4.0)](./Features_and_Capabilities.md)** | Panduan fungsional lengkap seluruh fitur operasional aktif sistem saat ini. |
+| 2 | **[Product Requirements Document (PRD)](./PRD_WhatsApp_Helpdesk.md)** | Spesifikasi kebutuhan bisnis, persona pengguna, dan kriteria penerimaan. |
+| 3 | **[Database Schema / ERD](./Database_Schema.md)** | Skema relasional PostgreSQL, rincian tabel, tipe data, dan relasi Prisma ORM. |
+| 4 | **[Spesifikasi API Endpoints](./API_Endpoints_Spec.md)** | Kontrak REST API, Webhook WhatsApp, integrasi HTS, dan event Socket.io. |
+| 5 | **[Arsitektur & Tech Stack](./Tech_Stack_Architecture.md)** | Topologi infrastruktur, dependensi sistem, dan diagram aliran data. |
+| 6 | **[Spesifikasi Keamanan](./Security_Specification.md)** | Standar enkripsi JWT, RBAC, Helmet CSP/CORP, dan pembatasan laju request. |
+| 7 | **[Panduan Operasional (SOP)](./Operational_Guide.md)** | Prosedur standar kerja harian untuk L1, L2, Admin, dan Supervisor. |
+| 8 | **[Panduan Deployment](./Deployment_Guide.md)** | Panduan Docker Compose, konfigurasi LAN kantor, dan setup environment. |
+| 9 | **[Daftar Akun Pengguna](./User.md)** | Matriks hak akses dan kredensial akun uji coba. |
+| 10 | **[Diagram Alur Sistem (Flowcharts)](./System_Flowcharts.md)** | Diagram alur alur proses penanganan aduan menggunakan notasi Mermaid. |
+| 11 | **[Potensi Bug & Edge Cases](./Potential_Bugs_and_Edge_Cases.md)** | Analisis komprehensif potensi kendala, WhatsApp LID addressing, dan mitigasinya. |
+| 12 | **[Catatan Progres Harian](./Daily_Progress_Log.md)** | Log pekerjaan sesi aktif, riwayat penanganan bug, dan status stabilitas. |
+| 13 | **[Rangkuman Lengkap Proyek](./Summary.md)** | Rekapitulasi komprehensif perjalanan sistem dari V1 hingga V4.0 Produksi. |

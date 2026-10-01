@@ -18,6 +18,8 @@ Dokumen ini memetakan seluruh potensi celah kendala (*potential bugs*), batasan 
 | 5 | Downtime / Timeout Server Portal HTS Eksternal | **Sedang** | Seluruh API HTS | ✅ Timeout 15-20 detik & pembatalan operasi penutupan lokal |
 | 6 | Lonjakan Aduan *Unsubmitted* di Portal HTS | **Rendah** | Pipeline Tahap 2 HTS | ✅ Fallback otomatis ke parsing nomor prefix trouble |
 | 7 | Nomor WhatsApp Pelapor Non-Standar / ID Grup | **Rendah** | Inbound Webhook | ✅ Sanitasi regex nomor telepon & pemfilteran ID grup |
+| 8 | Addressing Mode WhatsApp LID (`@lid`) | **Sedang** | Webhook & Tarik Arsip WA | ✅ Resolusi `remoteJidAlt` ke nomor HP asli & query paralel di Evolution API |
+| 9 | Balasan Agen dari HP WhatsApp Fisik (`fromMe`) | **Sedang** | Webhook Inbound | ✅ Dibuka filter `fromMe`, dicatat sebagai AGENT & proteksi deduplikasi `wa_message_id` |
 
 ---
 
@@ -109,6 +111,29 @@ Dokumen ini memetakan seluruh potensi celah kendala (*potential bugs*), batasan 
   2. Modal penutupan tiket otomatis mencentang PIC penerima awal dan melabelinya dengan badge **`PIC Penerima`**.
   3. Petugas dapat mencentang teknisi tambahan (**`PIC Penanganan`**).
   4. Backend menggabungkan (*merge*) seluruh ID tanpa duplikasi dan mengirimkannya dalam format string koma (`pic_id = "14,8"`), memastikan kedua pihak tercatat secara resmi di portal HTS.
+
+---
+
+### 8. Enkripsi Privasi WhatsApp LID Addressing Mode (`@lid`)
+* **Skenario:**  
+  Pengguna WhatsApp versi modern menggunakan enkripsi privasi di mana identitas chat pengirim dikirimkan dalam format JID Linked Identity (`xxxxxxx@lid`) bukan nomor telepon biasa (`628xxx@s.whatsapp.net`).
+* **Gejala / Dampak:**  
+  Jika remoteJid diparsing secara naif dengan `.split('@')[0]`, ID pelanggan tersimpan acak (misal `213189325226177`), nama kontak tidak ditemukan, dan fungsi penarikan riwayat chat mengembalikan array kosong.
+* **Mitigasi Saat Ini:**  
+  1. Di `webhookController.js`, sistem memeriksa apakah `remoteJid` berakhiran `@lid`. Jika ya, sistem memprioritaskan mengambil nomor HP asli dari atribut `messageData.key.remoteJidAlt`.
+  2. Di `evolutionService.js` (`findMessages`), pencarian riwayat obrolan dijalankan secara paralel untuk `remoteJid` dan `remoteJidAlt` menggunakan `Promise.allSettled`, kemudian hasilnya digabung dan dideduplikasi berdasarkan `key.id`.
+
+---
+
+### 9. Sinkronisasi Balasan Keluar dari HP WhatsApp Resmi Helpdesk (`fromMe`)
+* **Skenario:**  
+  Petugas helpdesk sedang tidak di depan komputer dan membalas pesan pelanggan langsung dari aplikasi WhatsApp di HP fisik gateway.
+* **Gejala / Dampak:**  
+  Sebelumnya, webhook membuang seluruh pesan dengan penanda `fromMe = true` untuk mencegah pesan ganda saat agen membalas via web, sehingga balasan dari HP tidak pernah muncul di dasbor helpdesk.
+* **Mitigasi Saat Ini:**  
+  1. Webhook mengizinkan pesan `fromMe = true` dan mencatatnya sebagai `sender_type: 'AGENT'`.
+  2. Mencegah penggandaan chat: pesan yang dikirim via dashboard web dicatat ID uniknya (`wa_message_id = evoRes.key.id`). Saat webhook event kembali dari WhatsApp, sistem mengecek `wa_message_id` dan mengabaikannya jika sudah tersimpan di database.
+  3. Dilengkapi proteksi *time-window* 60 detik untuk balasan agen yang sama.
 
 ---
 
