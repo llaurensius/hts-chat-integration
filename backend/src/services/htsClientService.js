@@ -687,6 +687,116 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
   };
 };
 
+// 6. Mencari dan memvalidasi keberadaan tiket di portal HTS berdasarkan nomor aduan (Fase 7 - Disaster Recovery)
+const lookupTicketByNumber = async (userId, noTroubleInput) => {
+  if (!noTroubleInput) throw new Error('Nomor aduan HTS wajib diisi');
+  
+  // Bersihkan format nomor tiket (hilangkan karakter '#' dan spasi)
+  const noTrouble = String(noTroubleInput).replace(/^#/, '').trim();
+  const idTroublePrefix = noTrouble.split('-')[0];
+
+  const session = await getActiveUserCookiesAndCsrf(userId);
+  const cookies = session.cookies;
+  const activeCsrf = cookies['csrf_cookie_name'] || session.csrfToken;
+
+  // Cek list_aduan melalui get_aduan_data dengan prioritas status umum
+  const statusesToCheck = ['pending', 'input-pic', 'unsubmitted', 'solved'];
+  let foundTicket = null;
+
+  for (const status of statusesToCheck) {
+    try {
+      const listRes = await axios.post(`${HTS_BASE_URL}/get_aduan_data`, {
+        page: 1,
+        limit: 50,
+        status: status
+      }, {
+        headers: {
+          'Cookie': formatCookieHeader(cookies),
+          'User-Agent': 'Mozilla/5.0',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': activeCsrf,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+
+      if (listRes.data && Array.isArray(listRes.data.data)) {
+        const match = listRes.data.data.find(d => 
+          String(d.no_trouble).trim().toLowerCase() === noTrouble.toLowerCase() ||
+          String(d.id_trouble) === idTroublePrefix
+        );
+        if (match) {
+          foundTicket = {
+            idTrouble: String(match.id_trouble || idTroublePrefix),
+            noTrouble: match.no_trouble || noTrouble,
+            status: (match.status || status).toUpperCase(),
+            kategori: match.kategori || 'troubleshoot',
+            subKategori: match.sub_kategori || null,
+            detil: match.detil || match.permasalahan || null,
+            picIds: match.pic_id ? parsePicIds(match.pic_id) : ['14']
+          };
+          break;
+        }
+      }
+    } catch (err) {
+      console.warn(`[HTS Service] Lookup status ${status} warning:`, err.message);
+    }
+  }
+
+  // Jika tidak ditemukan di pagination 1 status di atas, namun format nomor valid
+  if (!foundTicket) {
+    const parts = noTrouble.split('-');
+    if (parts.length >= 3 && !isNaN(parseInt(parts[0]))) {
+      foundTicket = {
+        idTrouble: parts[0],
+        noTrouble: noTrouble,
+        status: 'PENDING',
+        kategori: parts[1]?.toLowerCase() || 'troubleshoot',
+        subKategori: null,
+        detil: null,
+        picIds: ['14']
+      };
+    } else {
+      throw new Error(`Nomor aduan HTS "${noTrouble}" tidak ditemukan di portal HTS.`);
+    }
+  }
+
+  return foundTicket;
+};
+
+// 7. Melengkapi penugasan PIC untuk tiket HTS yang berstatus INPUT_PIC (Fase 7)
+const completePicPipeline = async (userId, idTrouble, picIds) => {
+  const session = await getActiveUserCookiesAndCsrf(userId);
+  let cookies = session.cookies;
+  const activeCsrf = cookies['csrf_cookie_name'] || session.csrfToken;
+
+  const targetPicIds = parsePicIds(picIds);
+  const picString = targetPicIds.join(',');
+
+  const FormData = require('form-data');
+  const form3 = new FormData();
+  form3.append('id_trouble', idTrouble);
+  form3.append('pic_id', picString);
+  form3.append('csrf_test_name', activeCsrf);
+
+  await axios.post(`${HTS_BASE_URL}/submit_pic`, form3, {
+    headers: {
+      ...form3.getHeaders(),
+      'Cookie': formatCookieHeader(cookies),
+      'Referer': `${HTS_BASE_URL}/list_aduan`,
+      'User-Agent': 'Mozilla/5.0',
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    timeout: 15000
+  });
+
+  return {
+    success: true,
+    status: 'PENDING',
+    picIds: targetPicIds
+  };
+};
+
 module.exports = {
   HTS_BASE_URL,
   getCaptchaStream,
@@ -696,7 +806,10 @@ module.exports = {
   getActiveUserCookiesAndCsrf,
   createTicketPipeline,
   solveTicketHts,
+  lookupTicketByNumber,
+  completePicPipeline,
   formatCookieHeader,
   parseCookies
 };
+
 

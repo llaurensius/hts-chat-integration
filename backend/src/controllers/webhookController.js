@@ -17,10 +17,23 @@ const handleIncomingMessage = async (req, res) => {
 
     if (!messageData || !messageData.message) return;
 
-    // Filter pesan dari diri sendiri atau dari grup
+    // 1. Abaikan pesan dari grup WhatsApp
     const remoteJid = messageData.key.remoteJid;
-    const fromMe = messageData.key.fromMe;
-    if (fromMe || remoteJid.includes('@g.us')) return;
+    const remoteJidAlt = messageData.key.remoteJidAlt;
+    const fromMe = Boolean(messageData.key.fromMe);
+    const waMessageId = messageData.key.id || null;
+
+    if (!remoteJid || remoteJid.includes('@g.us')) return;
+
+    // 2. Cegah duplikasi jika waMessageId sudah ada di database (pesan terkirim via Web Dashboard)
+    if (waMessageId) {
+      const existingMsg = await prisma.message.findFirst({
+        where: { wa_message_id: waMessageId }
+      });
+      if (existingMsg) {
+        return;
+      }
+    }
 
     // Ekstrak teks pesan
     let conversation = 
@@ -86,16 +99,20 @@ const handleIncomingMessage = async (req, res) => {
 
     if (!conversation) conversation = '[Pesan Media/Sistem]';
 
-    // Nomor WA pengirim (hapus suffix @s.whatsapp.net)
-    const waNumber = remoteJid.split('@')[0];
+    // Nomor WA target / lawan bicara (prioritas: remoteJidAlt jika remoteJid adalah LID)
+    let targetJid = remoteJid;
+    if (remoteJid.includes('@lid') && remoteJidAlt && remoteJidAlt.includes('@s.whatsapp.net')) {
+      targetJid = remoteJidAlt;
+    }
+    const waNumber = targetJid.split('@')[0];
 
     // 1. Cari Customer (Pelapor) di database Helpdesk
     let customer = await prisma.customer.findUnique({ where: { wa_number: waNumber } });
 
     // Resolusi nama pelapor (Rekomendasi C - Hybrid: Web Custom > Kontak HP > WA pushName > waNumber)
-    let resolvedName = messageData.pushName || waNumber;
+    let resolvedName = (!fromMe && messageData.pushName) ? messageData.pushName : waNumber;
     try {
-      const contactInfo = await evolutionService.getContactInfo(remoteJid);
+      const contactInfo = await evolutionService.getContactInfo(targetJid);
       if (contactInfo && contactInfo.isSaved && contactInfo.pushName) {
         resolvedName = contactInfo.pushName;
       }
@@ -111,8 +128,8 @@ const handleIncomingMessage = async (req, res) => {
           is_custom_name: false
         }
       });
-    } else if (!customer.is_custom_name) {
-      // Jika belum pernah di-edit manual dari Web Dashboard, update jika nama tersimpan di HP lebih spesifik
+    } else if (!customer.is_custom_name && !fromMe) {
+      // Jika belum pernah di-edit manual dari Web Dashboard dan pesan berasal dari pelanggan, update nama
       if (customer.name === waNumber || (resolvedName && resolvedName !== waNumber && customer.name !== resolvedName)) {
         customer = await prisma.customer.update({
           where: { id: customer.id },
@@ -144,37 +161,57 @@ const handleIncomingMessage = async (req, res) => {
       });
       ticketId = newTicket.id;
 
-      // F1: Auto-Reply Bot (Kirim pesan balasan otomatis jika diaktifkan L1)
-      let botSetting = await prisma.setting.findUnique({ where: { key: 'auto_reply' } });
-      const isBotActive = botSetting ? botSetting.is_active : true;
-      const autoReplyText = botSetting?.value || "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
+      // F1: Auto-Reply Bot (HANYA kirim jika pesan masuk DARI PELANGGAN, bukan dari helpdesk sendiri)
+      if (!fromMe) {
+        let botSetting = await prisma.setting.findUnique({ where: { key: 'auto_reply' } });
+        const isBotActive = botSetting ? botSetting.is_active : true;
+        const autoReplyText = botSetting?.value || "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
 
-      if (isBotActive && autoReplyText.trim()) {
-        try {
-          await evolutionService.sendText(waNumber, autoReplyText);
-          // Simpan pesan sistem (Bot) ke database
-          await prisma.message.create({
-            data: {
-              ticket_id: ticketId,
-              sender_type: 'BOT',
-              message_text: autoReplyText
-            }
-          });
-        } catch (botErr) {
-          console.error('[Webhook] Failed to send auto-reply bot:', botErr.message);
+        if (isBotActive && autoReplyText.trim()) {
+          try {
+            await evolutionService.sendText(waNumber, autoReplyText);
+            // Simpan pesan sistem (Bot) ke database
+            await prisma.message.create({
+              data: {
+                ticket_id: ticketId,
+                sender_type: 'BOT',
+                message_text: autoReplyText
+              }
+            });
+          } catch (botErr) {
+            console.error('[Webhook] Failed to send auto-reply bot:', botErr.message);
+          }
         }
       }
     } else {
       ticketId = activeTicket.id;
     }
 
-    // 4. Simpan pesan masuk pelanggan ke database
+    // 3b. Cek race-condition deduplikasi untuk pesan balasan helpdesk (dari HP fisik)
+    if (fromMe) {
+      const oneMinuteAgo = new Date(Date.now() - 60000);
+      const recentDup = await prisma.message.findFirst({
+        where: {
+          ticket_id: ticketId,
+          sender_type: 'AGENT',
+          message_text: conversation,
+          created_at: { gte: oneMinuteAgo }
+        }
+      });
+      if (recentDup) {
+        return;
+      }
+    }
+
+    // 4. Simpan pesan ke database (AGENT jika dari HP helpdesk, CUSTOMER jika dari pelapor)
+    const senderType = fromMe ? 'AGENT' : 'CUSTOMER';
     const savedMessage = await prisma.message.create({
       data: {
         ticket_id: ticketId,
-        sender_type: 'CUSTOMER',
+        sender_type: senderType,
         message_text: conversation,
-        attachment_url: attachmentUrl // Fase 3: Simpan URL Attachment
+        attachment_url: attachmentUrl, // Fase 3: Simpan URL Attachment
+        wa_message_id: waMessageId
       }
     });
 
@@ -183,10 +220,11 @@ const handleIncomingMessage = async (req, res) => {
       req.io.emit('new_message', {
         ticketId,
         waNumber,
-        senderName: customer.name,
+        senderName: fromMe ? 'Helpdesk (HP)' : customer.name,
         text: conversation,
         attachmentUrl: attachmentUrl, // Fase 3
-        createdAt: savedMessage.created_at
+        createdAt: savedMessage.created_at,
+        senderType: senderType
       });
     }
 

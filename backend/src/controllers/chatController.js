@@ -97,7 +97,8 @@ const sendReply = async (req, res) => {
     const waNumber = ticket.customer.wa_number;
 
     // 2. Kirim balasan via Evolution API ke WhatsApp Pelapor
-    await evolutionService.sendText(waNumber, text);
+    const evoRes = await evolutionService.sendText(waNumber, text);
+    const waMessageId = evoRes?.key?.id || null;
 
     // 3. Simpan riwayat balasan agen ke Database
     const savedMessage = await prisma.message.create({
@@ -105,7 +106,8 @@ const sendReply = async (req, res) => {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
         sender_id: userId || null, // Sesuai dengan field di schema.prisma
-        message_text: text
+        message_text: text,
+        wa_message_id: waMessageId
       }
     });
 
@@ -372,13 +374,15 @@ const sendMedia = async (req, res) => {
       media: base64Data
     };
 
+    let waMessageId = null;
     try {
-      await axios.post(`${evolutionApiUrl}/message/sendMedia/${instanceName}`, payload, {
+      const evoMediaRes = await axios.post(`${evolutionApiUrl}/message/sendMedia/${instanceName}`, payload, {
         headers: {
           'apikey': evolutionApiKey,
           'Content-Type': 'application/json'
         }
       });
+      waMessageId = evoMediaRes.data?.key?.id || null;
     } catch (evoError) {
       console.error('[Evolution API] Failed to send WA Media:', evoError?.response?.data || evoError.message);
     }
@@ -393,7 +397,8 @@ const sendMedia = async (req, res) => {
         sender_type: 'AGENT',
         sender_id: userId,
         message_text: caption || '[Mengirim Gambar]',
-        attachment_url: publicUrl
+        attachment_url: publicUrl,
+        wa_message_id: waMessageId
       }
     });
 
@@ -1181,6 +1186,25 @@ const syncTicketToHts = async (req, res) => {
       }
     });
 
+    // Simpan juga ke hub Multi-HTS (TicketHts - V4)
+    try {
+      await prisma.ticketHts.create({
+        data: {
+          ticket_id: ticket.id,
+          category_id: ticket.categories?.[0]?.category_id || null,
+          hts_ticket_id: String(htsResult.idTrouble || ''),
+          hts_ticket_no: htsResult.noTrouble,
+          hts_ticket_status: htsResult.status || 'PENDING',
+          hts_kategori: hts_kategori || 'troubleshoot',
+          hts_sub_kategori: hts_sub_kategori || null,
+          hts_detil: hts_detil || firstCustomerMsg?.message_text || null,
+          hts_pic_ids: JSON.stringify(htsResult.picIds || (chosenPicIds.length > 0 ? chosenPicIds : ['14']))
+        }
+      });
+    } catch (e) {
+      console.warn('[Chat API] Note on creating TicketHts:', e.message);
+    }
+
     const noteText = `[SISTEM] Tiket disinkronkan ke portal HTS oleh ${req.user?.name || 'Petugas'}: #${htsResult.noTrouble} (Status: Proses Penanganan)`;
 
     await prisma.message.create({
@@ -1615,11 +1639,18 @@ const closeGeneralChat = async (req, res) => {
       }
     });
 
+    // Validasi apakah sender_id user benar-benar ada di DB agar tidak melanggar foreign key constraint
+    let validUserId = null;
+    if (req.user?.id) {
+      const userExists = await prisma.user.findUnique({ where: { id: parseInt(req.user.id) } });
+      if (userExists) validUserId = userExists.id;
+    }
+
     const closeMsg = await prisma.message.create({
       data: {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
-        sender_id: req.user?.id || null,
+        sender_id: validUserId,
         message_text: `[SISTEM] Percakapan selesai ditutup oleh ${req.user?.name || 'Petugas'}.`,
         is_internal: true
       }
@@ -1984,6 +2015,198 @@ const deleteQuickReply = async (req, res) => {
   }
 };
 
+// ==========================================
+// FASE 7 V4: Manual Link & Disaster Recovery Tiket HTS
+// ==========================================
+
+// Menautkan nomor tiket HTS yang sudah terlanjur terbit di portal resmi HTS
+const linkHtsTicket = async (req, res) => {
+  const { ticketId } = req.params;
+  const { hts_ticket_no, category_id, force } = req.body;
+
+  if (!hts_ticket_no || !String(hts_ticket_no).trim()) {
+    return res.status(400).json({ error: 'Nomor aduan HTS wajib diisi' });
+  }
+
+  const cleanNo = String(hts_ticket_no).replace(/^#/, '').trim();
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: true
+      }
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: 'Tiket Helpdesk tidak ditemukan' });
+    }
+
+    // 1. Cek apakah nomor tiket HTS ini sudah pernah ditautkan ke tiket lain di sistem Helpdesk
+    const existingTicketHts = await prisma.ticketHts.findFirst({
+      where: {
+        hts_ticket_no: { equals: cleanNo, mode: 'insensitive' }
+      },
+      include: {
+        ticket: {
+          include: { customer: true }
+        }
+      }
+    });
+
+    if (existingTicketHts && existingTicketHts.ticket_id !== ticket.id && !force) {
+      return res.status(409).json({
+        requires_confirmation: true,
+        message: `Nomor HTS #${cleanNo} sudah pernah ditautkan ke Tiket #${existingTicketHts.ticket.id} (${existingTicketHts.ticket.customer?.name || 'Pelapor'}). Apakah Anda yakin ingin tetap menautkannya ke percakapan ini?`,
+        existingTicket: {
+          id: existingTicketHts.ticket.id,
+          customerName: existingTicketHts.ticket.customer?.name || '-'
+        }
+      });
+    }
+
+    // 2. Hubungi portal HTS untuk memverifikasi dan menarik data tiket
+    const htsData = await htsClientService.lookupTicketByNumber(req.user.id, cleanNo);
+
+    // 3. Simpan ke tabel TicketHts (Hub Multi-HTS V4)
+    const newTicketHts = await prisma.ticketHts.create({
+      data: {
+        ticket_id: ticket.id,
+        category_id: category_id ? parseInt(category_id) : (ticket.categories?.[0]?.category_id || null),
+        hts_ticket_id: String(htsData.idTrouble),
+        hts_ticket_no: htsData.noTrouble,
+        hts_ticket_status: htsData.status || 'PENDING',
+        hts_kategori: htsData.kategori || 'troubleshoot',
+        hts_sub_kategori: htsData.subKategori || null,
+        hts_detil: htsData.detil || null,
+        hts_pic_ids: JSON.stringify(htsData.picIds || ['14'])
+      },
+      include: {
+        category: true
+      }
+    });
+
+    // 4. Perbarui tiket utama: Auto-Promotion ke is_aduan = true dan update field legacy jika kosong
+    const updateTicketData = {
+      is_aduan: true // Auto-promotion ke aduan teknis resmi
+    };
+
+    if (!ticket.hts_ticket_no) {
+      updateTicketData.hts_ticket_id = String(htsData.idTrouble);
+      updateTicketData.hts_ticket_no = htsData.noTrouble;
+      updateTicketData.hts_ticket_status = htsData.status || 'PENDING';
+      updateTicketData.hts_pic_ids = JSON.stringify(htsData.picIds || ['14']);
+      updateTicketData.hts_synced_at = new Date();
+    }
+
+    const updatedTicket = await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: updateTicketData,
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
+    // 5. Catat log catatan internal sistem
+    const noteText = `[SISTEM] Nomor tiket HTS #${htsData.noTrouble} berhasil ditautkan secara manual oleh ${req.user.name} (Status: ${htsData.status || 'PENDING'}).`;
+    await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user.id,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    // 6. Siarkan notifikasi Socket.io ke dashboard
+    if (req.io) {
+      req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Nomor tiket HTS #${htsData.noTrouble} berhasil ditautkan.`,
+      ticketHts: newTicketHts,
+      ticket: updatedTicket
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Error linking HTS ticket:', error);
+    res.status(500).json({ error: error.message || 'Gagal menautkan nomor tiket HTS' });
+  }
+};
+
+// Melengkapi penugasan PIC untuk tiket HTS gantung (status INPUT_PIC)
+const completeHtsPic = async (req, res) => {
+  const { ticketId, htsTicketId } = req.params;
+  const { pic_ids } = req.body;
+
+  try {
+    const ticketHts = await prisma.ticketHts.findUnique({
+      where: { id: parseInt(htsTicketId) },
+      include: { category: true }
+    });
+
+    if (!ticketHts || ticketHts.ticket_id !== parseInt(ticketId)) {
+      return res.status(404).json({ error: 'Tiket HTS tidak ditemukan pada percakapan ini' });
+    }
+
+    const chosenPicIds = pic_ids && pic_ids.length > 0 ? pic_ids : parsePicIds(ticketHts.hts_pic_ids);
+    const result = await htsClientService.completePicPipeline(req.user.id, ticketHts.hts_ticket_id, chosenPicIds);
+
+    const updated = await prisma.ticketHts.update({
+      where: { id: ticketHts.id },
+      data: {
+        hts_ticket_status: 'PENDING',
+        hts_pic_ids: JSON.stringify(result.picIds)
+      },
+      include: { category: true }
+    });
+
+    const noteText = `[SISTEM] Penugasan PIC untuk tiket HTS #${ticketHts.hts_ticket_no} berhasil diselesaikan oleh ${req.user.name} (Status: PENDING).`;
+    await prisma.message.create({
+      data: {
+        ticket_id: parseInt(ticketId),
+        sender_type: 'AGENT',
+        sender_id: req.user.id,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('hts_ticket_updated', { ticketId: parseInt(ticketId), ticketHts: updated });
+      req.io.emit('new_message', {
+        ticketId: parseInt(ticketId),
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Tiket HTS #${ticketHts.hts_ticket_no} kini berstatus PENDING di portal HTS.`,
+      ticketHts: updated
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Error completing HTS PIC:', error);
+    res.status(500).json({ error: error.message || 'Gagal melengkapi penugasan PIC di portal HTS' });
+  }
+};
+
 module.exports = { 
   getTickets, 
   getMessages, 
@@ -2012,7 +2235,10 @@ module.exports = {
   getQuickReplies,
   createQuickReply,
   updateQuickReply,
-  deleteQuickReply
+  deleteQuickReply,
+  // Ekspor Endpoint V4 Fase 7 (Manual Link & Recovery HTS)
+  linkHtsTicket,
+  completeHtsPic
 };
 
 

@@ -29,7 +29,10 @@ const {
   getQuickReplies,
   createQuickReply,
   updateQuickReply,
-  deleteQuickReply
+  deleteQuickReply,
+  // Endpoint V4 Fase 7 (Manual Link & Disaster Recovery HTS)
+  linkHtsTicket,
+  completeHtsPic
 } = require('../controllers/chatController');
 const { upload } = require('../utils/imageStorage'); // Gunakan imageStorage yang sudah benar
 
@@ -69,6 +72,11 @@ router.post('/quick-replies', createQuickReply);
 router.put('/quick-replies/:id', updateQuickReply);
 router.delete('/quick-replies/:id', deleteQuickReply);
 
+// Rute V4 Fase 7: Penautan Manual & Pemulihan Tiket HTS (Manual Link & Disaster Recovery)
+router.post('/tickets/:ticketId/link-hts', linkHtsTicket);
+router.post('/tickets/:ticketId/hts/:htsTicketId/complete-pic', completeHtsPic);
+
 module.exports = router;
+
 
 

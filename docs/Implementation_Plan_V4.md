@@ -168,10 +168,30 @@ flowchart LR
 
 ---
 
+### 🔹 FASE 7: Penautan Manual & Pemulihan Tiket HTS (Manual Link & Disaster Recovery)
+**Tujuan:** Mencegah tiket duplikat di portal HTS saat terjadi kegagalan respon jaringan/database pasca-submit, serta menyelamatkan tiket HTS yang terputus di status gantung (`unsubmitted` / `input-pic`).
+
+#### Checklist Pekerjaan:
+- [x] **7.1. Backend Service & Endpoint Lookup HTS:**
+  - Fungsi `htsClientService.lookupTicketByNumber(noTrouble)` untuk memverifikasi nomor tiket di portal HTS (`/get_aduan_data`).
+  - Endpoint `POST /api/chat/tickets/:ticketId/link-hts` dengan parameter `hts_ticket_no`, `category_id`, dan `force` (deteksi duplikasi lokal dengan konfirmasi).
+  - Endpoint `POST /api/chat/tickets/:ticketId/hts/:htsTicketId/complete-pic` untuk menyelesaikan penugasan PIC tiket gantung ke status `PENDING`.
+  - Auto-Promotion: Otomatis mengubah `is_aduan = true` jika percakapan sebelumnya berstatus santai/biasa.
+  - Pencatatan pesan riwayat internal sistem: `[SISTEM] Tiket HTS #... berhasil ditautkan secara manual oleh Petugas`.
+- [x] **7.2. Frontend UI/UX Penautan Tiket (Slide-Over Drawer):**
+  - Tab navigasi di bagian atas Drawer Sinkronisasi HTS: `[ ➕ Terbitkan Tiket Baru ]` dan `[ 🔗 Tautkan yang Sudah Ada ]`.
+  - Form input nomor tiket HTS (`hts_ticket_no`) dengan placeholder contoh, pilihan divisi opsional, dan tombol `[ 🔗 Verifikasi & Tautkan ]`.
+  - Dialog konfirmasi jika nomor HTS terdeteksi sudah pernah dipakai pada tiket lain.
+  - Tombol aksi cepat **`[ ⚡ Lengkapi PIC di HTS ]`** pada daftar Multi-HTS jika status tiket masih `INPUT_PIC`.
+- [x] **7.3. Pengujian Skenario & Validasi:**
+  - Uji penautan nomor HTS valid vs nomor fiktif.
+  - Uji konfirmasi duplikasi nomor HTS.
+  - Uji kenaikan status tiket gantung dari `INPUT_PIC` ke `PENDING`.
+
+---
+
 ## 📅 3. Rekomendasi Urutan Eksekusi Bertahap
 
 Untuk pengerjaan perlahan dan aman:
-1. **Langkah Pertama:** Mulai dari **Fase 1** (Skema Database `TicketHts` & Migrasi Data). Ini tidak merusak antarmuka yang ada.
-2. **Langkah Kedua:** Lanjutkan ke **Fase 2** (Catatan Internal Multimedia) dan **Fase 5.1** (Quick Replies). Keduanya memberikan peningkatan produktivitas instan bagi L1 & L2.
-3. **Langkah Ketiga:** Kerjakan **Fase 3** (Riwayat Lampau) dan **Fase 4** (Redesign UI/UX 3 Kolom & Responsif).
-4. **Langkah Terakhir:** Penyempurnaan **Fase 5.2 - 5.3** (Audio Alert & SLA) dan pengujian menyeluruh di **Fase 6**.
+1. **Fase 1 - 6 (Selesai):** Seluruh fondasi Multi-HTS, General Chat, Multimedia L2, Redesign 3 Kolom, Efisiensi Kerja, dan UAT berhasil diselesaikan.
+2. **Fase 7 (Ekstensi Pemulihan):** Fitur penautan manual nomor HTS yang sudah terlanjur terbit di portal resmi HTS untuk menjamin *Zero-Duplicate Ticket*.

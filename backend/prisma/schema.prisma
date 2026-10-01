@@ -81,6 +81,7 @@ model Ticket {
   hts_ticket_id     String?          // ID internal HTS (legacy V3)
   hts_ticket_no     String?          // Nomor aduan resmi HTS (legacy V3)
   hts_ticket_status String?          // Status HTS: "UNSUBMITTED" | "INPUT_PIC" | "PENDING" | "SOLVED" (legacy V3)
+  hts_pic_ids       String?          // JSON array ID PIC penerima & penanganan
   hts_synced_at     DateTime?        // Waktu terakhir sinkronisasi HTS
   hts_tickets       TicketHts[]      // Hub Multi-Tiket HTS (One-to-Many - V4)
   created_at        DateTime         @default(now())
@@ -137,6 +138,7 @@ model Message {
   sender         User?      @relation(fields: [sender_id], references: [id], onDelete: SetNull)
   message_text   String?
   attachment_url String?
+  wa_message_id  String?
   is_internal    Boolean    @default(false) // Penanda apakah ini Catatan Internal L2 (Fase 1 - V2)
   created_at     DateTime   @default(now())
 }

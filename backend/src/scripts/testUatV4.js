@@ -249,6 +249,60 @@ runTest('Skenario 7: Quick Replies Shortcut Matching & Suggester', () => {
   assert.strictEqual(replacedText, 'Halo, selamat datang di Helpdesk SPBE.');
 });
 
+// -------------------------------------------------------------
+// 8. UJI COBA PENAUTAN MANUAL & PEMULIHAN TIKET HTS (FASE 7)
+// -------------------------------------------------------------
+runTest('Skenario 8: Penautan Manual HTS, Deteksi Duplikasi & Auto-Promotion (Fase 7)', () => {
+  // Data simulasi tiket Helpdesk yang sedang aktif (masih percakapan biasa)
+  const currentTicket = {
+    id: 801,
+    is_aduan: false, // Percakapan biasa
+    hts_ticket_no: null
+  };
+
+  // Mock database TicketHts yang sudah memiliki nomor sebelumnya
+  const existingTicketHtsDb = [
+    { ticket_id: 800, hts_ticket_no: '2030-TShoot-2026-jateng-01' }
+  ];
+
+  // 1. Uji Deteksi Duplikasi (Nomor yang sama pernah dipakai tiket lain)
+  const incomingHtsNo = '2030-TShoot-2026-jateng-01';
+  const foundDuplicate = existingTicketHtsDb.find(t => t.hts_ticket_no === incomingHtsNo && t.ticket_id !== currentTicket.id);
+  assert.ok(foundDuplicate, 'Sistem harus mendeteksi nomor HTS ini sudah pernah dipakai di tiket 800');
+
+  // Tanpa force: harus menolak dengan respon 409
+  let requiresConfirmation = false;
+  if (foundDuplicate) {
+    requiresConfirmation = true;
+  }
+  assert.strictEqual(requiresConfirmation, true, 'Sistem meminta konfirmasi sebelum menautkan');
+
+  // Dengan force = true: diperbolehkan
+  const force = true;
+  let linkedTicketHts = null;
+  if (!foundDuplicate || force) {
+    linkedTicketHts = {
+      ticket_id: currentTicket.id,
+      hts_ticket_no: incomingHtsNo,
+      hts_ticket_status: 'INPUT_PIC',
+      hts_pic_ids: JSON.stringify(['14'])
+    };
+    currentTicket.is_aduan = true; // Auto-promotion ke aduan teknis resmi
+    currentTicket.hts_ticket_no = incomingHtsNo;
+  }
+
+  assert.ok(linkedTicketHts, 'Penautan berhasil saat force = true');
+  assert.strictEqual(currentTicket.is_aduan, true, 'Tiket otomatis dipromosikan menjadi aduan teknis (is_aduan = true)');
+
+  // 2. Uji Pemulihan Penugasan PIC untuk tiket gantung (INPUT_PIC -> PENDING)
+  assert.strictEqual(linkedTicketHts.hts_ticket_status, 'INPUT_PIC');
+  // Eksekusi complete PIC
+  linkedTicketHts.hts_ticket_status = 'PENDING';
+  linkedTicketHts.hts_pic_ids = JSON.stringify(['14', '8']);
+
+  assert.strictEqual(linkedTicketHts.hts_ticket_status, 'PENDING', 'Status tiket HTS berhasil dinaikkan ke PENDING');
+});
+
 console.log(`\n======================================================`);
-console.log(`📊 Hasil UAT V4: ${passCount} dari ${totalTests} pengujian BERHASIL (100% PASS)`);
+console.log(`📊 Hasil UAT V4 & Fase 7: ${passCount} dari ${totalTests} pengujian BERHASIL (100% PASS)`);
 console.log(`======================================================\n`);

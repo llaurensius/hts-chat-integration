@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles } from 'lucide-react';
+import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -1064,12 +1064,16 @@ function Dashboard() {
 
     setIsClosingGeneral(true);
     try {
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/close-general`);
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/close-general`, {
+        summary: 'Percakapan biasa diselesaikan via antarmuka Helpdesk'
+      });
       alert(res.data?.message || 'Percakapan biasa berhasil diselesaikan');
       setActiveTicket(null);
       loadTickets();
     } catch (err) {
-      alert(err.response?.data?.error || 'Gagal menyelesaikan percakapan biasa');
+      console.error('[Close General Chat Error]', err);
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || `HTTP ${err.response?.status || 'ERR'}: ${err.message}`;
+      alert(`Gagal menyelesaikan percakapan biasa: ${errorMsg}`);
     } finally {
       setIsClosingGeneral(false);
     }

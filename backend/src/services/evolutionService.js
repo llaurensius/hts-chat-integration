@@ -43,43 +43,66 @@ const getContactInfo = async (remoteJid) => {
   }
 };
 
+// Normalisasi records dari response Evolution API findMessages
+const _normalizeRecords = (data) => {
+  if (Array.isArray(data)) return data;
+  if (data?.messages?.records && Array.isArray(data.messages.records)) return data.messages.records;
+  if (data?.messages && Array.isArray(data.messages)) return data.messages;
+  if (data?.records && Array.isArray(data.records)) return data.records;
+  return [];
+};
+
 // Mengambil pesan-pesan lampau dari WhatsApp (Evolution API /chat/findMessages)
+// Mendukung WhatsApp LID addressing mode (remoteJidAlt = nomor HP asli)
 const findMessages = async (waNumber, limit = 20) => {
   try {
     const cleanNumber = String(waNumber).replace(/\D/g, '');
-    const remoteJid = cleanNumber.includes('@') ? cleanNumber : `${cleanNumber}@s.whatsapp.net`;
-    const res = await api.post(`/chat/findMessages/${INSTANCE_NAME}`, {
-      where: {
-        key: {
-          remoteJid
-        }
-      },
-      limit: parseInt(limit) || 20
-    });
-    
-    // Normalisasi struktur return Evolution API
-    let rawMessages = [];
-    if (Array.isArray(res.data)) {
-      rawMessages = res.data;
-    } else if (res.data?.messages && Array.isArray(res.data.messages)) {
-      rawMessages = res.data.messages;
-    } else if (res.data?.records && Array.isArray(res.data.records)) {
-      rawMessages = res.data.records;
+    const phoneJid = `${cleanNumber}@s.whatsapp.net`;
+    const reqLimit = parseInt(limit) || 20;
+
+    // Query 1: pakai remoteJid langsung (pesan lama pra-LID)
+    // Query 2: pakai remoteJidAlt (pesan era LID addressing)
+    const [resPhone, resLid] = await Promise.allSettled([
+      api.post(`/chat/findMessages/${INSTANCE_NAME}`, {
+        where: { key: { remoteJid: phoneJid } },
+        limit: reqLimit
+      }),
+      api.post(`/chat/findMessages/${INSTANCE_NAME}`, {
+        where: { key: { remoteJidAlt: phoneJid } },
+        limit: reqLimit
+      })
+    ]);
+
+    const rawPhone = resPhone.status === 'fulfilled' ? _normalizeRecords(resPhone.value.data) : [];
+    const rawLid   = resLid.status   === 'fulfilled' ? _normalizeRecords(resLid.value.data)   : [];
+
+    // Gabungkan dan dedupe berdasarkan WA message key.id
+    const seenIds = new Set();
+    const merged = [];
+    for (const msg of [...rawPhone, ...rawLid]) {
+      const msgId = msg.key?.id;
+      if (msgId && seenIds.has(msgId)) continue;
+      if (msgId) seenIds.add(msgId);
+      merged.push(msg);
     }
 
-    return rawMessages.map(msg => {
+    // Urutkan dari terlama ke terbaru, ambil N terbaru
+    merged.sort((a, b) => (a.messageTimestamp || 0) - (b.messageTimestamp || 0));
+    const sliced = merged.slice(-reqLimit);
+
+    return sliced.map(msg => {
       const isFromMe = Boolean(msg.key?.fromMe);
-      const text = msg.message?.conversation || 
-                   msg.message?.extendedTextMessage?.text || 
-                   msg.message?.imageMessage?.caption || 
-                   msg.message?.documentMessage?.caption || 
+      const text = msg.message?.conversation ||
+                   msg.message?.extendedTextMessage?.text ||
+                   msg.message?.imageMessage?.caption ||
+                   msg.message?.documentMessage?.caption ||
                    (msg.message?.imageMessage ? '[Foto]' : '') ||
                    '';
       const timestamp = msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000) : new Date();
 
       return {
         id: msg.key?.id || String(Math.random()),
-        remoteJid,
+        remoteJid: phoneJid,
         fromMe: isFromMe,
         sender_type: isFromMe ? 'AGENT' : 'CUSTOMER',
         message_text: text,

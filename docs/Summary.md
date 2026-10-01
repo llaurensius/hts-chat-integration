@@ -1,7 +1,8 @@
 # 📋 Rangkuman Lengkap Perkembangan Proyek (Project Summary)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi Sistem:** Workflow V3.0 (Full HTS Diskomdigi Integration, Auto-Reply Bot, Multi-Assign, Dual-Close & PIC Sync)  
-**Terakhir Diperbarui:** 30 September 2026  
+**Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
+**Versi Sistem:** Workflow V4.0 (Multi-HTS Architecture, General Chat, Multimedia L2, Redesign 3 Kolom, SLA, Quick Replies & Manual Link Recovery)  
+**Terakhir Diperbarui:** 01 Oktober 2026  
 
 ---
 
@@ -100,6 +101,16 @@ Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**
    - Suggester Balasan Cepat (*Quick Replies*) saat mengetik tanda garis miring (`/`) dengan navigasi keyboard panah dan enter.
    - Synthesized Web Audio Chime native (D5 $\rightarrow$ A5) dan HTML5 Desktop Notification saat tab diminimize.
    - Metrik KPI SLA di Dasbor SPV (Total Aduan Teknis, Total Percakapan Biasa, Rata-rata FRT, dan Rata-rata MTTR Aduan Murni) beserta fitur Export CSV.
+7. **Penautan Manual & Pemulihan Tiket HTS (Disaster Recovery) — Fase 7:**
+   - Mencegah tiket duplikat di portal HTS saat terjadi kegagalan jaringan/database pasca-submit.
+   - Fungsi `lookupTicketByNumber()` dan `completePicPipeline()` di `htsClientService.js` untuk verifikasi dan pemulihan.
+   - Endpoint `POST /tickets/:ticketId/link-hts` dengan deteksi duplikasi lokal (409 Conflict + parameter `force`).
+   - Endpoint `POST /tickets/:ticketId/hts/:htsTicketId/complete-pic` untuk menaikkan tiket gantung dari `INPUT_PIC` ke `PENDING`.
+   - Auto-Promotion otomatis mengubah `is_aduan = true` saat nomor HTS resmi ditautkan.
+   - UI Tab Drawer: `[ ➕ Terbitkan Tiket Baru ]` vs `[ 🔗 Tautkan yang Sudah Ada ]` dengan form input nomor aduan manual.
+   - Tombol **`[ ⚡ Lengkapi Penugasan PIC di HTS ]`** untuk tiket yang gantung di status `INPUT_PIC`.
+   - Pencatatan otomatis pesan internal sistem saat penautan dilakukan.
+   - ⚠️ **Status Saat Ini:** Kode selesai, tetapi masih ada error frontend yang belum teridentifikasi (dalam investigasi di sesi berikutnya).
 
 ---
 
@@ -118,6 +129,8 @@ Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**
 | **Detil Masalah HTS Kurang dari 10 Karakter** | Portal HTS menolak teks keluhan di bawah 10 karakter tanpa pesan yang jelas | Menambahkan validasi minimum 10 karakter, counter karakter live, dan proteksi submit di frontend dan backend. |
 | **Tipe File Ditolak HTS saat Tutup Tiket** | File lampiran dikirim dengan MIME type default `application/octet-stream` atau blob kosong | Menggunakan deteksi ekstensi dinamis (`image/jpeg`, `image/png`, `application/pdf`) dan mencegah penambahan form blob kosong jika tidak ada lampiran. |
 | **PIC Penutupan Menimpa PIC Awal di HTS** | PIC penutupan dikirim sebagai nilai tunggal dan mengosongkan PIC awal yang menerima tiket | Menyimpan `hts_pic_ids` awal di basis data, otomatis mencentang PIC penerima di modal closing, menggabungkan (*merge*) PIC awal dan akhir, serta mengirim format koma (`"14,8"`). |
+| **Error Prisma `Unknown argument hts_pic_ids`** | Field baru `hts_pic_ids String?` belum dideklarasikan di `schema.prisma` dan belum di-push ke database | Menambahkan field ke model `Ticket` di `schema.prisma` dan menjalankan `npx prisma db push`. |
+| **Babel Syntax Error `Unexpected token` di App.jsx baris 5472** | Regex literal `/"/g` di dalam template string pada fungsi `exportToCSV()` mengganggu parser Babel | Mengganti `.replace(/"/g, '""')` dengan `.replaceAll('"', '""')` pada baris 1596 `App.jsx`. |
 
 ---
 
@@ -152,5 +165,20 @@ Semua akun terdaftar menggunakan **Password:** `password123`
 12. **[Potensi Bug & Edge Cases Sistem](./Potential_Bugs_and_Edge_Cases.md)** - Analisis komprehensif potensi kendala, limitasi teknis, dan mitigasinya.
 13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, efisiensi kerja, dan penanganan percakapan biasa vs aduan teknis.
 14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, flag `is_aduan`, dan skrip migrasi SQL.
-15. **[Panduan Implementasi Bertahap V4](./Implementation_Plan_V4.md)** - Rencana eksekusi terukur 6 fase untuk pengerjaan perlahan dan aman.
-
+1. **[Product Requirements Document (PRD)](./PRD_WhatsApp_Helpdesk.md)** - Spesifikasi kebutuhan bisnis, persona pengguna, dan kriteria penerimaan.
+2. **[Database Schema / ERD](./Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, dan enum (V4.0).
+3. **[Spesifikasi API Endpoints](./API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, Integrasi HTS, dan Socket.io events.
+4. **[Spesifikasi Keamanan](./Security_Specification.md)** - Standar enkripsi JWT, RBAC, Helmet CSP/CORP, dan Rate Limiter.
+5. **[Diagram Alur Sistem (Flowcharts)](./System_Flowcharts.md)** - Diagram alur proses sistem menggunakan notasi Mermaid.
+6. **[Arsitektur & Tech Stack](./Tech_Stack_Architecture.md)** - Topologi infrastruktur, daftar pustaka, dan dependensi sistem.
+7. **[Panduan Deployment](./Deployment_Guide.md)** - Panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
+8. **[Panduan Operasional (SOP)](./Operational_Guide.md)** - Panduan operasional harian untuk Dispatcher L1, Teknisi L2, Admin, dan SPV.
+9. **[Daftar Akun & Kredensial Pengguna](./User.md)** - Panduan akun pengujian dan matriks hak akses.
+10. **[Rangkuman Lengkap Proyek](./Summary.md)** - Rekapitulasi perjalanan sistem dari Workflow V1 hingga V4.0.
+11. **[Spesifikasi Revisi Form HTS](./HTS_Form_Revisions_Spec.md)** - Detail aturan bisnis form HTS (Kategori, Detil, OPD, PIC).
+12. **[Potensi Bug & Edge Cases Sistem](./Potential_Bugs_and_Edge_Cases.md)** - Analisis komprehensif potensi kendala, limitasi teknis, dan mitigasinya.
+13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, efisiensi kerja, dan penanganan percakapan biasa vs aduan teknis.
+14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, flag `is_aduan`, dan skrip migrasi SQL.
+15. **[Panduan Implementasi Bertahap V4](./Implementation_Plan_V4.md)** - Rencana eksekusi terukur 7 fase (Fase 1–6 selesai, Fase 7 hampir selesai).
+16. **[Spesifikasi Penautan Manual & Pemulihan Tiket HTS](./HTS_Manual_Link_and_Recovery_Spec.md)** - Standar penautan nomor tiket yang sudah terbit di portal HTS, pencegahan tiket duplikat, dan tombol *recovery* tiket gantung.
+17. **[Catatan Progres Harian & Status Bug](./Daily_Progress_Log.md)** - Log pekerjaan aktif sesi per sesi, status bug terkini, dan daftar langkah verifikasi untuk sesi berikutnya.
