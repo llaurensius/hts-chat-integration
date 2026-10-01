@@ -7,10 +7,13 @@ const getTickets = async (req, res) => {
   try {
     // Filter tiket berdasarkan peran
     // L1 / Admin / SPV melihat semua tiket OPEN dan RESOLVED
-    // L2 HANYA melihat tiket OPEN dan RESOLVED yang di-assign ke kategorinya
+    // Filter tiket berdasarkan peran
+    // L1 / Admin / SPV melihat semua tiket OPEN dan RESOLVED
+    // L2 HANYA melihat tiket OPEN dan RESOLVED yang berstatus aduan (is_aduan = true) dan di-assign ke kategorinya
     let whereClause = { status: { in: ['OPEN', 'RESOLVED'] } };
 
     if (req.user && req.user.role === 'L2' && req.user.category_id) {
+      whereClause.is_aduan = true; // Isolasi percakapan biasa dari antrean L2 (Fase 1 - V4)
       whereClause.categories = {
         some: {
           category_id: req.user.category_id
@@ -24,6 +27,10 @@ const getTickets = async (req, res) => {
         customer: true,
         categories: {
           include: { category: true }
+        },
+        hts_tickets: {
+          include: { category: true },
+          orderBy: { created_at: 'asc' }
         },
         messages: {
           orderBy: { created_at: 'desc' },
@@ -188,6 +195,8 @@ const closeTicket = async (req, res) => {
         let attachmentUrl = null;
         if (req.file) {
           attachmentUrl = `/uploads/${req.file.filename}`;
+        } else if (req.body.selectedAttachmentUrl) {
+          attachmentUrl = req.body.selectedAttachmentUrl;
         } else if (useChatImage === true || useChatImage === 'true') {
           const imageMsg = await prisma.message.findFirst({
             where: { ticket_id: existingTicket.id, attachment_url: { not: null } },
@@ -474,12 +483,16 @@ const assignTicket = async (req, res) => {
     // Kategori yang dilepas oleh L1 (sebelumnya ada, sekarang di-uncheck)
     const removedCatIds = existingCatIds.filter(id => !targetIds.includes(id));
 
-    // Update service type jika diberikan
-    let serviceTypeStr = serviceType || ticket.service_type || 'TROUBLESHOOTING';
+    // Update service type jika diberikan & otomatis promosikan ke aduan teknis resmi (Fase 1 - V4)
+    let serviceTypeStr = (serviceType && serviceType !== 'GENERAL_CHAT') 
+      ? serviceType 
+      : (ticket.service_type && ticket.service_type !== 'GENERAL_CHAT' ? ticket.service_type : 'TROUBLESHOOTING');
+      
     await prisma.ticket.update({
       where: { id: ticket.id },
       data: {
         service_type: serviceTypeStr,
+        is_aduan: true, // Otomatis dipromosikan jadi aduan teknis resmi saat ditugaskan ke L2
         status: 'OPEN' // Reset ke OPEN jika sebelumnya RESOLVED
       }
     });
@@ -563,6 +576,8 @@ const assignTicket = async (req, res) => {
         let attachmentUrl = null;
         if (req.file) {
           attachmentUrl = `/uploads/${req.file.filename}`;
+        } else if (req.body.selectedAttachmentUrl) {
+          attachmentUrl = req.body.selectedAttachmentUrl;
         } else if (useChatImage === true || useChatImage === 'true') {
           const imageMsg = await prisma.message.findFirst({
             where: { ticket_id: ticket.id, attachment_url: { not: null } },
@@ -1119,6 +1134,8 @@ const syncTicketToHts = async (req, res) => {
     let attachmentUrl = null;
     if (req.file) {
       attachmentUrl = `/uploads/${req.file.filename}`;
+    } else if (req.body.selectedAttachmentUrl) {
+      attachmentUrl = req.body.selectedAttachmentUrl;
     } else if (useChatImage === true || useChatImage === 'true') {
       const imageMsg = await prisma.message.findFirst({
         where: { ticket_id: ticket.id, attachment_url: { not: null } },
@@ -1284,6 +1301,689 @@ const syncSolveHts = async (req, res) => {
   }
 };
 
+// ==========================================
+// FASE 1 V4: Multi-HTS Hub & Percakapan Biasa
+// ==========================================
+
+// 1. Mengambil seluruh tiket HTS yang terhubung ke satu tiket chat lokal
+const getTicketHtsList = async (req, res) => {
+  const { ticketId } = req.params;
+  try {
+    const htsList = await prisma.ticketHts.findMany({
+      where: { ticket_id: parseInt(ticketId) },
+      include: { category: true },
+      orderBy: { created_at: 'asc' }
+    });
+    res.json(htsList);
+  } catch (error) {
+    console.error('[Chat API V4] Error fetching TicketHts list:', error);
+    res.status(500).json({ error: 'Gagal mengambil daftar tiket HTS' });
+  }
+};
+
+// 2. Menerbitkan tiket HTS baru ke tiket aktif (Multi-HTS One-to-Many)
+const createTicketHts = async (req, res) => {
+  const { ticketId } = req.params;
+  const {
+    categoryId,
+    hts_cust,
+    hts_opd,
+    induk_opd_id,
+    hts_tgltshoot,
+    hts_jam_problem,
+    hts_kategori,
+    hts_sub_kategori,
+    hts_detil,
+    hts_pic_id,
+    hts_pic_ids,
+    useChatImage
+  } = req.body;
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: {
+        customer: true,
+        categories: { include: { category: true } }
+      }
+    });
+
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    let attachmentUrl = null;
+    if (req.file) {
+      attachmentUrl = `/uploads/${req.file.filename}`;
+    } else if (req.body.selectedAttachmentUrl) {
+      attachmentUrl = req.body.selectedAttachmentUrl;
+    } else if (useChatImage === true || useChatImage === 'true') {
+      const imageMsg = await prisma.message.findFirst({
+        where: { ticket_id: ticket.id, attachment_url: { not: null } },
+        orderBy: { created_at: 'desc' }
+      });
+      if (imageMsg) attachmentUrl = imageMsg.attachment_url;
+    }
+
+    const firstCustomerMsg = await prisma.message.findFirst({
+      where: { ticket_id: ticket.id, sender_type: 'CUSTOMER' },
+      orderBy: { created_at: 'asc' }
+    });
+
+    const finalDetil = (hts_detil || firstCustomerMsg?.message_text || '').trim();
+    if (finalDetil.length < 10) {
+      return res.status(400).json({
+        error: `Detil Permasalahan wajib diisi minimal 10 karakter untuk portal HTS (saat ini: ${finalDetil.length} karakter).`
+      });
+    }
+
+    const chosenPicIds = parsePicIds(hts_pic_ids, hts_pic_id);
+    const targetCategory = categoryId ? await prisma.category.findUnique({ where: { id: parseInt(categoryId) } }) : null;
+    const subKategori = hts_sub_kategori || (targetCategory?.name?.includes('Server') ? 'SERVER' : targetCategory?.name?.includes('M&E') ? 'MECHANICAL & ELECTRICAL' : 'DISTRIBUTION NETWORK');
+
+    // Pipeline submit 3-tahap HTS
+    const htsResult = await htsClientService.createTicketPipeline(req.user.id, {
+      cust: hts_cust || ticket.customer.name,
+      wa: ticket.customer.wa_number,
+      opd: hts_opd || ticket.customer.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah',
+      induk_opd_id: induk_opd_id || '',
+      tgltshoot: hts_tgltshoot || new Date().toISOString().split('T')[0],
+      jam_problem: hts_jam_problem || new Date().toTimeString().split(' ')[0].substring(0, 5),
+      kategori: hts_kategori || 'troubleshoot',
+      sub_kategori: subKategori,
+      detil: finalDetil,
+      pic_id: chosenPicIds[0] || '14',
+      pic_ids: chosenPicIds.length > 0 ? chosenPicIds : ['14'],
+      attachmentUrl: attachmentUrl
+    });
+
+    // Simpan ke tabel TicketHts baru (V4)
+    const newTicketHts = await prisma.ticketHts.create({
+      data: {
+        ticket_id: ticket.id,
+        category_id: categoryId ? parseInt(categoryId) : null,
+        hts_ticket_id: htsResult.idTrouble || '',
+        hts_ticket_no: htsResult.noTrouble,
+        hts_ticket_status: htsResult.status || 'PENDING',
+        hts_kategori: hts_kategori || 'troubleshoot',
+        hts_sub_kategori: subKategori,
+        hts_detil: finalDetil,
+        hts_pic_ids: JSON.stringify(chosenPicIds.length > 0 ? chosenPicIds : ['14'])
+      },
+      include: { category: true }
+    });
+
+    // Otomatis promosikan tiket induk menjadi aduan resmi jika sebelumnya berstatus percakapan biasa
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        is_aduan: true,
+        service_type: ticket.service_type === 'GENERAL_CHAT' ? 'TROUBLESHOOTING' : (ticket.service_type || 'TROUBLESHOOTING'),
+        hts_ticket_id: htsResult.idTrouble,
+        hts_ticket_no: htsResult.noTrouble,
+        hts_ticket_status: htsResult.status,
+        hts_synced_at: new Date()
+      }
+    });
+
+    const noteText = `[SISTEM] Tiket HTS #${htsResult.noTrouble} diterbitkan oleh ${req.user?.name || 'Petugas'}${targetCategory ? ` untuk Tim ${targetCategory.name}` : ''}.`;
+    await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user.id,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('ticket_updated', { ticketId: ticket.id });
+      req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Tiket HTS #${htsResult.noTrouble} berhasil diterbitkan.`,
+      ticketHts: newTicketHts
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Error creating TicketHts:', error);
+    res.status(500).json({ error: error.message || 'Gagal menerbitkan tiket HTS baru' });
+  }
+};
+
+// 3. Menyelesaikan tiket HTS spesifik secara mandiri (Per-Ticket Resolution V4)
+const solveTicketHtsSingle = async (req, res) => {
+  const { ticketId, htsId } = req.params;
+  const { solution, picId, picIds } = req.body;
+
+  try {
+    const ticketHts = await prisma.ticketHts.findUnique({
+      where: { id: parseInt(htsId) },
+      include: { category: true, ticket: true }
+    });
+
+    if (!ticketHts || ticketHts.ticket_id !== parseInt(ticketId)) {
+      return res.status(404).json({ error: 'Tiket HTS tidak ditemukan' });
+    }
+
+    const initialPicIds = parsePicIds(ticketHts.hts_pic_ids);
+    const closingPicIds = parsePicIds(picIds, picId);
+    let finalMergedPicIds = Array.from(new Set([...initialPicIds, ...closingPicIds]));
+    if (finalMergedPicIds.length === 0) finalMergedPicIds = ['14'];
+
+    const finalSolution = solution || ticketHts.solution || 'Permasalahan telah selesai ditangani secara teknis.';
+
+    const htsResult = await htsClientService.solveTicketHts(
+      req.user.id,
+      ticketHts.hts_ticket_id || ticketHts.hts_ticket_no,
+      {
+        detil: finalSolution,
+        pic_id: finalMergedPicIds[0],
+        pic_ids: finalMergedPicIds
+      }
+    );
+
+    const updated = await prisma.ticketHts.update({
+      where: { id: ticketHts.id },
+      data: {
+        hts_ticket_status: 'SOLVED',
+        solution: finalSolution,
+        hts_pic_ids: JSON.stringify(finalMergedPicIds),
+        solved_at: new Date()
+      },
+      include: { category: true }
+    });
+
+    const noteMsg = await prisma.message.create({
+      data: {
+        ticket_id: parseInt(ticketId),
+        sender_type: 'AGENT',
+        sender_id: req.user.id,
+        message_text: `[PORTAL HTS] Tiket HTS #${ticketHts.hts_ticket_no}${ticketHts.category ? ` (${ticketHts.category.name})` : ''} telah diselesaikan (SOLVED) oleh ${req.user.name}.`,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('ticket_updated', { ticketId: parseInt(ticketId) });
+      req.io.emit('hts_ticket_solved', { ticketId: parseInt(ticketId), ticketHts: updated });
+      req.io.emit('new_message', {
+        ticketId: parseInt(ticketId),
+        senderType: 'AGENT',
+        text: noteMsg.message_text,
+        isInternal: true,
+        createdAt: noteMsg.created_at
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Tiket HTS #${ticketHts.hts_ticket_no} berhasil diselesaikan di portal HTS.`,
+      ticketHts: updated
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Gagal solve TicketHts single:', error);
+    res.status(500).json({ error: error.message || 'Gagal menyelesaikan tiket HTS' });
+  }
+};
+
+// 4. Toggle manual status Percakapan Biasa <-> Aduan Teknis
+const toggleAduan = async (req, res) => {
+  const { ticketId } = req.params;
+  const { is_aduan, service_type } = req.body;
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: { hts_tickets: true }
+    });
+
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    // Proteksi: Jika ingin switch ke false tapi sudah ada tiket HTS aktif, cegah
+    if (is_aduan === false && ticket.hts_tickets && ticket.hts_tickets.length > 0) {
+      return res.status(400).json({
+        error: 'Tidak dapat mengubah ke Percakapan Biasa karena tiket ini telah memiliki Tiket HTS resmi yang terhubung.'
+      });
+    }
+
+    const nextIsAduan = is_aduan !== undefined ? is_aduan : !ticket.is_aduan;
+    const nextServiceType = service_type || (nextIsAduan ? (ticket.service_type === 'GENERAL_CHAT' ? 'TROUBLESHOOTING' : ticket.service_type) : 'GENERAL_CHAT');
+
+    const updated = await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        is_aduan: nextIsAduan,
+        service_type: nextServiceType
+      },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updated });
+    }
+
+    res.json({
+      success: true,
+      message: `Status diubah menjadi: ${updated.is_aduan ? 'Aduan Teknis' : 'Percakapan Biasa'}`,
+      ticket: updated
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Error toggling aduan:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// 5. Penyelesaian cepat khusus percakapan biasa (One-Click Close V4)
+const closeGeneralChat = async (req, res) => {
+  const { ticketId } = req.params;
+  const { summary } = req.body;
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: { customer: true }
+    });
+
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    const finalSummary = (summary && summary.trim()) || 'Percakapan biasa selesai';
+
+    const updated = await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        status: 'CLOSED',
+        is_aduan: false,
+        service_type: 'GENERAL_CHAT',
+        summary: finalSummary,
+        closed_at: new Date()
+      },
+      include: {
+        customer: true,
+        categories: { include: { category: true } }
+      }
+    });
+
+    const closeMsg = await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user?.id || null,
+        message_text: `[SISTEM] Percakapan selesai ditutup oleh ${req.user?.name || 'Petugas'}.`,
+        is_internal: true
+      }
+    });
+
+    if (req.io) {
+      req.io.emit('ticket_closed', { ticketId: ticket.id, ticket: updated });
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        senderType: 'AGENT',
+        text: closeMsg.message_text,
+        isInternal: true,
+        createdAt: closeMsg.created_at
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Percakapan biasa berhasil diselesaikan.',
+      ticket: updated
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Error closing general chat:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// ==========================================
+// FASE 2 V4: Catatan Internal Multimedia Dua Arah (L1 <-> L2)
+// ==========================================
+
+// Mengunggah gambar/media ke Catatan Internal (100% RAHASIA, tidak terkirim ke WhatsApp)
+const sendInternalMedia = async (req, res) => {
+  const { ticketId } = req.params;
+  const { text, caption } = req.body;
+  const file = req.file;
+
+  if (!file) {
+    return res.status(400).json({ error: 'File gambar wajib diunggah' });
+  }
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) }
+    });
+
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    const finalCaption = (text || caption || '').trim();
+    const attachmentUrl = `/uploads/${file.filename}`;
+
+    const savedMessage = await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user ? req.user.id : null,
+        message_text: finalCaption || null,
+        attachment_url: attachmentUrl,
+        is_internal: true // 100% Internal, JAMINAN tidak dikirim ke Evolution API / WhatsApp
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            category: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Siarkan via Socket.io khusus ke klien dashboard web
+    if (req.io) {
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        senderName: savedMessage.sender?.name || req.user?.name || 'Petugas',
+        text: savedMessage.message_text,
+        attachmentUrl: savedMessage.attachment_url,
+        isInternal: true,
+        senderType: 'AGENT',
+        sender: savedMessage.sender,
+        createdAt: savedMessage.created_at
+      });
+    }
+
+    res.json({
+      success: true,
+      message: savedMessage
+    });
+  } catch (error) {
+    console.error('[Chat API V4] Error sending internal media:', error);
+    res.status(500).json({ error: 'Gagal mengunggah media ke catatan internal' });
+  }
+};
+
+// Mengambil daftar foto catatan internal yang ada di tiket ini (untuk opsi bukti penyelesaian HTS)
+const getInternalMediaList = async (req, res) => {
+  const { ticketId } = req.params;
+  try {
+    const mediaMessages = await prisma.message.findMany({
+      where: {
+        ticket_id: parseInt(ticketId),
+        is_internal: true,
+        attachment_url: { not: null }
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            category: { select: { id: true, name: true } }
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    res.json(mediaMessages);
+  } catch (error) {
+    console.error('[Chat API V4] Error fetching internal media list:', error);
+    res.status(500).json({ error: 'Gagal mengambil daftar media internal' });
+  }
+};
+
+// ==========================================
+// ENDPOINT FASE 3 V4: RIWAYAT CHAT LAMPAU & LAZY-LOAD WA
+// ==========================================
+
+// 1. Mengambil riwayat tiket tertutup (closed tickets) milik customer beserta seluruh pesannya
+const getCustomerHistoryMessages = async (req, res) => {
+  const { customerId } = req.params;
+  const { excludeTicketId } = req.query;
+
+  try {
+    const whereClause = {
+      customer_id: parseInt(customerId),
+      status: 'CLOSED'
+    };
+
+    if (excludeTicketId) {
+      whereClause.id = { not: parseInt(excludeTicketId) };
+    }
+
+    const closedTickets = await prisma.ticket.findMany({
+      where: whereClause,
+      include: {
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } },
+        messages: {
+          include: {
+            sender: { select: { id: true, name: true, role: true, category: true } }
+          },
+          orderBy: { created_at: 'asc' }
+        }
+      },
+      orderBy: { created_at: 'asc' }
+    });
+
+    res.json(closedTickets);
+  } catch (error) {
+    console.error('[History API V4] Error fetching closed tickets history:', error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat tiket lampau' });
+  }
+};
+
+// 2. Mengambil riwayat pesan lama langsung dari WhatsApp via Evolution API (On-demand Lazy Load)
+const fetchWaHistory = async (req, res) => {
+  const { customerId } = req.params;
+  const { limit = 20 } = req.body;
+
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: parseInt(customerId) }
+    });
+
+    if (!customer || !customer.wa_number) {
+      return res.status(404).json({ error: 'Pelanggan tidak ditemukan atau tidak memiliki nomor WhatsApp' });
+    }
+
+    const waMessages = await evolutionService.findMessages(customer.wa_number, limit);
+
+    res.json({
+      count: waMessages.length,
+      messages: waMessages
+    });
+  } catch (error) {
+    console.error('[History API V4] Error fetching WA history from Evolution API:', error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat pesan dari WhatsApp' });
+  }
+};
+
+// ==========================================
+// KUMPULAN ENDPOINT QUICK REPLIES (FASE 5 - V4)
+// ==========================================
+
+const DEFAULT_QUICK_REPLIES = [
+  {
+    id: 1,
+    shortcut: 'salam',
+    title: 'Salam Pembuka Layanan',
+    content: 'Halo, selamat datang di Helpdesk Terpadu SPBE Diskomdigi Jawa Tengah. Ada yang bisa kami bantu?'
+  },
+  {
+    id: 2,
+    shortcut: 'aduan',
+    title: 'Konfirmasi Penerusan ke Teknisi',
+    content: 'Baik Bapak/Ibu, laporan kendala telah kami catat dan saat ini sedang kami koordinasikan dengan tim teknisi terkait.'
+  },
+  {
+    id: 3,
+    shortcut: 'progres',
+    title: 'Pembaruan Progres Penanganan',
+    content: 'Laporan Anda saat ini sedang dalam proses pengecekan dan perbaikan teknis oleh tim di lapangan. Kami akan segera memperbarui status penanganannya kepada Anda.'
+  },
+  {
+    id: 4,
+    shortcut: 'selesai',
+    title: 'Pemberitahuan Kendala Selesai',
+    content: 'Perbaikan teknis telah selesai dilaksanakan. Mohon berkenan untuk melakukan pengecekan kembali dari sisi Bapak/Ibu.'
+  },
+  {
+    id: 5,
+    shortcut: 'tutup',
+    title: 'Salam Penutup Layanan',
+    content: 'Terima kasih atas konfirmasinya. Tiket layanan ini kami selesaikan. Jika membutuhkan bantuan kembali, silakan hubungi kami. Selamat beraktivitas!'
+  },
+  {
+    id: 6,
+    shortcut: 'info',
+    title: 'Permintaan Nama & OPD',
+    content: 'Bisa mohon diinformasikan nama lengkap dan asal OPD/Instansi Bapak/Ibu untuk kelengkapan data tiket layanan kami?'
+  }
+];
+
+// 1. Mengambil seluruh template balasan cepat
+const getQuickReplies = async (req, res) => {
+  try {
+    let replies = [];
+    if (prisma.quickReply) {
+      replies = await prisma.quickReply.findMany({
+        orderBy: { shortcut: 'asc' }
+      });
+    } else {
+      replies = await prisma.$queryRawUnsafe(`
+        SELECT id, shortcut, title, content, created_at, updated_at 
+        FROM "QuickReply" 
+        ORDER BY shortcut ASC;
+      `);
+    }
+
+    if (!replies || replies.length === 0) {
+      return res.json(DEFAULT_QUICK_REPLIES);
+    }
+    res.json(replies);
+  } catch (error) {
+    console.warn('[QuickReply API] Using fallback default templates:', error.message);
+    res.json(DEFAULT_QUICK_REPLIES);
+  }
+};
+
+// 2. Menambah template balasan cepat baru
+const createQuickReply = async (req, res) => {
+  try {
+    const { shortcut, title, content } = req.body;
+    if (!shortcut || !title || !content) {
+      return res.status(400).json({ error: 'Shortcut, judul, dan isi template wajib diisi' });
+    }
+
+    const cleanShortcut = shortcut.replace(/^\/+/, '').toLowerCase().trim();
+
+    let created;
+    if (prisma.quickReply) {
+      created = await prisma.quickReply.create({
+        data: {
+          shortcut: cleanShortcut,
+          title: title.trim(),
+          content: content.trim()
+        }
+      });
+    } else {
+      const rows = await prisma.$queryRawUnsafe(`
+        INSERT INTO "QuickReply" ("shortcut", "title", "content", "updated_at")
+        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+        RETURNING *;
+      `, cleanShortcut, title.trim(), content.trim());
+      created = rows[0];
+    }
+
+    res.status(201).json({ success: true, data: created });
+  } catch (error) {
+    console.error('[QuickReply API] Error creating template:', error);
+    if (error.code === 'P2002' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+      return res.status(400).json({ error: 'Shortcut tersebut sudah digunakan oleh template lain' });
+    }
+    res.status(500).json({ error: 'Gagal menyimpan template balasan cepat' });
+  }
+};
+
+// 3. Mengubah template balasan cepat
+const updateQuickReply = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { shortcut, title, content } = req.body;
+
+    const numId = parseInt(id);
+    const cleanShortcut = shortcut ? shortcut.replace(/^\/+/, '').toLowerCase().trim() : undefined;
+
+    let updated;
+    if (prisma.quickReply) {
+      updated = await prisma.quickReply.update({
+        where: { id: numId },
+        data: {
+          ...(cleanShortcut && { shortcut: cleanShortcut }),
+          ...(title && { title: title.trim() }),
+          ...(content && { content: content.trim() })
+        }
+      });
+    } else {
+      const rows = await prisma.$queryRawUnsafe(`
+        UPDATE "QuickReply"
+        SET 
+          shortcut = COALESCE($1, shortcut),
+          title = COALESCE($2, title),
+          content = COALESCE($3, content),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $4
+        RETURNING *;
+      `, cleanShortcut || null, title ? title.trim() : null, content ? content.trim() : null, numId);
+      updated = rows[0];
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('[QuickReply API] Error updating template:', error);
+    res.status(500).json({ error: 'Gagal memperbarui template balasan cepat' });
+  }
+};
+
+// 4. Menghapus template balasan cepat
+const deleteQuickReply = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const numId = parseInt(id);
+
+    if (prisma.quickReply) {
+      await prisma.quickReply.delete({ where: { id: numId } });
+    } else {
+      await prisma.$executeRawUnsafe(`DELETE FROM "QuickReply" WHERE id = $1;`, numId);
+    }
+
+    res.json({ success: true, message: 'Template balasan cepat berhasil dihapus' });
+  } catch (error) {
+    console.error('[QuickReply API] Error deleting template:', error);
+    res.status(500).json({ error: 'Gagal menghapus template balasan cepat' });
+  }
+};
+
 module.exports = { 
   getTickets, 
   getMessages, 
@@ -1297,6 +1997,23 @@ module.exports = {
   addInternalNote,
   updateCustomer,
   syncTicketToHts,
-  syncSolveHts
+  syncSolveHts,
+  // Ekspor Endpoint Baru V4
+  getTicketHtsList,
+  createTicketHts,
+  solveTicketHtsSingle,
+  toggleAduan,
+  closeGeneralChat,
+  sendInternalMedia,
+  getInternalMediaList,
+  getCustomerHistoryMessages,
+  fetchWaHistory,
+  // Ekspor Endpoint V4 Fase 5 (Quick Replies)
+  getQuickReplies,
+  createQuickReply,
+  updateQuickReply,
+  deleteQuickReply
 };
+
+
 

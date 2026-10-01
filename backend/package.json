@@ -7,7 +7,8 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "setup:evolution": "node src/scripts/setupEvolution.js",
-    "prisma:seed": "node prisma/seed.js"
+    "prisma:seed": "node prisma/seed.js",
+    "migrate:v4": "node src/scripts/migrateV4.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

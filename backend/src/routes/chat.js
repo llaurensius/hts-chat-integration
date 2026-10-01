@@ -1,6 +1,36 @@
 const express = require('express');
 const router = express.Router();
-const { getTickets, getMessages, sendReply, getCategorys, closeTicket, sendMedia, assignTicket, resolveTicket, returnTicket, addInternalNote, updateCustomer, syncTicketToHts, syncSolveHts } = require('../controllers/chatController');
+const { 
+  getTickets, 
+  getMessages, 
+  sendReply, 
+  getCategorys, 
+  closeTicket, 
+  sendMedia, 
+  assignTicket, 
+  resolveTicket, 
+  returnTicket, 
+  addInternalNote, 
+  updateCustomer, 
+  syncTicketToHts, 
+  syncSolveHts,
+  // Endpoint V4
+  getTicketHtsList,
+  createTicketHts,
+  solveTicketHtsSingle,
+  toggleAduan,
+  closeGeneralChat,
+  sendInternalMedia,
+  getInternalMediaList,
+  // Endpoint V4 Fase 3
+  getCustomerHistoryMessages,
+  fetchWaHistory,
+  // Endpoint V4 Fase 5 (Quick Replies)
+  getQuickReplies,
+  createQuickReply,
+  updateQuickReply,
+  deleteQuickReply
+} = require('../controllers/chatController');
 const { upload } = require('../utils/imageStorage'); // Gunakan imageStorage yang sudah benar
 
 // Endpoint untuk Dashboard
@@ -18,4 +48,27 @@ router.put('/customers/:customerId', updateCustomer);
 router.post('/tickets/:ticketId/sync-hts', upload.single('attachment'), syncTicketToHts);
 router.post('/tickets/:ticketId/sync-solve-hts', syncSolveHts);
 
+// Rute V4: Multi-HTS & Percakapan Biasa
+router.get('/tickets/:ticketId/hts', getTicketHtsList);
+router.post('/tickets/:ticketId/hts', upload.single('attachment'), createTicketHts);
+router.post('/tickets/:ticketId/hts/:htsId/solve', upload.single('attachment'), solveTicketHtsSingle);
+router.patch('/tickets/:ticketId/toggle-aduan', toggleAduan);
+router.post('/tickets/:ticketId/close-general', closeGeneralChat);
+
+// Rute V4 Fase 2: Catatan Internal Multimedia Dua Arah (L1 <-> L2)
+router.post('/tickets/:ticketId/internal-media', upload.single('media'), sendInternalMedia);
+router.get('/tickets/:ticketId/internal-media', getInternalMediaList);
+
+// Rute V4 Fase 3: Timeline Divider Riwayat Lampau & Penarikan WA Lama
+router.get('/customers/:customerId/history-messages', getCustomerHistoryMessages);
+router.post('/customers/:customerId/fetch-wa-history', fetchWaHistory);
+
+// Rute V4 Fase 5: Balasan Cepat (Quick Replies / Canned Responses)
+router.get('/quick-replies', getQuickReplies);
+router.post('/quick-replies', createQuickReply);
+router.put('/quick-replies/:id', updateQuickReply);
+router.delete('/quick-replies/:id', deleteQuickReply);
+
 module.exports = router;
+
+

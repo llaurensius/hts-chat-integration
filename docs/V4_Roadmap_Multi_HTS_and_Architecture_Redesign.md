@@ -13,6 +13,7 @@ Sistem saat ini (V3.0) telah berhasil menghubungkan alur kerja WhatsApp Helpdesk
 2. **Konteks Riwayat Lampau yang Terputus:** Saat tiket lama berstatus `CLOSED` dan pelanggan mengirim pesan baru, L1 kehilangan riwayat percakapan sebelumnya. Di sisi lain, histori chat sebelum sistem terintegrasi ke Evolution API belum dapat dibaca.
 3. **Catatan Internal Multimedia:** Teknisi lapangan L2 membutuhkan kemampuan mengirimkan foto kendala/bukti penanganan langsung ke catatan internal tanpa bocor ke WhatsApp pelapor.
 4. **UI/UX yang Terlalu Banyak Modal Pop-up:** Tampilan dasbor saat ini terlalu padat dengan modal pop-up yang saling tumpang tindih sehingga membutuhkan antarmuka modern yang lebih bersih (*clean desk layout*).
+5. **Percakapan Biasa / Non-Aduan Mengotori Pipeline Tiket:** Pesan masuk seperti sapaan (*"Pagi"*, *"Tes"*), pertanyaan umum kantor (jam kerja, info kontak), atau salah sambung saat ini otomatis membuat tiket aduan teknis resmi, memicu kewajiban form penutupan teknis yang rumit bagi L1, serta merusak akurasi metrik SLA (MTTR).
 
 ---
 
@@ -146,12 +147,48 @@ Menampilkan percakapan dari tiket-tiket lampau yang sudah `CLOSED` di dalam ruan
 
 ---
 
-## 🗺️ 7. Panduan Pelaksanaan Bertahap
+## 💬 7. Pilar 6: Penanganan Percakapan Biasa vs Aduan Teknis (Dual-Nature Interaction)
+
+### A. Konsep & Filosofi
+Tidak semua pesan WhatsApp yang masuk merupakan keluhan/gangguan teknis yang harus diterbitkan tiketnya ke tim teknisi L2 atau portal HTS. Banyak interaksi yang berupa pertanyaan umum (jam layanan kantor, alamat instansi), konsultasi santai, sapaan (*"Pagi"*, *"Tes"*), atau konfirmasi biasa.
+- Sistem mengadopsi model **Dual-Nature Interaction** di mana satu ruang obrolan dapat bertindak sebagai **Percakapan Biasa (General Chat)** atau **Aduan Teknis Resmi (Technical Ticket)** tanpa perlu membuat tabel percakapan baru.
+- Model data `Ticket` diperkaya dengan atribut `is_aduan Boolean @default(false)` dan nilai klasifikasi layanan `ServiceType.GENERAL_CHAT`.
+
+### B. Toggle Manual Fleksibel di Header Obrolan (L1 Control)
+- Pada header obrolan di Kolom Tengah, L1 dibekali tombol sakelar/toggle interaktif:  
+  `[ 💬 Percakapan Biasa ]` $\longleftrightarrow$ `[ 🚨 Aduan Teknis ]`
+- L1 dapat secara leluasa mengubah status obrolan kapan saja sesuai substansi percakapan dengan satu klik.
+
+### C. Promosi Otomatis ke Aduan (*Smart Auto-Promotion*)
+- Jika obrolan sedang berada dalam mode *Percakapan Biasa*, tetapi L1 melakukan salah satu aksi berikut:
+  1. Menugaskan Tim Teknisi L2 (`[👥 Tugaskan Tim L2]`), atau
+  2. Menerbitkan Tiket HTS (`[+ Terbitkan Tiket HTS Baru]`),
+- Sistem secara **cerdas dan otomatis** mengubah toggle menjadi **`Aduan Teknis` (`is_aduan = true`)** serta menyesuaikan `service_type` menjadi `TROUBLESHOOTING` atau `REQUEST_LAYANAN`. Hal ini mencegah L1 lupa menggeser sakelar secara manual.
+
+### D. Alur Penutupan Cepat (*One-Click Resolution for General Chat*)
+- **Ketika Mode Percakapan Biasa Aktif:**
+  - L1 tidak dibebani modal penutupan yang rumit (tidak perlu memilih tim L2, tidak perlu menyelesaikan HTS, tidak wajib mengetik uraian solusi teknis panjang).
+  - Cukup mengklik tombol aksi: **`[ ✅ Selesaikan Percakapan ]`**.
+  - Status tiket langsung berubah menjadi `CLOSED` dengan ringkasan default.
+- **Ketika Mode Aduan Teknis Aktif:**
+  - Form penutupan tiket tetap menjalankan *Smart Closure Wizard* lengkap (validasi penyelesaian tim L2, sinkronisasi solusi teknis, dan submit penutupan tiket portal HTS).
+
+### E. Isolasi Antrean Teknisi L2 & Kebersihan Notifikasi
+- Tiket yang berstatus *Percakapan Biasa* (`is_aduan = false`) **100% TIDAK DIMUNCULKAN** di layar antrean teknisi L2 (Network, Server, M&E).
+- Teknisi L2 hanya menerima dan melihat tiket yang sah menjadi aduan teknis dan telah ditugaskan ke tim mereka, menjaga fokus kerja teknisi di lapangan tetap bersih dari obrolan santai.
+
+### F. Pelaporan Rekapitulasi & Netralitas SLA (SPV)
+- **Tampilan 1 Tabel Terpadu:** Menu Rekap Hasil Aduan menampilkan seluruh riwayat dengan badge pembeda yang jelas (`[ 💬 Percakapan Umum ]` vs `[ 🚨 Aduan: Network/Server ]`). Filter dropdown memungkinkan SPV memfilter: *Semua*, *Aduan Teknis*, atau *Percakapan Biasa*.
+- **Pengecualian SLA:** Percakapan biasa **secara otomatis dikecualikan** dari perhitungan metrik durasi penanganan teknis (*Mean Time to Resolve - MTTR*), sehingga rata-rata durasi penyelesaian gangguan teknis tetap valid, objektif, dan akurat.
+
+---
+
+## 🗺️ 8. Panduan Pelaksanaan Bertahap
 *Lihat dokumen panduan detail di: **[`docs/Implementation_Plan_V4.md`](./Implementation_Plan_V4.md)***.
 Pengerjaan dibagi ke dalam 6 fase terukur:
-1. **Fase 1:** Basis Data `TicketHts`, Migrasi Data Aman & Keep-Alive Sesi HTS.
+1. **Fase 1:** Basis Data `TicketHts`, Klasifikasi `is_aduan` & `GENERAL_CHAT`, Migrasi Data Aman & Keep-Alive Sesi HTS.
 2. **Fase 2:** Catatan Internal Multimedia L1 $\leftrightarrow$ L2 & Integrasi Bukti Foto HTS.
 3. **Fase 3:** Timeline Divider Riwayat Chat Lampau & Penarikan WA Lama (Anti-Banned).
-4. **Fase 4:** Redesign UI/UX 3 Kolom, Slide-over Drawer & Responsivitas Layar.
-5. **Fase 5:** Quick Replies, Audio Alerts & SLA Analytics.
+4. **Fase 4:** Redesign UI/UX 3 Kolom, Toggle Percakapan/Aduan, Slide-over Drawer & Responsivitas Layar.
+5. **Fase 5:** Quick Replies, Selesaikan Percakapan Cepat, Audio Alerts & SLA Analytics Bersih.
 6. **Fase 6:** Pengujian Menyeluruh (UAT) & Stabilisasi Akhir.

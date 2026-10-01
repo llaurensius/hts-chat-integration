@@ -87,8 +87,12 @@ io.on('connection', (socket) => {
   });
 });
 
+const { startHtsKeepAliveService } = require('./services/htsKeepAliveService');
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+  // Inisialisasi background heartbeat sesi HTS (Fase 1 - V4)
+  startHtsKeepAliveService(15);
 });
 

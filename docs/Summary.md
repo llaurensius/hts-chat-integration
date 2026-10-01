@@ -77,6 +77,32 @@ Dibangun dengan arsitektur **Evolution API v2**, **Node.js Express + Socket.io**
 
 ---
 
+### E. Arsitektur Terpadu V4 (Multi-HTS, General Chat, Multimedia L2, Redesign 3 Kolom & SLA - Selesai)
+1. **Pemisahan Percakapan Biasa vs Aduan Teknis (`is_aduan` & `GENERAL_CHAT`):**
+   - Mendukung penanganan pesan WhatsApp yang bukan aduan (sapaan santai, konsultasi umum, atau salah sambung).
+   - Petugas L1 dapat menyelesaikan percakapan biasa secara instan dengan satu tombol `[ ✅ Selesaikan Percakapan ]` tanpa perlu mengisi form aduan HTS atau input solusi L2.
+   - Percakapan biasa diisolasi 100% dari antrean teknisi L2 (`whereClause.is_aduan = true`) dan dikecualikan secara mutlak dari metrik SLA / MTTR agar tidak merusak laporan performa.
+   - Auto-Promotion: Jika obrolan biasa ditugaskan ke tim teknisi atau diterbitkan ke portal HTS, sistem otomatis mengubahnya menjadi aduan teknis.
+2. **Arsitektur Multi-HTS (1 Obrolan $\rightarrow$ Banyak Tiket Portal HTS):**
+   - Model baru `TicketHts` yang memungkinkan satu sesi chat menerbitkan beberapa nomor tiket resmi HTS ke divisi berbeda (misal Network dan Server sekaligus).
+   - Menampilkan status tiket HTS secara independen dengan kemampuan penyelesaian parsial (*partial resolution*).
+3. **Catatan Internal Multimedia Dua Arah (L1 $\leftrightarrow$ L2):**
+   - Petugas L1 dan Teknisi L2 dapat saling mengirim foto/dokumen teknis internal melalui panel khusus.
+   - Dijamin 100% rahasia (`is_internal = true`) dan tidak pernah bocor atau terkirim ke WhatsApp pelanggan.
+   - Foto catatan internal dapat dipilih langsung sebagai bukti lampiran penutupan tiket di portal HTS tanpa perlu re-upload.
+4. **Pembagian Riwayat Lampau (*Timeline Divider & Backfill*):**
+   - Menghubungkan seluruh riwayat chat lampau dari nomor WhatsApp pelanggan yang sama dengan pembatas visual yang jelas (*Timeline Divider*).
+   - Tombol *Tarik Riwayat WA Lama* untuk mengambil percakapan sebelum sistem Helpdesk diaktifkan via Evolution API.
+5. **Redesign UI/UX 3 Kolom & Drawer Responsif (1366×768 Friendly):**
+   - Layout 3 kolom adaptif: Kolom 1 (Daftar Percakapan), Kolom 2 (Chat Bubble Interaktif), Kolom 3 (Pusat Kendali Adaptif).
+   - Penggantian modal pop-up dengan *Slide-Over Drawer* di sisi kanan dengan *Sticky Header & Footer* sehingga form tidak pernah terpotong pada layar laptop 1366×768 maupun ponsel mobile.
+6. **Efisiensi Kerja (Quick Replies, Audio Chime & Metrik SLA SPV):**
+   - Suggester Balasan Cepat (*Quick Replies*) saat mengetik tanda garis miring (`/`) dengan navigasi keyboard panah dan enter.
+   - Synthesized Web Audio Chime native (D5 $\rightarrow$ A5) dan HTML5 Desktop Notification saat tab diminimize.
+   - Metrik KPI SLA di Dasbor SPV (Total Aduan Teknis, Total Percakapan Biasa, Rata-rata FRT, dan Rata-rata MTTR Aduan Murni) beserta fitur Export CSV.
+
+---
+
 ## 🛠️ 3. Rekap Penanganan Bug & Stabilitas Teknis
 
 | Masalah / Bug | Penyebab Teknis | Solusi yang Diterapkan |
@@ -124,7 +150,7 @@ Semua akun terdaftar menggunakan **Password:** `password123`
 10. **[Rangkuman Lengkap Proyek](./Summary.md)** - Rekapitulasi perjalanan sistem dari Workflow V1 hingga V3.0.
 11. **[Spesifikasi Revisi Form HTS](./HTS_Form_Revisions_Spec.md)** - Detail aturan bisnis form HTS (Kategori, Detil, OPD, PIC).
 12. **[Potensi Bug & Edge Cases Sistem](./Potential_Bugs_and_Edge_Cases.md)** - Analisis komprehensif potensi kendala, limitasi teknis, dan mitigasinya.
-13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, dan efisiensi kerja.
-14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, dan skrip migrasi SQL.
+13. **[Peta Jalan Rombak Besar V4](./V4_Roadmap_Multi_HTS_and_Architecture_Redesign.md)** - Cetak biru konsep arsitektur Multi-HTS, riwayat lampau, media L2, efisiensi kerja, dan penanganan percakapan biasa vs aduan teknis.
+14. **[Spesifikasi Teknis & Wireframe V4](./V4_Technical_Specification_and_Migration_Guide.md)** - Wireframe 3 kolom, responsivitas layar, skema data `TicketHts`, flag `is_aduan`, dan skrip migrasi SQL.
 15. **[Panduan Implementasi Bertahap V4](./Implementation_Plan_V4.md)** - Rencana eksekusi terukur 6 fase untuk pengerjaan perlahan dan aman.
 

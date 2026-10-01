@@ -25,18 +25,19 @@ Menggantikan antarmuka lama yang sarat modal pop-up dengan layout **Modern 3-Col
 │   KOLOM KIRI    │           KOLOM TENGAH            │           KOLOM KANAN           │
 │ (280px - Nav)   │          (Fluid - Chat)           │      (340px - Action Hub)       │
 ├─────────────────┼───────────────────────────────────┼─────────────────────────────────┤
-│ [🔍 Cari Aduan] │ [Header: Nama Pelapor | OPD | L2] │ [Tab: 🏛️ HTS | 👥 L2 | 👤 Info]│
-│                 │ --------------------------------- │ ------------------------------- │
-│ Filter Status:  │ [📜 Lihat Riwayat Chat (2 Tiket)] │ [🏛️ HUB TIKET HTS DISKOMDIGI]   │
-│ [Semua] [L1/L2] │ ─── 🔒 TIKET #12 (15 Sep 2026) ── │                                 │
-│ [HTS] [Closed]  │ [Chat lama semi-transparan]       │ Tiket 1: #2025-TShoot (Network) │
-│                 │ ─── 🟢 PERCAKAPAN AKTIF #24 ───── │ [Status: PENDING] [Selesaikan]  │
-│ Daftar Tiket:   │ Pelapor: "Aplikasi error..."      │                                 │
-│ • Budi (Dinkes) │ L1: "Sedang dicek teknisi..."     │ Tiket 2: #2026-TShoot (Server)  │
-│   Network+Server│ L2: 🏷️ [Foto Perangkat FO]       │ [Status: SOLVED]                │
-│ • Siti (BKD)    │ --------------------------------- │                                 │
-│   Pending HTS   │ [💬 Balas WhatsApp] [🔒 Catatan L2]│ [+ Terbitkan Tiket HTS Baru]    │
-│                 │ [Ketik balasan...] [📎] [Kirim]   │ (Membuka Slide-over Drawer)     │
+│ [🔍 Cari Aduan] │ [Header: Budi | Dinkes            │ [Tab: 🏛️ HTS | 👥 L2 | 👤 Info]│
+│                 │  Toggle: (•) Percakapan ( ) Aduan]│ ------------------------------- │
+│ Filter Status:  │ --------------------------------- │ JIKA MODE PERCAKAPAN BIASA:     │
+│ [Semua] [Aduan] │ [📜 Lihat Riwayat Chat (2 Tiket)] │ • Status: 💬 Percakapan Biasa   │
+│ [Chat] [Closed] │ ─── 🔒 TIKET #12 (15 Sep 2026) ── │ • Info: "Bukan aduan teknis.    │
+│                 │ [Chat lama semi-transparan]       │   Teknisi L2 tidak diikutsertakan"
+│ Daftar Obrolan: │ ─── 🟢 PERCAKAPAN AKTIF #24 ───── │ [ ✅ Selesaikan Percakapan ]    │
+│ • Budi (Dinkes) │ Pelapor: "Pagi pak, info jam..."  │ [ 🚨 Ubah Jadi Aduan Teknis ]   │
+│   [💬 Percakapan]│ L1: "Buka sampai jam 16.00 pak"   │ ------------------------------- │
+│ • Siti (BKD)    │ --------------------------------- │ JIKA MODE ADUAN TEKNIS:         │
+│   [🚨 Net+Server]│ [💬 Balas WhatsApp] [🔒 Catatan L2]│ Tiket 1: #2025-TShoot (Network) │
+│                 │ [Ketik balasan...] [📎] [Kirim]   │ Tiket 2: #2026-TShoot (Server)  │
+│                 │                                   │ [+ Terbitkan Tiket HTS Baru]    │
 └─────────────────┴───────────────────────────────────┴─────────────────────────────────┘
 ```
 
@@ -160,30 +161,52 @@ model TicketHts {
 }
 ```
 
-2. **Pembaruan pada Model `Ticket`:**
+2. **Pembaruan pada Model `Ticket` & Enum `ServiceType`:**
 ```prisma
+enum ServiceType {
+  TROUBLESHOOTING
+  REQUEST_LAYANAN
+  MONITORING
+  GENERAL_CHAT       // Nilai baru: Percakapan biasa / non-aduan (V4)
+}
+
 model Ticket {
   id                Int              @id @default(autoincrement())
   customer_id       Int
   customer          Customer         @relation(fields: [customer_id], references: [id])
   status            TicketStatus     @default(OPEN)
-  service_type      ServiceType?
+  service_type      ServiceType?     @default(GENERAL_CHAT) // Default awal percakapan biasa
+  is_aduan          Boolean          @default(false)        // false = Chat Biasa, true = Aduan Teknis Resmi
   summary           String?
   hts_tickets       TicketHts[]      // Relasi One-to-Many ke tabel baru
   created_at        DateTime         @default(now())
   closed_at         DateTime?
   categories        TicketCategory[]
   messages          Message[]
+
+  @@index([customer_id])
+  @@index([status])
+  @@index([is_aduan])
 }
 ```
 
 ---
 
 ### B. Skrip Migrasi Data Otomatis (*Zero Data Loss Migration*)
-Agar tiket HTS yang dibuat pada V3 tidak hilang saat migrasi skema ke V4:
+Agar tiket HTS yang dibuat pada V3 tidak hilang dan seluruh tiket historis lama tetap terdata sebagai aduan saat migrasi skema ke V4:
 
 ```sql
--- 1. Buat tabel TicketHts baru
+-- 1. Tambahkan nilai enum baru ke ServiceType
+ALTER TYPE "ServiceType" ADD VALUE IF NOT EXISTS 'GENERAL_CHAT';
+
+-- 2. Tambahkan kolom is_aduan ke tabel Ticket
+-- (Default awal diset TRUE agar seluruh tiket lama V1-V3 tetap sah tercatat sebagai aduan teknis)
+ALTER TABLE "Ticket" ADD COLUMN IF NOT EXISTS "is_aduan" BOOLEAN NOT NULL DEFAULT true;
+
+-- 3. Setel default kolom untuk tiket baru masa depan menjadi FALSE (percakapan biasa)
+ALTER TABLE "Ticket" ALTER COLUMN "is_aduan" SET DEFAULT false;
+
+-- 4. Buat tabel TicketHts baru
 CREATE TABLE IF NOT EXISTS "TicketHts" (
     "id" SERIAL PRIMARY KEY,
     "ticket_id" INTEGER NOT NULL REFERENCES "Ticket"("id") ON DELETE CASCADE,
@@ -200,7 +223,7 @@ CREATE TABLE IF NOT EXISTS "TicketHts" (
     "solved_at" TIMESTAMP(3)
 );
 
--- 2. Migrasikan seluruh data tiket HTS yang sudah ada pada tabel Ticket ke TicketHts
+-- 5. Migrasikan seluruh data tiket HTS yang sudah ada pada tabel Ticket ke TicketHts
 INSERT INTO "TicketHts" ("ticket_id", "hts_ticket_id", "hts_ticket_no", "hts_ticket_status", "hts_pic_ids", "created_at")
 SELECT 
     "id" AS "ticket_id",
@@ -212,9 +235,10 @@ SELECT
 FROM "Ticket"
 WHERE "hts_ticket_no" IS NOT NULL AND "hts_ticket_no" != '';
 
--- 3. Indeks untuk performa query cepat
+-- 6. Indeks untuk performa query cepat
 CREATE INDEX IF NOT EXISTS "idx_tickethts_ticket_id" ON "TicketHts"("ticket_id");
 CREATE INDEX IF NOT EXISTS "idx_tickethts_ticket_no" ON "TicketHts"("hts_ticket_no");
+CREATE INDEX IF NOT EXISTS "idx_ticket_is_aduan" ON "Ticket"("is_aduan");
 ```
 
 ---
@@ -312,29 +336,93 @@ CREATE INDEX IF NOT EXISTS "idx_tickethts_ticket_no" ON "TicketHts"("hts_ticket_
   - Menyimpan pesan lampau ke database lokal dengan tanda penanda arsip (`sender_type: "CUSTOMER"` atau `"AGENT"` dengan metadata `is_archive: true`).
   - **Aman dari Banned:** Hanya mengambil 20 pesan untuk 1 kontak saat diminta petugas.
 
+### D. Endpoint Klasifikasi Percakapan Biasa & Penyelesaian Cepat
+
+#### 1. Toggle Manual Status Aduan Teknis vs Percakapan Biasa
+* **Method & URL:** `PATCH /api/chat/tickets/:ticketId/toggle-aduan`
+* **Akses:** `L1`, `ADMIN`
+* **Request Body:**
+  ```json
+  {
+    "is_aduan": true,
+    "service_type": "TROUBLESHOOTING"
+  }
+  ```
+* **Logika Backend:**
+  - Mengubah kolom `is_aduan` dan `service_type` pada tiket terkait.
+  - Jika diubah menjadi `false`, verifikasi bahwa tiket belum memiliki tiket HTS aktif (`TicketHts`).
+  - Broadcast event Socket.io `ticket_updated` ke seluruh klien web dasbor agar antrean dan header ter-update seketika.
+* **Response (200 OK):**
+  ```json
+  {
+    "success": true,
+    "ticketId": 24,
+    "is_aduan": true,
+    "service_type": "TROUBLESHOOTING"
+  }
+  ```
+
+#### 2. Menyelesaikan Percakapan Biasa (*One-Click Fast Close*)
+* **Method & URL:** `POST /api/chat/tickets/:ticketId/close-general`
+* **Akses:** `L1`, `ADMIN`
+* **Request Body:** (Opsional)
+  ```json
+  {
+    "summary": "Pertanyaan jam operasional kantor telah dijawab via WhatsApp."
+  }
+  ```
+* **Logika Backend:**
+  - Memastikan `is_aduan === false` atau mengubahnya menjadi `GENERAL_CHAT`.
+  - Mengubah status tiket menjadi `CLOSED`, mengisi `closed_at = new Date()`, dan menyimpan ringkasan (*summary* default jika kosong: `"Percakapan biasa selesai"`).
+  - **Bypass:** Tidak memvalidasi penyelesaian tim L2 dan tidak melakukan submit apapun ke portal HTS.
+  - Broadcast via Socket.io `ticket_closed`.
+* **Response (200 OK):** Mengembalikan objek tiket dengan status `CLOSED`.
+
+#### 3. Logika Filter Antrean Teknisi L2 (Isolasi Percakapan Biasa)
+Pada fungsi `getTickets` di `chatController.js`, query Prisma untuk peran `L2` diperketat:
+```javascript
+// Khusus L2: HANYA mengambil tiket yang berstatus aduan teknis resmi
+if (req.user.role === 'L2') {
+  whereClause.is_aduan = true;
+  whereClause.categories = {
+    some: { category_id: req.user.category_id }
+  };
+}
+```
+
 ---
 
 ## 🔄 4. Alur Logika & State Management Frontend
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Tiket_Open: Chat Masuk dari WhatsApp Pelapor
+    [*] --> Pesan_Masuk: Chat Baru Masuk dari WhatsApp Pelapor
+    Pesan_Masuk --> Percakapan_Biasa: Default (is_aduan = false, ServiceType = GENERAL_CHAT)
     
-    Tiket_Open --> Assign_Tim: L1 Tugaskan Tim Network & Server
-    Assign_Tim --> Terbitkan_HTS_1: L1 Terbitkan Tiket HTS Network
-    Terbitkan_HTS_1 --> Hub_Multi_HTS: Tiket HTS #1 (PENDING) Terdaftar di Panel Kanan
-    
-    state Hub_Multi_HTS {
-        [*] --> Tiket_HTS_1_Pending
-        Tiket_HTS_1_Pending --> Tambah_HTS_2: Pelapor Lapor Kendala Server di Tengah Chat
-        Tambah_HTS_2 --> Tiket_HTS_2_Pending: L1 Klik [+ Terbitkan Tiket HTS Baru]
-        
-        Tiket_HTS_1_Pending --> Tiket_HTS_1_Solved: L2 Network Selesai & Solve HTS #1
-        Tiket_HTS_2_Pending --> Tiket_HTS_2_Solved: L2 Server Selesai & Solve HTS #2
+    state Percakapan_Biasa {
+        [*] --> Chatting_Santai: L1 Balas Info / Tanya Jawab via WA
+        Chatting_Santai --> Selesai_Percakapan: L1 Klik [ ✅ Selesaikan Percakapan ]
     }
     
-    Hub_Multi_HTS --> Penutupan_Tiket_Lokal: Seluruh Tiket HTS Selesai (SOLVED)
-    Penutupan_Tiket_Lokal --> Tiket_Closed: L1 Tutup Tiket Resmi (Status CLOSED)
+    Selesai_Percakapan --> Tiket_Closed: Status Tiket CLOSED (Tanpa HTS, Dikecualikan dari MTTR)
+    
+    Percakapan_Biasa --> Mode_Aduan: L1 Klik Toggle [ 🚨 Aduan Teknis ] / Assign L2 / Buat HTS
+    
+    state Mode_Aduan {
+        [*] --> Assign_Tim: L1 Tugaskan Tim Network / Server / M&E
+        Assign_Tim --> Terbitkan_HTS_1: L1 Terbitkan Tiket HTS
+        Terbitkan_HTS_1 --> Hub_Multi_HTS: Tiket HTS (PENDING) Terdaftar di Panel Kanan
+        
+        state Hub_Multi_HTS {
+            [*] --> Tiket_HTS_Pending
+            Tiket_HTS_Pending --> Tambah_HTS_Baru: Pelapor Lapor Kendala Lain
+            Tiket_HTS_Pending --> Tiket_HTS_Solved: L2 Selesai & Solve HTS
+        }
+        
+        Hub_Multi_HTS --> Penutupan_Aduan: Seluruh Tiket HTS Selesai (SOLVED)
+    }
+    
+    Penutupan_Aduan --> Tiket_Closed: L1 Tutup Tiket Resmi (Status CLOSED, Dihitung ke SLA)
     Tiket_Closed --> [*]
 ```
 
@@ -353,3 +441,8 @@ stateDiagram-v2
    - Percakapan lama memiliki penanda waktu penutupan tiket dan warna redup (*dimmed*) sehingga tidak membingungkan penanganan aktif.
 4. **Keamanan Sesi WhatsApp:**
    - Penarikan pesan lama dari HP WhatsApp via on-demand fetch tidak memicu disconnection socket atau peringatan spam dari Meta.
+5. **Percakapan Biasa vs Aduan Teknis:**
+   - Pesan baru yang masuk secara default atau di-toggle ke mode *Percakapan Biasa* **tidak muncul sama sekali** di antrean teknisi L2.
+   - L1 dapat menyelesaikan percakapan biasa hanya dengan 1-klik tombol `[ ✅ Selesaikan Percakapan ]` tanpa diminta memilih tim L2 ataupun mengisi tiket HTS.
+   - Jika L1 menugaskan tim L2 atau menekan tombol `[+ Terbitkan Tiket HTS]`, sistem otomatis mempromosikan obrolan menjadi *Aduan Teknis* (`is_aduan = true`).
+   - Di tabel Rekap Hasil Aduan (SPV), tiket percakapan biasa memiliki badge pembeda dan **tidak disertakan dalam perhitungan durasi penanganan teknis (MTTR)**.

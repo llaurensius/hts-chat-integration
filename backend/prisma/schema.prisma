@@ -25,6 +25,7 @@ model Category {
   users            User[]
   tickets          TicketCategory[]
   contacts         CategoryContact[] // Relasi Multi-Kontak WA Blast (Fase 1 - V2.2)
+  hts_tickets      TicketHts[]       // Relasi ke tiket HTS terkait (V4)
 }
 
 // Tabel Multi-Kontak Teknisi / Grup WA per Tim L2 (Fase 1 - V2.2)
@@ -74,16 +75,44 @@ model Ticket {
   customer_id       Int
   customer          Customer         @relation(fields: [customer_id], references: [id])
   status            TicketStatus     @default(OPEN)
-  service_type      ServiceType?
+  service_type      ServiceType?     @default(GENERAL_CHAT)
+  is_aduan          Boolean          @default(false) // false = Percakapan Biasa, true = Aduan Teknis Resmi (V4)
   summary           String?
-  hts_ticket_id     String?          // ID internal HTS (contoh: "2025")
-  hts_ticket_no     String?          // Nomor aduan resmi HTS (contoh: "2025-TShoot-2026-jateng-09")
-  hts_ticket_status String?          // Status HTS: "UNSUBMITTED" | "INPUT_PIC" | "PENDING" | "SOLVED"
+  hts_ticket_id     String?          // ID internal HTS (legacy V3)
+  hts_ticket_no     String?          // Nomor aduan resmi HTS (legacy V3)
+  hts_ticket_status String?          // Status HTS: "UNSUBMITTED" | "INPUT_PIC" | "PENDING" | "SOLVED" (legacy V3)
   hts_synced_at     DateTime?        // Waktu terakhir sinkronisasi HTS
+  hts_tickets       TicketHts[]      // Hub Multi-Tiket HTS (One-to-Many - V4)
   created_at        DateTime         @default(now())
   closed_at         DateTime?
   categories        TicketCategory[]
   messages          Message[]
+
+  @@index([customer_id])
+  @@index([status])
+  @@index([is_aduan])
+}
+
+// Tabel Hub Multi-HTS (One-to-Many dari 1 Tiket Obrolan ke Banyak Tiket HTS - V4)
+model TicketHts {
+  id                Int          @id @default(autoincrement())
+  ticket_id         Int
+  ticket            Ticket       @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+  category_id       Int?
+  category          Category?    @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  hts_ticket_id     String       // ID numerik trouble HTS (misal: "2025")
+  hts_ticket_no     String       // Nomor aduan resmi HTS (misal: "2025-TShoot-2026-jateng-09")
+  hts_ticket_status String       @default("PENDING") // PENDING | SOLVED
+  hts_kategori      String       @default("troubleshoot")
+  hts_sub_kategori  String?
+  hts_detil         String?      @db.Text
+  hts_pic_ids       String?      // JSON array ID PIC penerima & penanganan
+  solution          String?      @db.Text // Teks solusi penanganan teknis HTS
+  created_at        DateTime     @default(now())
+  solved_at         DateTime?
+
+  @@index([ticket_id])
+  @@index([hts_ticket_no])
 }
 
 // Tabel relasi Many-to-Many antara Tiket dan Kategori
@@ -135,4 +164,15 @@ enum ServiceType {
   TROUBLESHOOTING
   REQUEST_LAYANAN
   MONITORING
+  GENERAL_CHAT // Nilai baru: Percakapan biasa / non-aduan (V4)
+}
+
+// Model Template Balasan Cepat (Quick Replies / Canned Responses - V4 Fase 5)
+model QuickReply {
+  id         Int      @id @default(autoincrement())
+  shortcut   String   @unique // Shortcut diawali tanpa slash, misal: "salam", "proses", "selesai"
+  title      String   // Judul deskriptif, misal: "Salam Pembuka Layanan"
+  content    String   @db.Text // Teks balasan lengkap
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 }

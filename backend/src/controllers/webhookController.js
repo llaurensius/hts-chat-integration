@@ -133,9 +133,14 @@ const handleIncomingMessage = async (req, res) => {
     let ticketId;
 
     if (!activeTicket) {
-      // 3a. Jika belum ada tiket aktif, buat tiket baru
+      // 3a. Jika belum ada tiket aktif, buat tiket baru (default awal V4: Percakapan Biasa)
       const newTicket = await prisma.ticket.create({
-        data: { customer_id: customer.id, status: 'OPEN' }
+        data: { 
+          customer_id: customer.id, 
+          status: 'OPEN',
+          is_aduan: false,
+          service_type: 'GENERAL_CHAT'
+        }
       });
       ticketId = newTicket.id;
 
