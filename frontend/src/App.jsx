@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles } from 'lucide-react';
+import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles, Link as LinkIcon } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -298,6 +298,80 @@ function Dashboard() {
     }
   };
 
+  // Handler Update Template Balasan Cepat
+  const handleUpdateQuickReply = async (e) => {
+    e.preventDefault();
+    if (!editingQuickReply.shortcut.trim() || !editingQuickReply.title.trim() || !editingQuickReply.content.trim()) {
+      return alert('Shortcut, judul, dan isi balasan wajib diisi!');
+    }
+    setIsSavingQuickReply(true);
+    try {
+      await axios.put(`${API_URL}/chat/quick-replies/${editingQuickReplyId}`, editingQuickReply);
+      alert('Template balasan cepat berhasil diperbarui!');
+      setEditingQuickReplyId(null);
+      setEditingQuickReply({ shortcut: '', title: '', content: '' });
+      loadQuickReplies();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal memperbarui template');
+    } finally {
+      setIsSavingQuickReply(false);
+    }
+  };
+
+  // Handler Lepas Tautan Tiket HTS
+  const handleUnlinkHtsTicket = async (htsTicketId, htsNo) => {
+    if (!activeTicket) return;
+    if (!window.confirm(`Lepas tautan nomor aduan HTS #${htsNo} dari percakapan ini?`)) return;
+
+    try {
+      const res = await axios.delete(`${API_URL}/chat/tickets/${activeTicket.id}/hts/${htsTicketId}/unlink`);
+      alert(res.data?.message || 'Tautan tiket HTS berhasil dilepas');
+      loadTickets();
+      if (res.data?.ticket) {
+        setActiveTicket(res.data.ticket);
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal melepas tautan tiket HTS');
+    }
+  };
+
+  // Handler Tautkan Nomor Aduan HTS Manual (Fase 7 Disaster Recovery)
+  const handleLinkHtsTicket = async (force = false) => {
+    if (!activeTicket) return;
+    if (!linkHtsNo.trim()) {
+      return alert('Nomor aduan HTS wajib diisi!');
+    }
+    setIsLinkingHts(true);
+    setSyncHtsError('');
+    try {
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/link-hts`, {
+        hts_ticket_no: linkHtsNo.trim(),
+        category_id: linkHtsCategoryId ? parseInt(linkHtsCategoryId) : null,
+        force: force
+      });
+      alert(res.data?.message || 'Nomor tiket HTS berhasil ditautkan!');
+      setShowSyncHtsModal(false);
+      setLinkHtsNo('');
+      setLinkHtsCategoryId('');
+      loadTickets();
+      if (res.data?.ticket) setActiveTicket(res.data.ticket);
+    } catch (err) {
+      if (err.response?.status === 409 && err.response?.data?.requires_confirmation) {
+        if (window.confirm(`${err.response.data.message}
+
+Tetap tautkan tiket ini?`)) {
+          return handleLinkHtsTicket(true);
+        }
+      } else {
+        const errorMsg = err.response?.data?.error || err.message || 'Gagal menautkan nomor tiket HTS';
+        setSyncHtsError(errorMsg);
+        alert(errorMsg);
+      }
+    } finally {
+      setIsLinkingHts(false);
+    }
+  };
+
   // Handler Hapus Template Balasan Cepat
   const handleDeleteQuickReply = async (id) => {
     if (!window.confirm('Hapus template balasan cepat ini?')) return;
@@ -376,6 +450,7 @@ function Dashboard() {
   const [closeHtsUseChatImage, setCloseHtsUseChatImage] = useState(false);
   const [closeHtsChatImagePreview, setCloseHtsChatImagePreview] = useState(null);
   const [closeHtsSelectedInternalUrl, setCloseHtsSelectedInternalUrl] = useState(null);
+  const [closeHtsSelectedInternalUrls, setCloseHtsSelectedInternalUrls] = useState([]);
   const [isClosingTicket, setIsClosingTicket] = useState(false);
 
   // State L2 Tandai Selesai Modal (Fase 3 & 4)
@@ -492,6 +567,16 @@ function Dashboard() {
 
   // State Standalone Sync Modal HTS (Fase 2 V3 + Revisi Spec)
   const [showSyncHtsModal, setShowSyncHtsModal] = useState(false);
+  const [syncHtsTab, setSyncHtsTab] = useState('create'); // 'create' | 'link'
+  const [linkHtsNo, setLinkHtsNo] = useState('');
+  const [linkHtsCategoryId, setLinkHtsCategoryId] = useState('');
+  const [isLinkingHts, setIsLinkingHts] = useState(false);
+  const [syncHtsFiles, setSyncHtsFiles] = useState([]); // Multiple files
+  const [closeHtsFiles, setCloseHtsFiles] = useState([]); // Multiple files saat close
+
+  // State Edit Quick Reply
+  const [editingQuickReplyId, setEditingQuickReplyId] = useState(null);
+  const [editingQuickReply, setEditingQuickReply] = useState({ shortcut: '', title: '', content: '' });
   const [syncHtsCust, setSyncHtsCust] = useState('');
   const [syncHtsOpd, setSyncHtsOpd] = useState('');
   const [syncIndukOpdId, setSyncIndukOpdId] = useState('');
@@ -712,8 +797,10 @@ function Dashboard() {
 
   const handleOpenCloseModal = () => {
     if (!activeTicket) return;
-    const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
-    setSelectedCategories(currentCatIds);
+    const assignedCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
+    const htsCatIds = activeTicket.hts_tickets?.map(ht => ht.category_id).filter(Boolean) || [];
+    const mergedCatIds = Array.from(new Set([...assignedCatIds, ...htsCatIds]));
+    setSelectedCategories(mergedCatIds);
 
     // Ambil solusi teknis dari catatan L2 jika sudah ada
     const l2Solutions = activeTicket.categories
@@ -723,7 +810,8 @@ function Dashboard() {
 
     setSummaryText(l2Solutions || '');
     setCloseHtsSolution(l2Solutions || '');
-    setCloseHtsTicket(!!activeTicket.hts_ticket_no);
+    const isAlreadySolved = activeTicket.hts_ticket_status === 'SOLVED' || (activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0 && activeTicket.hts_tickets.every(h => h.hts_ticket_status === 'SOLVED'));
+    setCloseHtsTicket(Boolean(activeTicket.hts_ticket_no && !isAlreadySolved));
     
     // Multi PIC Penyelesaian & Waktu Teknis: Hubungkan PIC Penerima/Awal tiket HTS
     const initialPicIds = getTicketInitialPicIds(activeTicket);
@@ -746,7 +834,9 @@ function Dashboard() {
       setCloseHtsUseChatImage(false);
     }
     setCloseHtsSelectedInternalUrl(null);
+    setCloseHtsSelectedInternalUrls([]);
     setCloseHtsFile(null);
+    setCloseHtsFiles([]);
 
     setShowCloseModal(true);
   };
@@ -856,6 +946,10 @@ function Dashboard() {
       setSyncHtsUseChatImage(false);
     }
     setSyncHtsFile(null);
+    setSyncHtsFiles([]);
+    setSyncHtsTab('create');
+    setLinkHtsNo('');
+    setLinkHtsCategoryId('');
 
     setSyncOpdSearchTerm('');
     setSyncHtsError('');
@@ -890,7 +984,11 @@ function Dashboard() {
       formData.append('hts_detil', syncHtsDetil);
       formData.append('hts_pic_id', syncHtsPicIds[0] || '14');
       syncHtsPicIds.forEach(pid => formData.append('hts_pic_ids', pid));
-      if (syncHtsFile) {
+      if (syncHtsFiles && syncHtsFiles.length > 0) {
+        for (let i = 0; i < syncHtsFiles.length; i++) {
+          formData.append('attachment', syncHtsFiles[i]);
+        }
+      } else if (syncHtsFile) {
         formData.append('attachment', syncHtsFile);
       } else if (syncHtsUseChatImage) {
         formData.append('useChatImage', 'true');
@@ -1486,11 +1584,19 @@ function Dashboard() {
         formData.append('htsSolution', closeHtsSolution || summaryText.trim());
         formData.append('htsTglTeknis', closeHtsTanggal);
         formData.append('htsJamTeknis', closeHtsJam);
-        if (closeHtsFile) {
+        if (closeHtsFiles && closeHtsFiles.length > 0) {
+          for (let i = 0; i < closeHtsFiles.length; i++) {
+            formData.append('attachment', closeHtsFiles[i]);
+          }
+        } else if (closeHtsFile) {
           formData.append('attachment', closeHtsFile);
+        }
+
+        if (closeHtsSelectedInternalUrls && closeHtsSelectedInternalUrls.length > 0) {
+          formData.append('selectedAttachmentUrls', JSON.stringify(closeHtsSelectedInternalUrls));
         } else if (closeHtsSelectedInternalUrl) {
           formData.append('selectedAttachmentUrl', closeHtsSelectedInternalUrl);
-        } else if (closeHtsUseChatImage) {
+        } else if (closeHtsUseChatImage && closeHtsFiles.length === 0 && !closeHtsFile) {
           formData.append('useChatImage', 'true');
         }
       }
@@ -1871,12 +1977,18 @@ function Dashboard() {
                             {ticket.is_aduan ? '🚨 Aduan' : '💬 Biasa'}
                           </span>
 
-                          {/* Badge Nomor HTS */}
-                          {ticket.hts_ticket_no && (
+                          {/* Badge Multi-HTS di Kolom Kiri */}
+                          {ticket.hts_tickets && ticket.hts_tickets.length > 0 ? (
+                            ticket.hts_tickets.map(ht => (
+                              <span key={ht.id} className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-blue-50 text-blue-800 border border-blue-300" title={`Portal HTS #${ht.hts_ticket_no} (${ht.hts_ticket_status})`}>
+                                #{ht.hts_ticket_no}
+                              </span>
+                            ))
+                          ) : ticket.hts_ticket_no ? (
                             <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-blue-50 text-blue-800 border border-blue-300" title={`No. Tiket Portal HTS #${ticket.hts_ticket_no}`}>
                               #{ticket.hts_ticket_no}
                             </span>
-                          )}
+                          ) : null}
 
                           {/* Badge Tim Penugasan */}
                           {ticket.categories && ticket.categories.length > 0 ? (
@@ -1947,11 +2059,18 @@ function Dashboard() {
                             {activeTicket.service_type.replace('_', ' ')}
                           </span>
                         )}
-                        {activeTicket.hts_ticket_no && (
+                        {/* Badges Multi-HTS di Header */}
+                        {activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0 ? (
+                          activeTicket.hts_tickets.map(ht => (
+                            <span key={ht.id} className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-800 rounded-full border border-blue-300 flex items-center gap-1 shadow-sm" title={`Portal HTS Diskomdigi: #${ht.hts_ticket_no} (${ht.hts_ticket_status})`}>
+                              <Globe className="w-3 h-3 text-blue-600" /> #{ht.hts_ticket_no}
+                            </span>
+                          ))
+                        ) : activeTicket.hts_ticket_no ? (
                           <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-800 rounded-full border border-blue-300 flex items-center gap-1 shadow-sm" title={`Portal HTS Diskomdigi: #${activeTicket.hts_ticket_no}`}>
-                            <Globe className="w-3 h-3 text-blue-600" /> HTS: #{activeTicket.hts_ticket_no}
+                            <Globe className="w-3 h-3 text-blue-600" /> #{activeTicket.hts_ticket_no}
                           </span>
-                        )}
+                        ) : null}
                       </h2>
                       <p className="text-xs text-gray-500">+{activeTicket.customer?.wa_number}</p>
 
@@ -2763,29 +2882,77 @@ function Dashboard() {
                     ) : (
                       /* KONDISI 2: ADUAN TEKNIS (STATUS HTS & TIM L2) */
                       <>
-                        {/* Status Portal HTS Diskomdigi */}
-                        <div className="p-3 rounded-xl border bg-gray-50/70 border-gray-200">
-                          <div className="flex items-center justify-between mb-1.5">
+                        {/* Status Portal HTS Diskomdigi (Multi-HTS Support V4) */}
+                        <div className="p-3 rounded-xl border bg-gray-50/70 border-gray-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
                               <Globe className="w-3.5 h-3.5 text-blue-600" />
                               <span>Portal HTS Diskomdigi</span>
+                              {(activeTicket.hts_tickets?.length > 1) && (
+                                <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded-full font-bold">
+                                  {activeTicket.hts_tickets.length} Tiket
+                                </span>
+                              )}
                             </div>
-                            {activeTicket.hts_ticket_no ? (
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                activeTicket.hts_ticket_status === 'SOLVED' 
-                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                                  : 'bg-amber-100 text-amber-800 border-amber-300'
-                              }`}>
-                                {activeTicket.hts_ticket_status || 'PROSES'}
-                              </span>
-                            ) : (
+                            {(!activeTicket.hts_ticket_no && (!activeTicket.hts_tickets || activeTicket.hts_tickets.length === 0)) && (
                               <span className="text-[10px] font-medium px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
                                 Belum Terhubung
                               </span>
                             )}
                           </div>
 
-                          {activeTicket.hts_ticket_no ? (
+                          {/* Jika ada daftar Tiket HTS (Multi-HTS) */}
+                          {activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0 ? (
+                            <div className="space-y-2">
+                              {activeTicket.hts_tickets.map((ht) => (
+                                <div key={ht.id} className="p-2.5 bg-white rounded-lg border border-gray-200 shadow-2xs space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-bold text-xs text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                        #{ht.hts_ticket_no}
+                                      </span>
+                                      {ht.category?.name && (
+                                        <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.2 rounded">
+                                          {ht.category.name}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                        ht.hts_ticket_status === 'SOLVED'
+                                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                                      }`}>
+                                        {ht.hts_ticket_status || 'PENDING'}
+                                      </span>
+                                      {isL1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUnlinkHtsTicket(ht.id, ht.hts_ticket_no)}
+                                          className="p-1 text-gray-400 hover:text-red-600 rounded transition"
+                                          title="Lepas tautan nomor HTS ini"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+
+                              {/* Tombol Tambah Tautan / Tiket HTS Lain */}
+                              {isL1 && (
+                                <button
+                                  type="button"
+                                  onClick={handleOpenSyncHtsModal}
+                                  className="w-full mt-1.5 py-1.5 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg border border-dashed border-blue-300 font-medium transition flex items-center justify-center gap-1"
+                                >
+                                  <Plus className="w-3.5 h-3.5" /> Tautkan / Terbitkan Tiket HTS Lain
+                                </button>
+                              )}
+                            </div>
+                          ) : activeTicket.hts_ticket_no ? (
+                            /* Fallback jika ada hts_ticket_no tapi belum ada di hts_tickets (tiket legacy) */
                             <div className="space-y-1 mt-2 text-xs">
                               <div className="flex justify-between items-center">
                                 <span className="text-gray-500 text-[11px]">No. Aduan:</span>
@@ -2793,51 +2960,30 @@ function Dashboard() {
                                   #{activeTicket.hts_ticket_no}
                                 </span>
                               </div>
-                              {activeTicket.hts_synced_at && (
-                                <div className="flex justify-between items-center text-[11px] text-gray-400">
-                                  <span>Disinkronkan:</span>
-                                  <span>{format(new Date(activeTicket.hts_synced_at), 'dd/MM/yyyy HH:mm')}</span>
-                                </div>
-                              )}
-
-                              {isL1 && activeTicket.hts_ticket_status !== 'SOLVED' && (
-                                <div className="pt-2 mt-2 border-t border-gray-200">
-                                  <p className="text-[10px] text-amber-800 mb-1.5 leading-tight">
-                                    Status di portal HTS masih <strong>{activeTicket.hts_ticket_status || 'PENDING'}</strong>. Selesaikan aduan di portal HTS:
-                                  </p>
+                              <div className="flex justify-between items-center pt-1">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  activeTicket.hts_ticket_status === 'SOLVED' 
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                                    : 'bg-amber-100 text-amber-800 border-amber-300'
+                                }`}>
+                                  Status: {activeTicket.hts_ticket_status || 'PROSES'}
+                                </span>
+                                {isL1 && (
                                   <button
                                     type="button"
-                                    onClick={handleSyncSolveHts}
-                                    disabled={isSyncingSolveHts}
-                                    className="w-full text-xs py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                    onClick={handleOpenSyncHtsModal}
+                                    className="text-[11px] text-blue-600 hover:underline"
                                   >
-                                    {isSyncingSolveHts ? (
-                                      <>
-                                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                        Menyelesaikan di HTS...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CheckCircle className="w-3.5 h-3.5" /> Selesaikan ke Portal HTS
-                                      </>
-                                    )}
+                                    + Tambah Lain
                                   </button>
-                                </div>
-                              )}
-
-                              <a
-                                href="https://hts.diskomdigi.jatengprov.go.id/tshoot"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 text-[11px] text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 py-1 font-medium hover:underline"
-                              >
-                                Buka Portal HTS <ExternalLink className="w-3 h-3" />
-                              </a>
+                                )}
+                              </div>
                             </div>
                           ) : (
+                            /* Belum ada tiket HTS sama sekali */
                             <div className="mt-2">
                               <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">
-                                Tiket ini belum diterbitkan ke portal resmi HTS Diskomdigi.
+                                Tiket ini belum diterbitkan atau ditautkan ke portal resmi HTS Diskomdigi.
                               </p>
                               {isL1 && (
                                 <button
@@ -2845,10 +2991,21 @@ function Dashboard() {
                                   onClick={handleOpenSyncHtsModal}
                                   className="w-full text-xs py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5"
                                 >
-                                  <Globe className="w-3.5 h-3.5" /> Sinkronkan ke Portal HTS
+                                  <Globe className="w-3.5 h-3.5" /> Sinkronkan / Tautkan ke Portal HTS
                                 </button>
                               )}
                             </div>
+                          )}
+
+                          {activeTicket.hts_ticket_no && (
+                            <a
+                              href="https://hts.diskomdigi.jatengprov.go.id/tshoot"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="pt-1 text-[11px] text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 font-medium hover:underline border-t border-gray-100"
+                            >
+                              Buka Portal HTS <ExternalLink className="w-3 h-3" />
+                            </a>
                           )}
                         </div>
 
@@ -3619,37 +3776,121 @@ function Dashboard() {
                 <div className="space-y-2.5">
                   {quickReplies.map((t) => (
                     <div key={t.id} className="p-3.5 bg-gray-50/80 hover:bg-gray-50 border border-gray-200/80 rounded-xl transition">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-amber-100 text-amber-800 border border-amber-200">
-                            /{t.shortcut}
-                          </span>
-                          <span className="text-xs font-bold text-gray-800">{t.title}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {activeTicket && (
+                      {editingQuickReplyId === t.id ? (
+                        /* Form Edit Inline */
+                        <form onSubmit={handleUpdateQuickReply} className="space-y-2.5 animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-amber-800 flex items-center gap-1">
+                              <Edit2 className="w-3.5 h-3.5 text-amber-600" /> Edit Template
+                            </span>
                             <button
                               type="button"
-                              onClick={() => {
-                                insertQuickReply(t);
-                                setShowQuickRepliesModal(false);
-                              }}
-                              className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition"
+                              onClick={() => setEditingQuickReplyId(null)}
+                              className="text-gray-400 hover:text-gray-600 p-1"
+                              title="Batal edit"
                             >
-                              Gunakan
+                              <X className="w-3.5 h-3.5" />
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteQuickReply(t.id)}
-                            className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition"
-                            title="Hapus template"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-600 whitespace-pre-wrap">{t.content}</p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Shortcut</label>
+                              <div className="flex items-center border border-gray-300 rounded-lg bg-white overflow-hidden">
+                                <span className="px-1.5 text-xs font-bold text-gray-400 bg-gray-50">/</span>
+                                <input
+                                  type="text"
+                                  required
+                                  value={editingQuickReply.shortcut}
+                                  onChange={e => setEditingQuickReply({ ...editingQuickReply, shortcut: e.target.value.replace(/^\/+/, '').toLowerCase() })}
+                                  className="w-full text-xs p-1.5 outline-none"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Judul</label>
+                              <input
+                                type="text"
+                                required
+                                value={editingQuickReply.title}
+                                onChange={e => setEditingQuickReply({ ...editingQuickReply, title: e.target.value })}
+                                className="w-full text-xs border border-gray-300 rounded-lg p-1.5 outline-none bg-white"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-0.5">Isi Balasan</label>
+                            <textarea
+                              required
+                              rows="3"
+                              value={editingQuickReply.content}
+                              onChange={e => setEditingQuickReply({ ...editingQuickReply, content: e.target.value })}
+                              className="w-full text-xs border border-gray-300 rounded-lg p-2 outline-none bg-white resize-none"
+                            ></textarea>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingQuickReplyId(null)}
+                              className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200 rounded-lg transition"
+                            >
+                              Batal
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isSavingQuickReply}
+                              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition shadow-xs disabled:opacity-50"
+                            >
+                              {isSavingQuickReply ? 'Menyimpan...' : 'Simpan Perubahan'}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        /* Tampilan Normal Card Template */
+                        <>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                                /{t.shortcut}
+                              </span>
+                              <span className="text-xs font-bold text-gray-800">{t.title}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {activeTicket && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    insertQuickReply(t);
+                                    setShowQuickRepliesModal(false);
+                                  }}
+                                  className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition"
+                                >
+                                  Gunakan
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingQuickReplyId(t.id);
+                                  setEditingQuickReply({ shortcut: t.shortcut, title: t.title, content: t.content });
+                                }}
+                                className="p-1 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
+                                title="Edit template"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteQuickReply(t.id)}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                title="Hapus template"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-600 whitespace-pre-wrap">{t.content}</p>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -3757,17 +3998,35 @@ function Dashboard() {
                   </div>
                 </div>
 
-                {/* Kondisi 1: Sudah ada nomor tiket HTS */}
-                {activeTicket?.hts_ticket_no ? (
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-800">
-                    <div>
-                      <div className="font-bold flex items-center gap-1.5">
+                {/* Kondisi 1: Sudah ada tiket HTS terhubung (Multi-HTS) */}
+                {(activeTicket?.hts_tickets?.length > 0 || activeTicket?.hts_ticket_no) ? (
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 space-y-2">
+                    <div className="font-bold flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
                         <CheckCircle className="w-4 h-4 text-emerald-600" />
-                        Terhubung ke Portal HTS Diskomdigi
+                        <span>Terhubung ke Portal HTS Diskomdigi ({activeTicket.hts_tickets?.length || 1} Tiket)</span>
                       </div>
-                      <div className="text-[11px] text-emerald-700 mt-0.5">
-                        No. Aduan: <strong className="font-mono text-emerald-900">#{activeTicket.hts_ticket_no}</strong> ({activeTicket.hts_ticket_status || 'Proses Penanganan'})
-                      </div>
+                    </div>
+                    <div className="space-y-1.5 pt-1">
+                      {(activeTicket.hts_tickets?.length > 0 ? activeTicket.hts_tickets : [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }]).map((h) => (
+                        <div key={h.id || h.hts_ticket_no} className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200/80">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-emerald-950">#{h.hts_ticket_no}</span>
+                            {h.category?.name && (
+                              <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-medium">
+                                {h.category.name}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                            h.hts_ticket_status === 'SOLVED'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border-amber-300'
+                          }`}>
+                            {h.hts_ticket_status || 'PROSES'}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : !htsStatus?.isLoggedIn ? (
@@ -4137,24 +4396,139 @@ function Dashboard() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-2xs flex justify-end z-50 overflow-hidden animate-in fade-in duration-150">
           <div className="bg-white shadow-2xl w-full max-w-lg h-full flex flex-col animate-in slide-in-from-right duration-200">
             {/* Header Sticky */}
-            <div className="p-4 px-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/90 backdrop-blur-xs sticky top-0 z-10">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                  <Globe className="w-4 h-4" />
+            <div className="p-4 px-5 border-b border-gray-100 bg-gray-50/90 backdrop-blur-xs sticky top-0 z-10">
+              <div className="flex justify-between items-center mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                    <Globe className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-800 text-sm">Integrasi Portal HTS Diskomdigi</h3>
+                    <p className="text-[11px] text-gray-500">Terbitkan baru atau tautkan nomor aduan resmi</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-gray-800 text-sm">Sinkronkan ke Portal HTS Diskomdigi</h3>
-                  <p className="text-[11px] text-gray-500">Terbitkan nomor aduan resmi untuk tiket ini</p>
-                </div>
+                <button 
+                  onClick={() => setShowSyncHtsModal(false)}
+                  className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button 
-                onClick={() => setShowSyncHtsModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
+
+              {/* Tab Switcher: Terbitkan Baru vs Tautkan yang Sudah Ada */}
+              <div className="flex rounded-xl bg-gray-200/70 p-1 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setSyncHtsTab('create')}
+                  className={`flex-1 py-1.5 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                    syncHtsTab === 'create'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Terbitkan Baru</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSyncHtsTab('link')}
+                  className={`flex-1 py-1.5 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                    syncHtsTab === 'link'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <LinkIcon className="w-3.5 h-3.5" />
+                  <span>Tautkan yang Sudah Ada</span>
+                </button>
+              </div>
             </div>
 
+            {syncHtsTab === 'link' ? (
+              /* TAB 2: TAUTKAN NOMOR TIKET HTS YANG SUDAH ADA */
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 p-5 overflow-y-auto space-y-4">
+                  {syncHtsError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span>{syncHtsError}</span>
+                    </div>
+                  )}
+
+                  <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
+                    <p className="font-semibold flex items-center gap-1.5">
+                      <LinkIcon className="w-3.5 h-3.5 text-blue-600" /> Penautan Nomor Aduan Resmi
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-blue-700">
+                      Gunakan fitur ini jika tiket aduan telah dibuat langsung di portal HTS Diskomdigi Jawa Tengah, dan Anda ingin menyambungkannya dengan percakapan WhatsApp ini.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Nomor Aduan Resmi HTS *
+                    </label>
+                    <input
+                      type="text"
+                      value={linkHtsNo}
+                      onChange={e => setLinkHtsNo(e.target.value)}
+                      placeholder="Contoh: 2038-TShoot-2026-jateng-10"
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                      required
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Sistem akan memverifikasi nomor ini secara live ke server portal HTS.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Tautkan ke Divisi Tim Teknis (Opsional)
+                    </label>
+                    <select
+                      value={linkHtsCategoryId}
+                      onChange={e => setLinkHtsCategoryId(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">-- Pilih Divisi Tim (Sesuai Kategori HTS) --</option>
+                      {categories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Sticky Footer Tab Link */}
+                <div className="p-3.5 px-5 border-t border-gray-200 flex justify-end gap-2.5 bg-white sticky bottom-0 z-10 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setShowSyncHtsModal(false)}
+                    className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLinkHtsTicket(false)}
+                    disabled={isLinkingHts || !linkHtsNo.trim()}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isLinkingHts ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        Memverifikasi ke HTS...
+                      </>
+                    ) : (
+                      <>
+                        <LinkIcon className="w-3.5 h-3.5" />
+                        Verifikasi & Tautkan Tiket
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* TAB 1: TERBITKAN TIKET BARU KE PORTAL HTS */
             <form onSubmit={handleSyncTicketToHts} className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 p-5 overflow-y-auto space-y-3.5">
               {syncHtsError && (
@@ -4411,31 +4785,46 @@ function Dashboard() {
                     </div>
                   </label>
                 )}
-                <div className="flex items-center gap-2">
-                  <label className="flex-1 border border-dashed border-gray-300 hover:border-blue-400 rounded-lg p-1.5 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={e => {
-                        if (e.target.files?.[0]) {
-                          setSyncHtsFile(e.target.files[0]);
-                          setSyncHtsUseChatImage(false);
-                        }
-                      }}
-                    />
-                    <Paperclip className="w-3.5 h-3.5 text-gray-500" />
-                    <span className="truncate max-w-[200px]">{syncHtsFile ? syncHtsFile.name : 'Upload file gambar baru'}</span>
-                  </label>
-                  {syncHtsFile && (
-                    <button
-                      type="button"
-                      onClick={() => setSyncHtsFile(null)}
-                      className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs"
-                      title="Batal upload file"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="flex-1 border border-dashed border-gray-300 hover:border-blue-400 rounded-lg p-2 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={e => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            const newFiles = Array.from(e.target.files);
+                            setSyncHtsFiles(prev => [...prev, ...newFiles]);
+                            setSyncHtsFile(newFiles[0]);
+                            setSyncHtsUseChatImage(false);
+                          }
+                        }}
+                      />
+                      <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                      <span>Upload foto dari komputer (Bisa pilih 2-3 foto)</span>
+                    </label>
+                  </div>
+                  {syncHtsFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {syncHtsFiles.map((file, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px] border border-blue-200">
+                          <span className="truncate max-w-[130px]">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = syncHtsFiles.filter((_, i) => i !== idx);
+                              setSyncHtsFiles(updated);
+                              setSyncHtsFile(updated[0] || null);
+                            }}
+                            className="text-blue-500 hover:text-red-500"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
@@ -4469,6 +4858,7 @@ function Dashboard() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
@@ -4492,23 +4882,52 @@ function Dashboard() {
 
             <div className="flex-1 p-5 overflow-y-auto space-y-4">
 
-            {/* Banner HTS Dual-Close jika tiket terhubung ke HTS */}
-            {activeTicket?.hts_ticket_no && (
-              <div className="mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
-                <div className="flex items-center justify-between font-bold mb-1.5">
+            {/* Banner HTS Multi-Tiket jika tiket terhubung ke HTS */}
+            {(activeTicket?.hts_tickets?.length > 0 || activeTicket?.hts_ticket_no) && (
+              <div className="mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-2">
+                <div className="flex items-center justify-between font-bold">
                   <div className="flex items-center gap-1.5">
                     <Globe className="w-4 h-4 text-blue-600" />
-                    <span>Terhubung ke Portal HTS: #{activeTicket.hts_ticket_no}</span>
+                    <span>Tiket HTS Terkait ({activeTicket.hts_tickets?.length || 1})</span>
                   </div>
-                  <label className="inline-flex items-center gap-1 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={closeHtsTicket} 
-                      onChange={e => setCloseHtsTicket(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500" 
-                    />
-                    <span className="text-[11px] font-semibold text-blue-700">Tutup di HTS</span>
-                  </label>
+                  {(activeTicket.hts_tickets?.length > 0 ? activeTicket.hts_tickets.every(h => h.hts_ticket_status === 'SOLVED') : activeTicket.hts_ticket_status === 'SOLVED') ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      ✓ Seluruh Tiket HTS Sudah SOLVED
+                    </span>
+                  ) : (
+                    <label className="inline-flex items-center gap-1 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={closeHtsTicket} 
+                        onChange={e => setCloseHtsTicket(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500" 
+                      />
+                      <span className="text-[11px] font-semibold text-blue-700">Selesaikan yang PENDING di HTS</span>
+                    </label>
+                  )}
+                </div>
+
+                {/* List Tiket-Tiket HTS Terkait */}
+                <div className="space-y-1.5 pt-1">
+                  {(activeTicket.hts_tickets?.length > 0 ? activeTicket.hts_tickets : [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }]).map((h) => (
+                    <div key={h.id || h.hts_ticket_no} className="flex items-center justify-between bg-white/80 p-2 rounded-lg border border-blue-100 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-blue-950">#{h.hts_ticket_no}</span>
+                        {h.category?.name && (
+                          <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-medium">
+                            {h.category.name}
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                        h.hts_ticket_status === 'SOLVED'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                      }`}>
+                        {h.hts_ticket_status || 'PENDING'}
+                      </span>
+                    </div>
+                  ))}
                 </div>
                 {closeHtsTicket && (
                   <div className="space-y-2.5 mt-2.5 pt-2.5 border-t border-blue-200">
@@ -4639,29 +5058,32 @@ function Dashboard() {
                             <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
                               📸 Foto dari Catatan Internal Teknisi
                             </span>
-                            {closeHtsSelectedInternalUrl && (
+                            {closeHtsSelectedInternalUrls.length > 0 && (
                               <span className="text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded">
-                                1 Terpilih
+                                {closeHtsSelectedInternalUrls.length} Foto Terpilih
                               </span>
                             )}
                           </div>
                           <p className="text-[10px] text-amber-700 leading-tight">
-                            Klik salah satu foto yang dikirimkan tim teknisi di catatan internal untuk dijadikan lampiran penyelesaian HTS:
+                            Klik foto untuk memilih 1 atau lebih foto hasil perbaikan teknisi sebagai bukti penyelesaian di portal HTS:
                           </p>
                           <div className="flex gap-2 overflow-x-auto py-1">
                             {messages.filter(m => m.is_internal && m.attachment_url).map(m => {
                               const fullUrl = m.attachment_url.startsWith('http') ? m.attachment_url : `${BASE_URL}${m.attachment_url}`;
-                              const isSelected = closeHtsSelectedInternalUrl === m.attachment_url && !closeHtsFile;
+                              const isSelected = closeHtsSelectedInternalUrls.includes(m.attachment_url);
                               return (
                                 <div
                                   key={m.id}
                                   onClick={() => {
                                     if (isSelected) {
-                                      setCloseHtsSelectedInternalUrl(null);
+                                      const updated = closeHtsSelectedInternalUrls.filter(u => u !== m.attachment_url);
+                                      setCloseHtsSelectedInternalUrls(updated);
+                                      setCloseHtsSelectedInternalUrl(updated[0] || null);
                                     } else {
-                                      setCloseHtsSelectedInternalUrl(m.attachment_url);
+                                      const updated = [...closeHtsSelectedInternalUrls, m.attachment_url];
+                                      setCloseHtsSelectedInternalUrls(updated);
+                                      setCloseHtsSelectedInternalUrl(updated[0] || null);
                                       setCloseHtsUseChatImage(false);
-                                      setCloseHtsFile(null);
                                     }
                                   }}
                                   className={`relative rounded-lg border-2 cursor-pointer transition p-0.5 shrink-0 ${
@@ -4669,7 +5091,7 @@ function Dashboard() {
                                       ? 'border-amber-600 ring-2 ring-amber-300 shadow-xs' 
                                       : 'border-amber-200 hover:border-amber-400 bg-white'
                                   }`}
-                                  title="Pilih foto ini sebagai bukti HTS"
+                                  title="Klik untuk memilih foto ini"
                                 >
                                   <img src={fullUrl} alt="Internal Media" className="w-14 h-14 object-cover rounded-md" />
                                   {isSelected && (
@@ -4710,36 +5132,46 @@ function Dashboard() {
                       )}
 
                       {/* 3. Upload File Baru dari Komputer */}
-                      <div className="flex items-center gap-2">
-                        <label className={`flex-1 border border-dashed rounded-lg p-1.5 text-center cursor-pointer transition flex items-center justify-center gap-2 text-xs ${
-                          closeHtsFile 
-                            ? 'border-blue-500 bg-blue-50 text-blue-800 font-medium' 
-                            : 'border-blue-300 hover:border-blue-500 bg-white text-gray-600'
-                        }`}>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={e => {
-                              if (e.target.files?.[0]) {
-                                setCloseHtsFile(e.target.files[0]);
-                                setCloseHtsUseChatImage(false);
-                                setCloseHtsSelectedInternalUrl(null);
-                              }
-                            }}
-                          />
-                          <Paperclip className="w-3.5 h-3.5 text-gray-500" />
-                          <span className="truncate max-w-[200px]">{closeHtsFile ? closeHtsFile.name : 'Upload file foto baru dari komputer'}</span>
-                        </label>
-                        {closeHtsFile && (
-                          <button
-                            type="button"
-                            onClick={() => setCloseHtsFile(null)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs"
-                            title="Batal upload file"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <label className="flex-1 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg p-2 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={e => {
+                                if (e.target.files && e.target.files.length > 0) {
+                                  const newFiles = Array.from(e.target.files);
+                                  setCloseHtsFiles(prev => [...prev, ...newFiles]);
+                                  setCloseHtsFile(newFiles[0]);
+                                  setCloseHtsUseChatImage(false);
+                                }
+                              }}
+                            />
+                            <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                            <span>Upload foto dari komputer (Bisa pilih 2-3 foto)</span>
+                          </label>
+                        </div>
+                        {closeHtsFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {closeHtsFiles.map((file, idx) => (
+                              <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px] border border-blue-200">
+                                <span className="truncate max-w-[130px]">{file.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = closeHtsFiles.filter((_, i) => i !== idx);
+                                    setCloseHtsFiles(updated);
+                                    setCloseHtsFile(updated[0] || null);
+                                  }}
+                                  className="text-blue-500 hover:text-red-500"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>

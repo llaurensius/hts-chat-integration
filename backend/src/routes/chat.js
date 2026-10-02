@@ -32,7 +32,8 @@ const {
   deleteQuickReply,
   // Endpoint V4 Fase 7 (Manual Link & Disaster Recovery HTS)
   linkHtsTicket,
-  completeHtsPic
+  completeHtsPic,
+  unlinkHtsTicket
 } = require('../controllers/chatController');
 const { upload } = require('../utils/imageStorage'); // Gunakan imageStorage yang sudah benar
 
@@ -42,19 +43,19 @@ router.get('/tickets/:ticketId/messages', getMessages);
 router.post('/send', sendReply);
 router.post('/sendMedia', upload.single('media'), sendMedia);
 router.get('/categories', getCategorys);
-router.post('/tickets/:ticketId/close', upload.single('attachment'), closeTicket);
-router.post('/tickets/:ticketId/assign', upload.single('attachment'), assignTicket);
+router.post('/tickets/:ticketId/close', upload.array('attachment', 5), closeTicket);
+router.post('/tickets/:ticketId/assign', upload.array('attachment', 5), assignTicket);
 router.post('/tickets/:ticketId/resolve', resolveTicket);
 router.post('/tickets/:ticketId/return', returnTicket);
 router.post('/tickets/:ticketId/internal-note', addInternalNote);
 router.put('/customers/:customerId', updateCustomer);
-router.post('/tickets/:ticketId/sync-hts', upload.single('attachment'), syncTicketToHts);
+router.post('/tickets/:ticketId/sync-hts', upload.array('attachment', 5), syncTicketToHts);
 router.post('/tickets/:ticketId/sync-solve-hts', syncSolveHts);
 
 // Rute V4: Multi-HTS & Percakapan Biasa
 router.get('/tickets/:ticketId/hts', getTicketHtsList);
-router.post('/tickets/:ticketId/hts', upload.single('attachment'), createTicketHts);
-router.post('/tickets/:ticketId/hts/:htsId/solve', upload.single('attachment'), solveTicketHtsSingle);
+router.post('/tickets/:ticketId/hts', upload.array('attachment', 5), createTicketHts);
+router.post('/tickets/:ticketId/hts/:htsId/solve', upload.array('attachment', 5), solveTicketHtsSingle);
 router.patch('/tickets/:ticketId/toggle-aduan', toggleAduan);
 router.post('/tickets/:ticketId/close-general', closeGeneralChat);
 
@@ -75,6 +76,7 @@ router.delete('/quick-replies/:id', deleteQuickReply);
 // Rute V4 Fase 7: Penautan Manual & Pemulihan Tiket HTS (Manual Link & Disaster Recovery)
 router.post('/tickets/:ticketId/link-hts', linkHtsTicket);
 router.post('/tickets/:ticketId/hts/:htsTicketId/complete-pic', completeHtsPic);
+router.delete('/tickets/:ticketId/hts/:htsTicketId/unlink', unlinkHtsTicket);
 
 module.exports = router;
 

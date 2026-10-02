@@ -192,7 +192,8 @@ const closeTicket = async (req, res) => {
     let htsCloseSuccess = false;
     let htsCloseMessage = '';
     let finalMergedPicIds = [];
-    if (existingTicket.hts_ticket_no && closeHtsTicket !== false && closeHtsTicket !== 'false') {
+    const isAlreadySolvedInHts = existingTicket.hts_ticket_status === 'SOLVED';
+    if (existingTicket.hts_ticket_no && !isAlreadySolvedInHts && closeHtsTicket !== false && closeHtsTicket !== 'false') {
       try {
         let attachmentUrl = null;
         if (req.file) {
@@ -215,21 +216,48 @@ const closeTicket = async (req, res) => {
           finalMergedPicIds = ['14']; // Default PIC Helpdesk jika belum ditentukan
         }
 
-        await htsClientService.solveTicketHts(
-          req.user.id,
-          existingTicket.hts_ticket_id || existingTicket.hts_ticket_no,
-          {
-            detil: htsSolution || summary.trim(),
-            pic_id: finalMergedPicIds[0],
-            pic_ids: finalMergedPicIds,
-            tglteknis: htsTglTeknis || new Date().toISOString().split('T')[0],
-            jam_problem: htsJamTeknis || new Date().toTimeString().split(' ')[0].substring(0, 5),
-            attachmentUrl: attachmentUrl
+        // Cari seluruh tiket HTS terkait yang masih PENDING
+        const pendingHtsList = await prisma.ticketHts.findMany({
+          where: {
+            ticket_id: existingTicket.id,
+            hts_ticket_status: { not: 'SOLVED' }
           }
-        );
+        });
+
+        const targetsToSolve = pendingHtsList.length > 0 
+          ? pendingHtsList 
+          : [{ hts_ticket_id: existingTicket.hts_ticket_id, hts_ticket_no: existingTicket.hts_ticket_no }];
+
+        const solvedNos = [];
+        for (const target of targetsToSolve) {
+          try {
+            await htsClientService.solveTicketHts(
+              req.user.id,
+              target.hts_ticket_id || target.hts_ticket_no,
+              {
+                detil: htsSolution || summary.trim(),
+                pic_id: finalMergedPicIds[0],
+                pic_ids: finalMergedPicIds,
+                tglteknis: htsTglTeknis || new Date().toISOString().split('T')[0],
+                jam_problem: htsJamTeknis || new Date().toTimeString().split(' ')[0].substring(0, 5),
+                attachmentUrl: attachmentUrl,
+                attachmentUrls: attachmentUrls
+              }
+            );
+            if (target.id) {
+              await prisma.ticketHts.update({
+                where: { id: target.id },
+                data: { hts_ticket_status: 'SOLVED', solved_at: new Date() }
+              });
+            }
+            solvedNos.push(target.hts_ticket_no);
+          } catch (itemErr) {
+            console.warn(`[Chat API] Warning solving HTS #${target.hts_ticket_no}:`, itemErr.message);
+          }
+        }
 
         htsCloseSuccess = true;
-        htsCloseMessage = `[PORTAL HTS] Tiket #${existingTicket.hts_ticket_no} berhasil diselesaikan (SOLVED) di portal HTS Diskomdigi.`;
+        htsCloseMessage = `[PORTAL HTS] Tiket HTS #${solvedNos.join(', #')} berhasil diselesaikan (SOLVED) di portal resmi HTS.`;
       } catch (htsErr) {
         console.error('[Chat API] Gagal submit teknis HTS saat closeTicket:', htsErr.message);
         // Pilihan 2: Jika penutupan tiket di portal HTS gagal, batalkan penutupan tiket lokal
@@ -1136,18 +1164,33 @@ const syncTicketToHts = async (req, res) => {
       orderBy: { created_at: 'asc' }
     });
 
-    let attachmentUrl = null;
-    if (req.file) {
-      attachmentUrl = `/uploads/${req.file.filename}`;
+    let attachmentUrls = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(f => attachmentUrls.push(`/uploads/${f.filename}`));
+    } else if (req.file) {
+      attachmentUrls.push(`/uploads/${req.file.filename}`);
+    }
+    
+    // Tambahkan selectedAttachmentUrls jika dikirim (array atau string)
+    if (req.body.selectedAttachmentUrls) {
+      const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
+        ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
+        : req.body.selectedAttachmentUrls;
+      parsedUrls.forEach(u => { if (u && !attachmentUrls.includes(u)) attachmentUrls.push(u); });
     } else if (req.body.selectedAttachmentUrl) {
-      attachmentUrl = req.body.selectedAttachmentUrl;
+      if (!attachmentUrls.includes(req.body.selectedAttachmentUrl)) {
+        attachmentUrls.push(req.body.selectedAttachmentUrl);
+      }
     } else if (useChatImage === true || useChatImage === 'true') {
       const imageMsg = await prisma.message.findFirst({
         where: { ticket_id: ticket.id, attachment_url: { not: null } },
         orderBy: { created_at: 'desc' }
       });
-      if (imageMsg) attachmentUrl = imageMsg.attachment_url;
+      if (imageMsg && !attachmentUrls.includes(imageMsg.attachment_url)) {
+        attachmentUrls.push(imageMsg.attachment_url);
+      }
     }
+    const attachmentUrl = attachmentUrls[0] || null;
 
     const activeTeamNames = ticket.categories.map(c => c.category.name).join(', ');
     const finalDetil = (hts_detil || firstCustomerMsg?.message_text || '').trim();
@@ -1168,7 +1211,8 @@ const syncTicketToHts = async (req, res) => {
       detil: hts_detil || firstCustomerMsg?.message_text || 'Keluhan dari Helpdesk WhatsApp',
       pic_id: chosenPicIds[0] || '14',
       pic_ids: chosenPicIds.length > 0 ? chosenPicIds : ['14'],
-      attachmentUrl: attachmentUrl
+      attachmentUrl: attachmentUrl,
+      attachmentUrls: attachmentUrls
     });
 
     const updated = await prisma.ticket.update({
@@ -1298,7 +1342,7 @@ const syncSolveHts = async (req, res) => {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
         sender_id: req.user.id,
-        message_text: `[PORTAL HTS] Tiket #${ticket.hts_ticket_no} berhasil disinkronkan dan diselesaikan (SOLVED) di portal HTS oleh ${req.user.name}.`,
+        message_text: `[PORTAL HTS] Tiket #${ticket.hts_ticket_no} berhasil disinkronkan dan diselesaikan (SOLVED) di portal HTS oleh ${req.user?.name || 'Petugas'}.`,
         is_internal: true
       }
     });
@@ -1374,18 +1418,31 @@ const createTicketHts = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
-    let attachmentUrl = null;
-    if (req.file) {
-      attachmentUrl = `/uploads/${req.file.filename}`;
+    let attachmentUrls = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(f => attachmentUrls.push(`/uploads/${f.filename}`));
+    } else if (req.file) {
+      attachmentUrls.push(`/uploads/${req.file.filename}`);
+    }
+    if (req.body.selectedAttachmentUrls) {
+      const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
+        ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
+        : req.body.selectedAttachmentUrls;
+      parsedUrls.forEach(u => { if (u && !attachmentUrls.includes(u)) attachmentUrls.push(u); });
     } else if (req.body.selectedAttachmentUrl) {
-      attachmentUrl = req.body.selectedAttachmentUrl;
+      if (!attachmentUrls.includes(req.body.selectedAttachmentUrl)) {
+        attachmentUrls.push(req.body.selectedAttachmentUrl);
+      }
     } else if (useChatImage === true || useChatImage === 'true') {
       const imageMsg = await prisma.message.findFirst({
         where: { ticket_id: ticket.id, attachment_url: { not: null } },
         orderBy: { created_at: 'desc' }
       });
-      if (imageMsg) attachmentUrl = imageMsg.attachment_url;
+      if (imageMsg && !attachmentUrls.includes(imageMsg.attachment_url)) {
+        attachmentUrls.push(imageMsg.attachment_url);
+      }
     }
+    const attachmentUrl = attachmentUrls[0] || null;
 
     const firstCustomerMsg = await prisma.message.findFirst({
       where: { ticket_id: ticket.id, sender_type: 'CUSTOMER' },
@@ -1416,7 +1473,8 @@ const createTicketHts = async (req, res) => {
       detil: finalDetil,
       pic_id: chosenPicIds[0] || '14',
       pic_ids: chosenPicIds.length > 0 ? chosenPicIds : ['14'],
-      attachmentUrl: attachmentUrl
+      attachmentUrl: attachmentUrl,
+      attachmentUrls: attachmentUrls
     });
 
     // Simpan ke tabel TicketHts baru (V4)
@@ -1530,7 +1588,7 @@ const solveTicketHtsSingle = async (req, res) => {
         ticket_id: parseInt(ticketId),
         sender_type: 'AGENT',
         sender_id: req.user.id,
-        message_text: `[PORTAL HTS] Tiket HTS #${ticketHts.hts_ticket_no}${ticketHts.category ? ` (${ticketHts.category.name})` : ''} telah diselesaikan (SOLVED) oleh ${req.user.name}.`,
+        message_text: `[PORTAL HTS] Tiket HTS #${ticketHts.hts_ticket_no}${ticketHts.category ? ` (${ticketHts.category.name})` : ''} telah diselesaikan (SOLVED) oleh ${req.user?.name || 'Petugas'}.`,
         is_internal: true
       }
     });
@@ -2015,6 +2073,91 @@ const deleteQuickReply = async (req, res) => {
   }
 };
 
+// Menghapus/Melepas penautan tiket HTS dari percakapan
+const unlinkHtsTicket = async (req, res) => {
+  const { ticketId, htsTicketId } = req.params;
+
+  try {
+    const ticketHts = await prisma.ticketHts.findUnique({
+      where: { id: parseInt(htsTicketId) }
+    });
+
+    if (!ticketHts || ticketHts.ticket_id !== parseInt(ticketId)) {
+      return res.status(404).json({ error: 'Tiket HTS tidak ditemukan pada percakapan ini' });
+    }
+
+    const removedNo = ticketHts.hts_ticket_no;
+
+    // 1. Hapus dari tabel TicketHts
+    await prisma.ticketHts.delete({
+      where: { id: ticketHts.id }
+    });
+
+    // 2. Cek apakah masih ada tiket HTS lain pada tiket ini
+    const remainingHts = await prisma.ticketHts.findMany({
+      where: { ticket_id: parseInt(ticketId) }
+    });
+
+    // 3. Update field legacy di tabel Ticket
+    const updateData = {};
+    if (remainingHts.length > 0) {
+      updateData.hts_ticket_id = remainingHts[0].hts_ticket_id;
+      updateData.hts_ticket_no = remainingHts[0].hts_ticket_no;
+      updateData.hts_ticket_status = remainingHts[0].hts_ticket_status;
+      updateData.hts_pic_ids = remainingHts[0].hts_pic_ids;
+    } else {
+      updateData.hts_ticket_id = null;
+      updateData.hts_ticket_no = null;
+      updateData.hts_ticket_status = null;
+      updateData.hts_pic_ids = null;
+      updateData.hts_synced_at = null;
+    }
+
+    const updatedTicket = await prisma.ticket.update({
+      where: { id: parseInt(ticketId) },
+      data: updateData,
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
+    // 4. Catat pesan sistem internal
+    const noteText = `[SISTEM] Tautan ke tiket HTS #${removedNo} telah dilepas oleh ${req.user?.name || 'Petugas'}.`;
+    await prisma.message.create({
+      data: {
+        ticket_id: parseInt(ticketId),
+        sender_type: 'AGENT',
+        sender_id: req.user.id,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    // 5. Broadcast Socket.io
+    if (req.io) {
+      req.io.emit('hts_ticket_deleted', { ticketId: parseInt(ticketId), htsTicketId: parseInt(htsTicketId) });
+      req.io.emit('new_message', {
+        ticketId: parseInt(ticketId),
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Tautan nomor HTS #${removedNo} berhasil dilepas.`,
+      ticket: updatedTicket
+    });
+  } catch (error) {
+    console.error('[Chat API] Error unlinking HTS ticket:', error);
+    res.status(500).json({ error: 'Gagal melepas tautan tiket HTS' });
+  }
+};
+
 // ==========================================
 // FASE 7 V4: Manual Link & Disaster Recovery Tiket HTS
 // ==========================================
@@ -2044,7 +2187,21 @@ const linkHtsTicket = async (req, res) => {
       return res.status(404).json({ error: 'Tiket Helpdesk tidak ditemukan' });
     }
 
-    // 1. Cek apakah nomor tiket HTS ini sudah pernah ditautkan ke tiket lain di sistem Helpdesk
+    // 1. Validasi: Jangan izinkan menautkan nomor HTS yang sama berulang kali di percakapan yang sama
+    const duplicateInSameTicket = await prisma.ticketHts.findFirst({
+      where: {
+        ticket_id: ticket.id,
+        hts_ticket_no: { equals: cleanNo, mode: 'insensitive' }
+      }
+    });
+
+    if (duplicateInSameTicket) {
+      return res.status(400).json({
+        error: `Nomor aduan HTS #${cleanNo} sudah tertaut pada percakapan ini!`
+      });
+    }
+
+    // 2. Cek apakah nomor tiket HTS ini sudah pernah ditautkan ke tiket lain di sistem Helpdesk
     const existingTicketHts = await prisma.ticketHts.findFirst({
       where: {
         hts_ticket_no: { equals: cleanNo, mode: 'insensitive' }
@@ -2088,7 +2245,25 @@ const linkHtsTicket = async (req, res) => {
       }
     });
 
-    // 4. Perbarui tiket utama: Auto-Promotion ke is_aduan = true dan update field legacy jika kosong
+    // 4. Otomatis Assign Tim Teknisi L2 jika category_id dipilih
+    let assignedCategoryName = '';
+    if (category_id) {
+      const parsedCatId = parseInt(category_id);
+      const isAlreadyAssigned = ticket.categories.some(tc => (tc.category_id || tc.category?.id) === parsedCatId);
+      if (!isAlreadyAssigned) {
+        await prisma.ticketCategory.create({
+          data: {
+            ticket_id: ticket.id,
+            category_id: parsedCatId,
+            is_resolved: htsData.status === 'SOLVED'
+          }
+        });
+        const catInfo = await prisma.category.findUnique({ where: { id: parsedCatId } });
+        if (catInfo) assignedCategoryName = catInfo.name;
+      }
+    }
+
+    // 5. Perbarui tiket utama: Auto-Promotion ke is_aduan = true dan update field legacy jika kosong
     const updateTicketData = {
       is_aduan: true // Auto-promotion ke aduan teknis resmi
     };
@@ -2111,8 +2286,12 @@ const linkHtsTicket = async (req, res) => {
       }
     });
 
-    // 5. Catat log catatan internal sistem
-    const noteText = `[SISTEM] Nomor tiket HTS #${htsData.noTrouble} berhasil ditautkan secara manual oleh ${req.user.name} (Status: ${htsData.status || 'PENDING'}).`;
+    // 6. Catat log catatan internal sistem
+    let noteText = `[SISTEM] Nomor tiket HTS #${htsData.noTrouble} berhasil ditautkan secara manual oleh ${req.user?.name || 'Petugas'} (Status: ${htsData.status || 'PENDING'}).`;
+    if (assignedCategoryName) {
+      noteText += ` Tim ${assignedCategoryName} otomatis ditugaskan.`;
+    }
+
     await prisma.message.create({
       data: {
         ticket_id: ticket.id,
@@ -2123,9 +2302,12 @@ const linkHtsTicket = async (req, res) => {
       }
     });
 
-    // 6. Siarkan notifikasi Socket.io ke dashboard
+    // 7. Siarkan notifikasi Socket.io ke dashboard
     if (req.io) {
       req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
+      if (assignedCategoryName) {
+        req.io.emit('ticket_assigned', { ticketId: ticket.id });
+      }
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -2174,7 +2356,7 @@ const completeHtsPic = async (req, res) => {
       include: { category: true }
     });
 
-    const noteText = `[SISTEM] Penugasan PIC untuk tiket HTS #${ticketHts.hts_ticket_no} berhasil diselesaikan oleh ${req.user.name} (Status: PENDING).`;
+    const noteText = `[SISTEM] Penugasan PIC untuk tiket HTS #${ticketHts.hts_ticket_no} berhasil diselesaikan oleh ${req.user?.name || 'Petugas'} (Status: PENDING).`;
     await prisma.message.create({
       data: {
         ticket_id: parseInt(ticketId),
@@ -2238,7 +2420,8 @@ module.exports = {
   deleteQuickReply,
   // Ekspor Endpoint V4 Fase 7 (Manual Link & Recovery HTS)
   linkHtsTicket,
-  completeHtsPic
+  completeHtsPic,
+  unlinkHtsTicket
 };
 
 

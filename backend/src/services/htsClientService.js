@@ -342,7 +342,8 @@ const createTicketPipeline = async (userId, ticketData) => {
     detil,
     pic_id,
     pic_ids,
-    attachmentUrl
+    attachmentUrl,
+    attachmentUrls
   } = ticketData;
 
   const session = await getActiveUserCookiesAndCsrf(userId);
@@ -394,18 +395,30 @@ const createTicketPipeline = async (userId, ticketData) => {
   }
   form1.append('detil', cleanDetil.substring(0, 250));
 
-  // Handle lampiran jika ada
-  if (attachmentUrl) {
+  // Handle lampiran jika ada (mendukung multiple lampiran pic[])
+  const targetAttachmentUrls = Array.isArray(attachmentUrls) 
+    ? attachmentUrls 
+    : (attachmentUrl ? [attachmentUrl] : []);
+
+  if (targetAttachmentUrls.length > 0) {
     const path = require('path');
     const fs = require('fs');
-    const cleanPath = attachmentUrl.replace(/^\/uploads\//, '').replace(/^\//, '');
-    const localFilePath = path.join(__dirname, '../../uploads', cleanPath);
-    if (fs.existsSync(localFilePath)) {
-      const fileBuffer = fs.readFileSync(localFilePath);
-      const fileName = path.basename(localFilePath);
-      const mime = fileName.endsWith('.png') ? 'image/png' : 'image/jpeg';
-      const fileBlob = new Blob([fileBuffer], { type: mime });
-      form1.append('pic[]', fileBlob, fileName);
+    for (const url of targetAttachmentUrls) {
+      if (!url) continue;
+      const cleanPath = url.replace(/^\/uploads\//, '').replace(/^\//, '');
+      const localFilePath = path.join(__dirname, '../../uploads', cleanPath);
+      if (fs.existsSync(localFilePath)) {
+        const fileBuffer = fs.readFileSync(localFilePath);
+        const fileName = path.basename(localFilePath);
+        const ext = path.extname(fileName).toLowerCase();
+        let mime = 'image/jpeg';
+        if (ext === '.png') mime = 'image/png';
+        else if (ext === '.pdf') mime = 'application/pdf';
+        else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+
+        const fileBlob = new Blob([fileBuffer], { type: mime });
+        form1.append('pic[]', fileBlob, fileName);
+      }
     }
   }
 
@@ -536,7 +549,8 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
     pic_id,
     tglteknis,
     jam_problem,
-    attachmentUrl
+    attachmentUrl,
+    attachmentUrls
   } = technicalData;
 
   // Ekstrak ID numerik trouble jika formatnya nomor lengkap seperti "2025-TShoot-2026-jateng-09"
@@ -628,24 +642,31 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
   // Sesuai skrip frontend HTS: formData.append('pic_id', selectedPICs.join(','))
   form2.append('pic_id', targetPicIds.join(','));
 
-  // Handle bukti penanganan (pic[]) jika ada
-  if (attachmentUrl) {
+  // Handle bukti penanganan (pic[]) jika ada (mendukung multiple lampiran bukti)
+  const targetAttachmentUrls = Array.isArray(attachmentUrls) 
+    ? attachmentUrls 
+    : (attachmentUrl ? [attachmentUrl] : []);
+
+  if (targetAttachmentUrls.length > 0) {
     try {
       const path = require('path');
       const fs = require('fs');
-      const cleanPath = attachmentUrl.replace(/^\/uploads\//, '').replace(/^\//, '');
-      const filePath = path.join(__dirname, '../../uploads', cleanPath);
-      if (fs.existsSync(filePath)) {
-        const fileBuffer = fs.readFileSync(filePath);
-        const fileName = path.basename(filePath);
-        const ext = path.extname(fileName).toLowerCase();
-        let mime = 'image/jpeg';
-        if (ext === '.png') mime = 'image/png';
-        else if (ext === '.pdf') mime = 'application/pdf';
-        else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
+      for (const url of targetAttachmentUrls) {
+        if (!url) continue;
+        const cleanPath = url.replace(/^\/uploads\//, '').replace(/^\//, '');
+        const filePath = path.join(__dirname, '../../uploads', cleanPath);
+        if (fs.existsSync(filePath)) {
+          const fileBuffer = fs.readFileSync(filePath);
+          const fileName = path.basename(filePath);
+          const ext = path.extname(fileName).toLowerCase();
+          let mime = 'image/jpeg';
+          if (ext === '.png') mime = 'image/png';
+          else if (ext === '.pdf') mime = 'application/pdf';
+          else if (ext === '.jpg' || ext === '.jpeg') mime = 'image/jpeg';
 
-        const fileBlob = new Blob([fileBuffer], { type: mime });
-        form2.append('pic[]', fileBlob, fileName);
+          const fileBlob = new Blob([fileBuffer], { type: mime });
+          form2.append('pic[]', fileBlob, fileName);
+        }
       }
     } catch (e) {
       console.warn('[HTS Service] Gagal memproses file lampiran bukti teknis:', e.message);
