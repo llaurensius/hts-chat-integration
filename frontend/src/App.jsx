@@ -4833,7 +4833,7 @@ Tetap tautkan tiket ini?`)) {
                 </div>
                 <div>
                   <h3 className="font-bold text-gray-800 text-sm">Import Master Data Kontak</h3>
-                  <p className="text-[11px] text-gray-500">Unggah berkas Excel (.xlsx) atau CSV</p>
+                  <p className="text-[11px] text-gray-500">Unggah berkas Excel (.xlsx), CSV, atau VCF (Google Contacts)</p>
                 </div>
               </div>
               <button 
@@ -4862,11 +4862,11 @@ Tetap tautkan tiket ini?`)) {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Pilih Berkas Excel / CSV *
+                  Pilih Berkas Excel / CSV / VCF *
                 </label>
                 <input
                   type="file"
-                  accept=".xlsx, .xls, .csv"
+                  accept=".xlsx, .xls, .csv, .vcf"
                   required
                   onChange={e => setImportContactFile(e.target.files?.[0] || null)}
                   className="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer border border-gray-300 rounded-xl p-1.5"
