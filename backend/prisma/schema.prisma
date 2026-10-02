@@ -8,13 +8,15 @@ datasource db {
 }
 
 model Customer {
-  id             Int       @id @default(autoincrement())
-  wa_number      String    @unique
-  name           String
-  skpd_name      String?
-  is_custom_name Boolean   @default(false) // Menandai jika nama telah diedit manual via Dashboard (V2.3)
-  created_at     DateTime  @default(now())
-  tickets        Ticket[]
+  id                  Int       @id @default(autoincrement())
+  wa_number           String    @unique
+  name                String
+  skpd_name           String?
+  is_custom_name      Boolean   @default(false) // Menandai jika nama telah diedit manual via Dashboard
+  is_imported_contact Boolean   @default(false) // Menandai jika nama berasal dari Import Master Data Admin (Prioritas Utama)
+  wa_push_name        String?   // Menyimpan nama asli profil WhatsApp sebagai data pembanding
+  created_at          DateTime  @default(now())
+  tickets             Ticket[]
 }
 
 // Menggantikan Division menjadi Category (Fase 1 - V2)
@@ -123,16 +125,17 @@ model TicketCategory {
   is_resolved Boolean   @default(false)
   resolved_at DateTime?
   solution    String?   @db.Text  // Teks solusi teknis dari L2 saat klik Tandai Selesai
-  ticket      Ticket    @relation(fields: [ticket_id], references: [id])
-  category    Category  @relation(fields: [category_id], references: [id])
+  ticket      Ticket    @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+  category    Category  @relation(fields: [category_id], references: [id], onDelete: Cascade)
 
   @@id([ticket_id, category_id])
+  @@index([category_id])
 }
 
 model Message {
   id             Int        @id @default(autoincrement())
   ticket_id      Int
-  ticket         Ticket     @relation(fields: [ticket_id], references: [id])
+  ticket         Ticket     @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
   sender_type    SenderType
   sender_id      Int?
   sender         User?      @relation(fields: [sender_id], references: [id], onDelete: SetNull)
@@ -141,6 +144,10 @@ model Message {
   wa_message_id  String?
   is_internal    Boolean    @default(false) // Penanda apakah ini Catatan Internal L2 (Fase 1 - V2)
   created_at     DateTime   @default(now())
+
+  @@index([ticket_id])
+  @@index([ticket_id, created_at])
+  @@index([wa_message_id])
 }
 
 enum Role {

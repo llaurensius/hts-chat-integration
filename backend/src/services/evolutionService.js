@@ -116,5 +116,41 @@ const findMessages = async (waNumber, limit = 20) => {
   }
 };
 
-module.exports = { sendText, getContactInfo, findMessages, INSTANCE_NAME, api };
+// Mencari daftar kontak dari buku telepon HP (Evolution API)
+const searchContacts = async (query = '', limit = 15) => {
+  try {
+    const res = await api.post(`/chat/findContacts/${INSTANCE_NAME}`, {
+      where: {}
+    });
+
+    let list = Array.isArray(res.data) ? res.data : [];
+    
+    // Filter hanya kontak orang (bukan grup atau broadcast)
+    list = list.filter(c => c.remoteJid && !c.remoteJid.includes('@g.us') && !c.remoteJid.includes('@broadcast'));
+
+    if (query && query.trim()) {
+      const q = query.trim().toLowerCase();
+      list = list.filter(c => {
+        const name = (c.pushName || '').toLowerCase();
+        const number = (c.remoteJid || '').split('@')[0];
+        return name.includes(q) || number.includes(q);
+      });
+    }
+
+    return list.slice(0, parseInt(limit) || 15).map(c => {
+      const cleanNum = (c.remoteJid || '').split('@')[0];
+      return {
+        remoteJid: c.remoteJid,
+        waNumber: cleanNum,
+        name: c.pushName && c.pushName.trim() ? c.pushName.trim() : cleanNum,
+        profilePicUrl: c.profilePicUrl || null
+      };
+    });
+  } catch (error) {
+    console.warn('[Evolution API] Gagal mencari kontak:', error?.response?.data || error.message);
+    return [];
+  }
+};
+
+module.exports = { sendText, getContactInfo, findMessages, searchContacts, INSTANCE_NAME, api };
 

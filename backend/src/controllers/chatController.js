@@ -2159,6 +2159,282 @@ const unlinkHtsTicket = async (req, res) => {
 };
 
 // ==========================================
+// FITUR: PENCARIAN BUKU KONTAK HP & START NEW CHAT OUTBOUND
+// ==========================================
+
+// 3. Mengaktifkan kembali tiket yang telah selesai (Re-Open Ticket)
+const reopenTicket = async (req, res) => {
+  const { ticketId } = req.params;
+  const { reason } = req.body;
+
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+    }
+
+    if (ticket.status !== 'CLOSED') {
+      return res.status(400).json({ error: 'Hanya tiket dengan status CLOSED yang dapat diaktifkan kembali' });
+    }
+
+    // Ubah status kembali menjadi OPEN dan kosongkan closed_at
+    const updated = await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        status: 'OPEN',
+        closed_at: null
+      },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
+    // Catat pesan log sistem internal
+    const reasonText = reason && reason.trim() ? ` (Alasan: ${reason.trim()})` : '';
+    const noteText = `[SISTEM] Tiket diaktifkan kembali (Re-opened) oleh ${req.user?.name || 'Petugas'}${reasonText}.`;
+
+    await prisma.message.create({
+      data: {
+        ticket_id: ticket.id,
+        sender_type: 'AGENT',
+        sender_id: req.user?.id || null,
+        message_text: noteText,
+        is_internal: true
+      }
+    });
+
+    // Broadcast Socket.io
+    if (req.io) {
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updated });
+      req.io.emit('new_message', {
+        ticketId: ticket.id,
+        senderType: 'AGENT',
+        text: noteText,
+        isInternal: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Tiket berhasil diaktifkan kembali. Anda dapat melanjutkan percakapan.',
+      ticket: updated
+    });
+  } catch (error) {
+    console.error('[Chat API] Error reopening ticket:', error);
+    res.status(500).json({ error: error.message || 'Gagal mengaktifkan kembali tiket' });
+  }
+};
+
+// 1. Mencari kontak dari Buku Master Data DB (Prioritas 1) dan Buku Kontak HP Evolution (Prioritas 2)
+const searchPhoneContacts = async (req, res) => {
+  const { q = '', limit = 20 } = req.query;
+  const maxLimit = parseInt(limit) || 20;
+  const cleanQ = (q || '').trim();
+
+  try {
+    // 1. Query Kontak dari database lokal (Customer hasil import atau kustomisasi)
+    const dbWhere = cleanQ ? {
+      OR: [
+        { name: { contains: cleanQ, mode: 'insensitive' } },
+        { wa_number: { contains: cleanQ } },
+        { skpd_name: { contains: cleanQ, mode: 'insensitive' } }
+      ]
+    } : {};
+
+    const dbCustomers = await prisma.customer.findMany({
+      where: dbWhere,
+      orderBy: [
+        { is_imported_contact: 'desc' },
+        { is_custom_name: 'desc' },
+        { name: 'asc' }
+      ],
+      take: maxLimit
+    });
+
+    const seenNumbers = new Set();
+    const results = [];
+
+    // Masukkan kontak database lokal terlebih dahulu (Prioritas Utama)
+    for (const c of dbCustomers) {
+      seenNumbers.add(c.wa_number);
+      results.push({
+        remoteJid: `${c.wa_number}@s.whatsapp.net`,
+        waNumber: c.wa_number,
+        name: c.name,
+        skpdName: c.skpd_name || null,
+        isImported: c.is_imported_contact,
+        isCustom: c.is_custom_name,
+        waPushName: c.wa_push_name || null,
+        source: c.is_imported_contact ? 'Master Data Import' : 'Database Helpdesk',
+        profilePicUrl: null
+      });
+    }
+
+    // 2. Query tambahan dari buku kontak HP Evolution API (jika kuota limit masih ada)
+    if (results.length < maxLimit) {
+      const evoContacts = await evolutionService.searchContacts(cleanQ, maxLimit - results.length);
+      for (const ec of evoContacts) {
+        if (!seenNumbers.has(ec.waNumber)) {
+          seenNumbers.add(ec.waNumber);
+          results.push({
+            remoteJid: ec.remoteJid,
+            waNumber: ec.waNumber,
+            name: ec.name,
+            skpdName: null,
+            isImported: false,
+            isCustom: false,
+            waPushName: null,
+            source: 'Kontak HP WhatsApp',
+            profilePicUrl: ec.profilePicUrl
+          });
+        }
+      }
+    }
+
+    res.json(results);
+  } catch (error) {
+    console.error('[Chat API] Error searching combined contacts:', error);
+    res.status(500).json({ error: 'Gagal mencari kontak' });
+  }
+};
+
+// 2. Memulai chat baru ke kontak/nomor WhatsApp yang ditentukan
+const startNewChat = async (req, res) => {
+  const { waNumber, name, skpdName, initialMessage, sendInitialMessage = true, isAduan, serviceType } = req.body;
+
+  if (!waNumber || !String(waNumber).trim()) {
+    return res.status(400).json({ error: 'Nomor WhatsApp tujuan wajib diisi' });
+  }
+
+  const shouldSend = Boolean(sendInitialMessage && initialMessage && String(initialMessage).trim());
+
+  // Format nomor WhatsApp (hapus karakter non-digit, ganti leading 0 dengan 62)
+  let cleanNumber = String(waNumber).replace(/\D/g, '');
+  if (cleanNumber.startsWith('0')) {
+    cleanNumber = '62' + cleanNumber.substring(1);
+  } else if (!cleanNumber.startsWith('62') && cleanNumber.length <= 11) {
+    cleanNumber = '62' + cleanNumber;
+  }
+
+  try {
+    // 1. Cari atau buat Customer di database
+    let customer = await prisma.customer.findUnique({
+      where: { wa_number: cleanNumber }
+    });
+
+    const resolvedName = (name && name.trim()) || customer?.name || cleanNumber;
+
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: {
+          wa_number: cleanNumber,
+          name: resolvedName,
+          skpd_name: skpdName && skpdName.trim() ? skpdName.trim() : null,
+          is_custom_name: Boolean(name && name.trim())
+        }
+      });
+    } else {
+      // Jika nama diedit saat memulai chat baru
+      if (name && name.trim() && name.trim() !== customer.name) {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: {
+            name: name.trim(),
+            skpd_name: skpdName && skpdName.trim() ? skpdName.trim() : customer.skpd_name,
+            is_custom_name: true
+          }
+        });
+      }
+    }
+
+    // 2. Cek apakah ada tiket aktif (status OPEN atau RESOLVED)
+    let activeTicket = await prisma.ticket.findFirst({
+      where: {
+        customer_id: customer.id,
+        status: { in: ['OPEN', 'RESOLVED'] }
+      },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+
+    let isNewTicket = false;
+    if (!activeTicket) {
+      activeTicket = await prisma.ticket.create({
+        data: {
+          customer_id: customer.id,
+          status: 'OPEN',
+          is_aduan: Boolean(isAduan),
+          service_type: serviceType || (isAduan ? 'TROUBLESHOOTING' : 'GENERAL_CHAT')
+        },
+        include: {
+          customer: true,
+          categories: { include: { category: true } },
+          hts_tickets: { include: { category: true } }
+        }
+      });
+      isNewTicket = true;
+    }
+
+    let savedMsg = null;
+    if (shouldSend) {
+      // 3. Kirim pesan ke WhatsApp tujuan via Evolution API jika diaktifkan
+      const evoRes = await evolutionService.sendText(cleanNumber, initialMessage.trim());
+      const waMessageId = evoRes?.key?.id || null;
+
+      // 4. Simpan pesan keluar sebagai AGENT di database
+      savedMsg = await prisma.message.create({
+        data: {
+          ticket_id: activeTicket.id,
+          sender_type: 'AGENT',
+          sender_id: req.user?.id || null,
+          message_text: initialMessage.trim(),
+          wa_message_id: waMessageId
+        }
+      });
+
+      // 5. Broadcast Socket.io ke dashboard
+      if (req.io) {
+        req.io.emit('new_message', {
+          ticketId: activeTicket.id,
+          waNumber: cleanNumber,
+          senderName: req.user?.name || 'Helpdesk',
+          text: initialMessage.trim(),
+          createdAt: savedMsg.created_at,
+          senderType: 'AGENT'
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: shouldSend 
+        ? 'Chat berhasil dimulai dan pesan pembuka terkirim ke WhatsApp.' 
+        : 'Tiket percakapan berhasil dibuka (Pesan belum dikirim ke WhatsApp).',
+      ticket: activeTicket,
+      isNewTicket: isNewTicket
+    });
+  } catch (error) {
+    console.error('[Chat API] Error starting new chat:', error);
+    res.status(500).json({ error: error.message || 'Gagal memulai chat baru' });
+  }
+};
+
+// ==========================================
 // FASE 7 V4: Manual Link & Disaster Recovery Tiket HTS
 // ==========================================
 
@@ -2421,7 +2697,11 @@ module.exports = {
   // Ekspor Endpoint V4 Fase 7 (Manual Link & Recovery HTS)
   linkHtsTicket,
   completeHtsPic,
-  unlinkHtsTicket
+  unlinkHtsTicket,
+  // Ekspor Fitur Buku Kontak & Chat Baru
+  searchPhoneContacts,
+  startNewChat,
+  reopenTicket
 };
 
 

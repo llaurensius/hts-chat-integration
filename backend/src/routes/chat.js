@@ -33,7 +33,10 @@ const {
   // Endpoint V4 Fase 7 (Manual Link & Disaster Recovery HTS)
   linkHtsTicket,
   completeHtsPic,
-  unlinkHtsTicket
+  unlinkHtsTicket,
+  searchPhoneContacts,
+  startNewChat,
+  reopenTicket
 } = require('../controllers/chatController');
 const { upload } = require('../utils/imageStorage'); // Gunakan imageStorage yang sudah benar
 
@@ -77,6 +80,11 @@ router.delete('/quick-replies/:id', deleteQuickReply);
 router.post('/tickets/:ticketId/link-hts', linkHtsTicket);
 router.post('/tickets/:ticketId/hts/:htsTicketId/complete-pic', completeHtsPic);
 router.delete('/tickets/:ticketId/hts/:htsTicketId/unlink', unlinkHtsTicket);
+
+// Rute Fitur Buku Kontak HP & Mulai Chat Baru (Outbound)
+router.get('/contacts/search', searchPhoneContacts);
+router.post('/start-new-chat', startNewChat);
+router.post('/tickets/:ticketId/reopen', reopenTicket);
 
 module.exports = router;
 

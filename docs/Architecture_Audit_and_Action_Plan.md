@@ -16,12 +16,12 @@ Audit menyeluruh telah dilakukan pada seluruh layer sistem (*Database Schema, Ba
 
 | No | Kategori | Tingkat Urgensi | Masalah Arsitektural | Lokasi Berkas | Dampak Jika Dibiarkan | Status |
 |:--:|---|:---:|---|---|---|:---:|
-| 1 | **Concurrency** | **P0 (Kritis)** | Race Condition pembuatan Pelanggan & Tiket pada Webhook paralel | `backend/src/controllers/webhookController.js` | Error DB `P2002 Unique constraint` dan satu percakapan terpecah menjadi 2 tiket `OPEN` | ⏳ Direncanakan |
-| 2 | **Performance** | **P0 (Kritis)** | Missing Index pada kolom `ticket_id` di tabel `Message` | `backend/prisma/schema.prisma` | Full Table Scan (Seq Scan), loading chat melambat drastis saat tabel berisi puluhan ribu pesan | ⏳ Direncanakan |
-| 3 | **Relasi Data** | **P1 (Tinggi)** | Missing `onDelete: Cascade` pada `TicketCategory` & `Message` | `backend/prisma/schema.prisma` | Foreign key constraint violation (`P2003`) saat Admin menghapus tiket | ⏳ Direncanakan |
-| 4 | **Memory Leak** | **P1 (Tinggi)** | Registrasi ganda listener Socket.io tanpa global cleanup | `frontend/src/App.jsx` | Heap size browser meningkat, audio chime berbunyi ganda (2x-3x) saat tab dibiarkan lama | ⏳ Direncanakan |
-| 5 | **Storage Leak** | **P2 (Sedang)** | Penamaan file upload tanpa entropy acak & tanpa retensi | `backend/src/controllers/webhookController.js` | File tertimpa jika masuk di milidetik yang sama; disk server penuh tanpa cleanup | ⏳ Direncanakan |
-| 6 | **Arsitektur** | **P2 (Sedang)** | Dualisme SSOT data tiket HTS (`Ticket` vs `TicketHts`) | `backend/src/controllers/chatController.js` & `reportController.js` | Inkonsistensi data ketika 1 percakapan memiliki lebih dari 1 tiket HTS | ⏳ Direncanakan |
+| 1 | **Concurrency** | **P0 (Kritis)** | Race Condition pembuatan Pelanggan & Tiket pada Webhook paralel | `backend/src/controllers/webhookController.js` | Error DB `P2002 Unique constraint` dan satu percakapan terpecah menjadi 2 tiket `OPEN` | ✅ Selesai (Fixed) |
+| 2 | **Performance** | **P0 (Kritis)** | Missing Index pada kolom `ticket_id` di tabel `Message` | `backend/prisma/schema.prisma` | Full Table Scan (Seq Scan), loading chat melambat drastis saat tabel berisi puluhan ribu pesan | ✅ Selesai (Fixed) |
+| 3 | **Relasi Data** | **P1 (Tinggi)** | Missing `onDelete: Cascade` pada `TicketCategory` & `Message` | `backend/prisma/schema.prisma` | Foreign key constraint violation (`P2003`) saat Admin menghapus tiket | ✅ Selesai (Fixed) |
+| 4 | **Memory Leak** | **P1 (Tinggi)** | Registrasi ganda listener Socket.io tanpa global cleanup | `frontend/src/App.jsx` | Heap size browser meningkat, audio chime berbunyi ganda (2x-3x) saat tab dibiarkan lama | ✅ Selesai (Fixed) |
+| 5 | **Storage Leak** | **P2 (Sedang)** | Penamaan file upload tanpa entropy acak & tanpa retensi | `backend/src/controllers/webhookController.js` | File tertimpa jika masuk di milidetik yang sama; disk server penuh tanpa cleanup | ✅ Selesai (Fixed) |
+| 6 | **Arsitektur** | **P2 (Sedang)** | Dualisme SSOT data tiket HTS (`Ticket` vs `TicketHts`) | `backend/src/controllers/chatController.js` & `reportController.js` | Inkonsistensi data ketika 1 percakapan memiliki lebih dari 1 tiket HTS | ✅ Selesai (Fixed) |
 | 7 | **Race Condition** | **P2 (Sedang)** | CSRF Invalidation pada concurrent submit HTS | `backend/src/services/htsClientService.js` | Error `403 Forbidden CSRF Mismatch` jika 2 petugas submit HTS di detik yang sama | ⏳ Direncanakan |
 
 ---
@@ -171,7 +171,7 @@ useEffect(() => {
 
 ## 📅 4. Tahapan Eksekusi Perbaikan (Execution Checklist)
 
-- [ ] **Step 1:** Perbarui skema Prisma (`onDelete: Cascade` dan `@@index`), lalu jalankan `npx prisma db push`.
-- [ ] **Step 2:** Refactor `webhookController.js` untuk mengeliminasi race condition pembuatan customer/tiket dan collision nama berkas.
-- [ ] **Step 3:** Bersihkan lifecycle listener Socket.io di `frontend/src/App.jsx`.
-- [ ] **Step 4:** Verifikasi query database dan performa sistem pasca-perbaikan.
+- [x] **Step 1:** Perbarui skema Prisma (`onDelete: Cascade` dan `@@index`), lalu jalankan `npx prisma db push`.
+- [x] **Step 2:** Refactor `webhookController.js` untuk mengeliminasi race condition pembuatan customer/tiket dan collision nama berkas.
+- [x] **Step 3:** Bersihkan lifecycle listener Socket.io di `frontend/src/App.jsx`.
+- [x] **Step 4:** Verifikasi query database dan performa sistem pasca-perbaikan.

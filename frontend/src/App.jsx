@@ -318,6 +318,120 @@ function Dashboard() {
     }
   };
 
+  // Handler Pencarian Kontak Buku Telepon HP & Master Data Import
+  const handleSearchContacts = async (query = '') => {
+    setNewChatSearchContact(query);
+    setIsSearchingContacts(true);
+    try {
+      const qParam = query && query.trim() ? `?q=${encodeURIComponent(query.trim())}&limit=30` : '?limit=30';
+      const res = await axios.get(`${API_URL}/chat/contacts/search${qParam}`);
+      setNewChatContactsList(res.data || []);
+    } catch (err) {
+      console.warn('Gagal memuat direktori kontak:', err.message);
+    } finally {
+      setIsSearchingContacts(false);
+    }
+  };
+
+  // Handler Import Master Data Kontak (Excel / CSV)
+  const handleImportContactsSubmit = async (e) => {
+    e.preventDefault();
+    if (!importContactFile) return alert('Pilih file Excel (.xlsx/.xls) atau CSV terlebih dahulu!');
+
+    const formData = new FormData();
+    formData.append('file', importContactFile);
+
+    setIsImportingContacts(true);
+    setImportStatsResult(null);
+    try {
+      const res = await axios.post(`${API_URL}/admin/contacts/import`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      alert(res.data?.message || 'Kontak berhasil diimpor!');
+      setImportStatsResult(res.data?.stats);
+      setImportContactFile(null);
+      loadTickets();
+      // Segarkan daftar kontak di modal chat baru jika sedang terbuka
+      handleSearchContacts('');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal mengimpor file kontak');
+    } finally {
+      setIsImportingContacts(false);
+    }
+  };
+
+  const handleSelectContact = (contact) => {
+    setNewChatWaNumber(contact.waNumber);
+    setNewChatName(contact.name);
+    if (contact.skpdName) setNewChatSkpd(contact.skpdName);
+    setNewChatSearchContact('');
+  };
+
+  const handleOpenNewChatModal = () => {
+    setNewChatSearchContact('');
+    handleSearchContacts(''); // Langsung muat seluruh daftar kontak yang tersedia
+    setNewChatWaNumber('');
+    setNewChatName('');
+    setNewChatSkpd('');
+    setNewChatInitialMsg('Halo, selamat pagi/siang. Ada yang bisa kami bantu dari Helpdesk SPBE Diskomdigi Jawa Tengah?');
+    setNewChatSendInitial(true);
+    setNewChatIsAduan(false);
+    setShowNewChatModal(true);
+  };
+
+  const handleStartNewChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!newChatWaNumber.trim()) {
+      return alert('Nomor WhatsApp tujuan wajib diisi!');
+    }
+    if (newChatSendInitial && !newChatInitialMsg.trim()) {
+      return alert('Pesan pembuka wajib diisi jika opsi kirim pesan aktif!');
+    }
+    setIsStartingNewChat(true);
+    try {
+      const res = await axios.post(`${API_URL}/chat/start-new-chat`, {
+        waNumber: newChatWaNumber.trim(),
+        name: newChatName.trim(),
+        skpdName: newChatSkpd.trim(),
+        initialMessage: newChatSendInitial ? newChatInitialMsg.trim() : null,
+        sendInitialMessage: newChatSendInitial,
+        isAduan: newChatIsAduan
+      });
+      alert(res.data?.message || 'Chat baru berhasil dimulai!');
+      setShowNewChatModal(false);
+      loadTickets();
+      if (res.data?.ticket) {
+        setActiveTicket(res.data.ticket);
+        loadMessages(res.data.ticket.id);
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal memulai chat baru');
+    } finally {
+      setIsStartingNewChat(false);
+    }
+  };
+
+  // Handler Mengaktifkan Kembali Tiket yang Telah Selesai (Re-Open Ticket)
+  const handleReopenTicket = async () => {
+    if (!activeTicket) return;
+    const reason = window.prompt(`Aktifkan kembali tiket #${activeTicket.id} (${activeTicket.customer?.name})?\n\nMasukkan alasan pembukaan kembali (opsional):`, 'Ada pertanyaan / kendala lanjutan dari pelanggan');
+    if (reason === null) return; // Dibatalkan pengguna
+
+    try {
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/reopen`, {
+        reason: reason.trim()
+      });
+      alert(res.data?.message || 'Tiket berhasil diaktifkan kembali!');
+      loadTickets();
+      if (res.data?.ticket) {
+        setActiveTicket(res.data.ticket);
+        loadMessages(res.data.ticket.id);
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal mengaktifkan kembali tiket');
+    }
+  };
+
   // Handler Lepas Tautan Tiket HTS
   const handleUnlinkHtsTicket = async (htsTicketId, htsNo) => {
     if (!activeTicket) return;
@@ -566,6 +680,25 @@ Tetap tautkan tiket ini?`)) {
   const [isSubmittingAssign, setIsSubmittingAssign] = useState(false);
 
   // State Standalone Sync Modal HTS (Fase 2 V3 + Revisi Spec)
+  // State Modal Import Master Data Kontak (Admin Only)
+  const [showImportContactsModal, setShowImportContactsModal] = useState(false);
+  const [importContactFile, setImportContactFile] = useState(null);
+  const [isImportingContacts, setIsImportingContacts] = useState(false);
+  const [importStatsResult, setImportStatsResult] = useState(null);
+
+  // State Modal Mulai Chat Baru (Start New Chat Outbound)
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [newChatSearchContact, setNewChatSearchContact] = useState('');
+  const [newChatContactsList, setNewChatContactsList] = useState([]);
+  const [isSearchingContacts, setIsSearchingContacts] = useState(false);
+  const [newChatWaNumber, setNewChatWaNumber] = useState('');
+  const [newChatName, setNewChatName] = useState('');
+  const [newChatSkpd, setNewChatSkpd] = useState('');
+  const [newChatInitialMsg, setNewChatInitialMsg] = useState('');
+  const [newChatSendInitial, setNewChatSendInitial] = useState(true);
+  const [newChatIsAduan, setNewChatIsAduan] = useState(false);
+  const [isStartingNewChat, setIsStartingNewChat] = useState(false);
+
   const [showSyncHtsModal, setShowSyncHtsModal] = useState(false);
   const [syncHtsTab, setSyncHtsTab] = useState('create'); // 'create' | 'link'
   const [linkHtsNo, setLinkHtsNo] = useState('');
@@ -1414,16 +1547,26 @@ Tetap tautkan tiket ini?`)) {
       }));
     };
 
+    const handleHtsEvent = () => {
+      loadTickets();
+    };
+
     socket.on('new_message', handleNewMessage);
     socket.on('ticket_assigned', handleTicketAssigned);
     socket.on('ticket_closed', handleTicketClosed);
     socket.on('customer_updated', handleCustomerUpdated);
+    socket.on('hts_ticket_created', handleHtsEvent);
+    socket.on('hts_ticket_updated', handleHtsEvent);
+    socket.on('hts_ticket_deleted', handleHtsEvent);
 
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('ticket_assigned', handleTicketAssigned);
       socket.off('ticket_closed', handleTicketClosed);
       socket.off('customer_updated', handleCustomerUpdated);
+      socket.off('hts_ticket_created', handleHtsEvent);
+      socket.off('hts_ticket_updated', handleHtsEvent);
+      socket.off('hts_ticket_deleted', handleHtsEvent);
     };
   }, [currentUser]); 
 
@@ -1865,10 +2008,23 @@ Tetap tautkan tiket ini?`)) {
           <div className="w-[30%] bg-white border-r border-gray-200 flex flex-col">
             <div className="p-4 bg-gray-50 border-b border-gray-200 space-y-2.5">
               <div className="flex justify-between items-center">
-                <h1 className="text-lg font-bold text-gray-800">Antrean Percakapan</h1>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                  {tickets.length} Tiket
-                </span>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-bold text-gray-800">Antrean Percakapan</h1>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                    {tickets.length}
+                  </span>
+                </div>
+                {isL1 && (
+                  <button
+                    type="button"
+                    onClick={handleOpenNewChatModal}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center gap-1"
+                    title="Mulai obrolan WhatsApp baru ke kontak"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Chat Baru</span>
+                  </button>
+                )}
               </div>
 
               {/* Input Pencarian */}
@@ -1894,10 +2050,11 @@ Tetap tautkan tiket ini?`)) {
               {/* Tab Filter Pills (Fase 4 V4) */}
               <div className="flex gap-1 overflow-x-auto pb-1 text-[11px] no-scrollbar">
                 {[
-                  { id: 'all', label: 'Semua', count: tickets.length },
-                  { id: 'aduan', label: '🚨 Aduan', count: tickets.filter(t => t.is_aduan).length },
-                  { id: 'biasa', label: '💬 Biasa', count: tickets.filter(t => !t.is_aduan).length },
-                  { id: 'pending_hts', label: '⏳ Belum HTS', count: tickets.filter(t => t.is_aduan && !t.hts_ticket_no).length }
+                  { id: 'all', label: 'Aktif', count: tickets.filter(t => t.status !== 'CLOSED').length },
+                  { id: 'aduan', label: '🚨 Aduan', count: tickets.filter(t => t.is_aduan && t.status !== 'CLOSED').length },
+                  { id: 'biasa', label: '💬 Biasa', count: tickets.filter(t => !t.is_aduan && t.status !== 'CLOSED').length },
+                  { id: 'pending_hts', label: '⏳ Belum HTS', count: tickets.filter(t => t.is_aduan && !t.hts_ticket_no && t.status !== 'CLOSED').length },
+                  { id: 'closed', label: '✓ Selesai', count: tickets.filter(t => t.status === 'CLOSED').length }
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -1931,10 +2088,11 @@ Tetap tautkan tiket ini?`)) {
                     (ticket.hts_ticket_no && String(ticket.hts_ticket_no).includes(q));
                   if (!matchSearch) return false;
 
-                  if (ticketFilterTab === 'aduan') return ticket.is_aduan;
-                  if (ticketFilterTab === 'biasa') return !ticket.is_aduan;
-                  if (ticketFilterTab === 'pending_hts') return ticket.is_aduan && !ticket.hts_ticket_no;
-                  return true;
+                  if (ticketFilterTab === 'closed') return ticket.status === 'CLOSED';
+                  if (ticketFilterTab === 'aduan') return ticket.is_aduan && ticket.status !== 'CLOSED';
+                  if (ticketFilterTab === 'biasa') return !ticket.is_aduan && ticket.status !== 'CLOSED';
+                  if (ticketFilterTab === 'pending_hts') return ticket.is_aduan && !ticket.hts_ticket_no && ticket.status !== 'CLOSED';
+                  return ticket.status !== 'CLOSED';
                 })
                 .map(ticket => {
                   const lastMsg = ticket.messages?.[0];
@@ -2094,6 +2252,17 @@ Tetap tautkan tiket ini?`)) {
                   {/* RBAC: L1 Action Buttons dengan Toggle Klasifikasi */}
                   {isL1 && (
                     <div className="flex items-center space-x-2">
+                      {activeTicket.status === 'CLOSED' && (
+                        <button
+                          type="button"
+                          onClick={handleReopenTicket}
+                          className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                          title="Aktifkan kembali tiket ini agar dapat mengirim dan menerima pesan lanjutan"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Aktifkan Kembali Tiket</span>
+                        </button>
+                      )}
                       {/* Toggle Sakelar Percakapan Biasa <-> Aduan Teknis */}
                       <button
                         type="button"
@@ -2825,11 +2994,23 @@ Tetap tautkan tiket ini?`)) {
                       </div>
                       <div className="flex items-center text-xs font-semibold text-gray-800">
                         <User className="w-4 h-4 mr-2 text-gray-400" />
-                        {activeTicket.customer?.name}
+                        <span className="flex-1 truncate">{activeTicket.customer?.name}</span>
+                        {activeTicket.customer?.is_imported_contact && (
+                          <span className="ml-1.5 px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded text-[9px] font-bold border border-amber-300">
+                            Master Data
+                          </span>
+                        )}
                       </div>
                       {activeTicket.customer?.skpd_name && (
                         <div className="text-[11px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded mt-1.5 ml-6 inline-block font-medium border border-blue-200">
                           Instansi: {activeTicket.customer.skpd_name}
+                        </div>
+                      )}
+                      {/* Data Pembanding: Profil Asli WhatsApp vs Nama Master Data */}
+                      {activeTicket.customer?.wa_push_name && activeTicket.customer.wa_push_name !== activeTicket.customer.name && (
+                        <div className="text-[10px] text-gray-500 bg-gray-50 px-2 py-1 rounded mt-1.5 ml-6 border border-gray-200">
+                          <span className="text-gray-400 block text-[9px] uppercase font-semibold">Nama Profil WhatsApp:</span>
+                          <span className="italic font-medium text-gray-600">"{activeTicket.customer.wa_push_name}"</span>
                         </div>
                       )}
                     </div>
@@ -4387,6 +4568,331 @@ Tetap tautkan tiket ini?`)) {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL MULAI CHAT BARU OUTBOUND KE KONTAK */}
+      {showNewChatModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[90vh]">
+            <div className="p-4 px-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <PhoneCall className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-sm">Mulai Chat WhatsApp Baru</h3>
+                  <p className="text-[11px] text-gray-500">Hubungi kontak WhatsApp atau ketik nomor tujuan</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowNewChatModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleStartNewChatSubmit} className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-5 space-y-4 overflow-y-auto">
+                {/* 1. Direktori Lengkap & Pencarian Kontak */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-blue-600" /> Pilih dari Buku Kontak ({newChatContactsList.length})
+                    </label>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setShowImportContactsModal(true)}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" /> Import Master Data Kontak
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={newChatSearchContact}
+                      onChange={e => handleSearchContacts(e.target.value)}
+                      placeholder="Cari nama kontak HP, OPD/SKPD, atau nomor WA..."
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                    />
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+                    {isSearchingContacts && (
+                      <span className="w-3 h-3 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin absolute right-2.5 top-2.5"></span>
+                    )}
+                  </div>
+
+                  {/* Daftar Seluruh Kontak (Directory List) */}
+                  <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-2xs max-h-44 overflow-y-auto divide-y divide-gray-100">
+                    {newChatContactsList.length > 0 ? (
+                      newChatContactsList.map((contact, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => handleSelectContact(contact)}
+                          className="p-2 hover:bg-emerald-50/80 cursor-pointer flex items-center justify-between text-xs transition"
+                        >
+                          <div className="flex items-center gap-2">
+                            {contact.profilePicUrl ? (
+                              <img src={contact.profilePicUrl} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+                            ) : (
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                                contact.isImported ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {contact.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-gray-800">{contact.name}</span>
+                                {contact.isImported && (
+                                  <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-bold border border-amber-200">
+                                    Official
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                                <span className="font-mono">+{contact.waNumber}</span>
+                                {contact.skpdName && (
+                                  <span className="truncate max-w-[180px] text-gray-500">• {contact.skpdName}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-0.5 rounded font-medium shrink-0">
+                            Pilih
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center text-xs text-gray-400">
+                        {isSearchingContacts ? 'Mencari kontak...' : 'Tidak ada kontak yang cocok.'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Nomor WhatsApp Tujuan */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Nomor WhatsApp Tujuan *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newChatWaNumber}
+                      onChange={e => setNewChatWaNumber(e.target.value)}
+                      placeholder="Contoh: 08123456789 atau 628..."
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Nama Kontak / Pelapor
+                    </label>
+                    <input
+                      type="text"
+                      value={newChatName}
+                      onChange={e => setNewChatName(e.target.value)}
+                      placeholder="Nama lengkap kontak..."
+                      className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Instansi / OPD */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Instansi / OPD (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newChatSkpd}
+                    onChange={e => setNewChatSkpd(e.target.value)}
+                    placeholder="Contoh: Dinas Komunikasi dan Informatika Provinsi Jawa Tengah"
+                    className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                {/* 4. Opsi & Pesan Pembuka */}
+                <div className="space-y-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5 text-emerald-600" /> Langsung kirim pesan pembuka ke WhatsApp sekarang
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={newChatSendInitial}
+                      onChange={e => setNewChatSendInitial(e.target.checked)}
+                      className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </label>
+
+                  {newChatSendInitial ? (
+                    <div>
+                      <p className="text-[11px] text-gray-500 mb-1.5">
+                        Pesan di bawah ini akan langsung terkirim ke WhatsApp penerima:
+                      </p>
+                      <textarea
+                        required={newChatSendInitial}
+                        rows="3"
+                        value={newChatInitialMsg}
+                        onChange={e => setNewChatInitialMsg(e.target.value)}
+                        placeholder="Tulis pesan pertama yang akan dikirimkan ke WhatsApp pelanggan..."
+                        className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white resize-none"
+                      ></textarea>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                      ℹ️ <strong>Mode Tiket Kosong:</strong> Sistem hanya akan membuat tiket dan membuka ruang obrolan di web. Tidak ada pesan yang dikirim ke nomor WhatsApp tersebut sampai Anda mengetik dan mengirim pesan secara manual nanti.
+                    </p>
+                  )}
+                </div>
+
+                {/* 5. Klasifikasi Awal */}
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newChatIsAduan}
+                      onChange={e => setNewChatIsAduan(e.target.checked)}
+                      className="rounded text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>Tandai langsung sebagai <strong>🚨 Aduan Teknis Resmi</strong> (Bukan percakapan biasa)</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Sticky Footer */}
+              <div className="p-3.5 px-5 border-t border-gray-200 flex justify-end gap-2.5 bg-gray-50/50 sticky bottom-0">
+                <button
+                  type="button"
+                  onClick={() => setShowNewChatModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isStartingNewChat || !newChatWaNumber.trim() || (newChatSendInitial && !newChatInitialMsg.trim())}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isStartingNewChat ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      {newChatSendInitial ? 'Mengirim Pesan...' : 'Membuka Tiket...'}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      {newChatSendInitial ? 'Kirim Pesan & Buka Chat' : 'Buka Tiket Percakapan Saja'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL IMPORT MASTER DATA KONTAK (KHUSUS ADMIN) */}
+      {showImportContactsModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col">
+            <div className="p-4 px-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/70">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Download className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-sm">Import Master Data Kontak</h3>
+                  <p className="text-[11px] text-gray-500">Unggah berkas Excel (.xlsx) atau CSV</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowImportContactsModal(false);
+                  setImportStatsResult(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleImportContactsSubmit} className="p-5 space-y-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1.5">
+                <p className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" /> Prioritas Master Data Resmi
+                </p>
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  Kontak hasil import ini akan dijadikan <strong>Prioritas Utama</strong> dan tidak akan pernah tertimpa oleh nama profil WhatsApp pengguna.
+                </p>
+                <p className="text-[10px] text-blue-600 font-mono pt-1">
+                  Format Kolom: nama, nomor_wa, instansi
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Pilih Berkas Excel / CSV *
+                </label>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  required
+                  onChange={e => setImportContactFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer border border-gray-300 rounded-xl p-1.5"
+                />
+              </div>
+
+              {/* Tampilan Statistik Hasil Import */}
+              {importStatsResult && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1 text-emerald-800">
+                    <CheckCircle className="w-3.5 h-3.5" /> Hasil Import:
+                  </p>
+                  <p className="text-[11px]">
+                    Total Baris: {importStatsResult.totalRows} • Kontak Baru: {importStatsResult.importedCount} • Diperbarui: {importStatsResult.updatedCount}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowImportContactsModal(false);
+                    setImportStatsResult(null);
+                  }}
+                  className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="submit"
+                  disabled={isImportingContacts || !importContactFile}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isImportingContacts ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Mengimpor Data...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      Mulai Import
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

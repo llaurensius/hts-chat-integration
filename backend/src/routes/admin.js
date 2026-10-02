@@ -8,8 +8,11 @@ const {
   getCategoryContacts,
   addCategoryContact,
   deleteCategoryContact,
-  updateCategoryContact
+  updateCategoryContact,
+  importCustomerContacts
 } = require('../controllers/adminController');
+const multer = require('multer');
+const uploadDoc = multer({ storage: multer.memoryStorage() });
 
 router.get('/users', getUsers);
 router.post('/users', createUser);
@@ -21,5 +24,8 @@ router.get('/categories/contacts', getCategoryContacts);
 router.post('/categories/:categoryId/contacts', addCategoryContact);
 router.put('/categories/contacts/:contactId', updateCategoryContact);
 router.delete('/categories/contacts/:contactId', deleteCategoryContact);
+
+// Rute Import Master Data Kontak Pelanggan (Admin Only)
+router.post('/contacts/import', uploadDoc.single('file'), importCustomerContacts);
 
 module.exports = router;

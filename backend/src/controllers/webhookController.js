@@ -82,7 +82,8 @@ const handleIncomingMessage = async (req, res) => {
 
       if (base64Data) {
         const buffer = Buffer.from(base64Data, 'base64');
-        const filename = `img_${Date.now()}.jpg`;
+        const randomSuffix = Math.random().toString(36).substring(2, 8);
+        const filename = `img_${Date.now()}_${randomSuffix}.jpg`;
         const uploadDir = path.join(__dirname, '../../uploads');
         if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
         fs.writeFileSync(path.join(uploadDir, filename), buffer);
@@ -106,9 +107,6 @@ const handleIncomingMessage = async (req, res) => {
     }
     const waNumber = targetJid.split('@')[0];
 
-    // 1. Cari Customer (Pelapor) di database Helpdesk
-    let customer = await prisma.customer.findUnique({ where: { wa_number: waNumber } });
-
     // Resolusi nama pelapor (Rekomendasi C - Hybrid: Web Custom > Kontak HP > WA pushName > waNumber)
     let resolvedName = (!fromMe && messageData.pushName) ? messageData.pushName : waNumber;
     try {
@@ -120,26 +118,36 @@ const handleIncomingMessage = async (req, res) => {
       console.warn('Gagal cek kontak HP dari Evolution API:', e.message);
     }
 
-    if (!customer) {
-      customer = await prisma.customer.create({
-        data: {
-          wa_number: waNumber,
-          name: resolvedName,
-          is_custom_name: false
-        }
-      });
-    } else if (!customer.is_custom_name && !fromMe) {
-      // Jika belum pernah di-edit manual dari Web Dashboard dan pesan berasal dari pelanggan, update nama
-      if (customer.name === waNumber || (resolvedName && resolvedName !== waNumber && customer.name !== resolvedName)) {
-        customer = await prisma.customer.update({
-          where: { id: customer.id },
-          data: { name: resolvedName }
-        });
+    // 1. Cek customer eksisting untuk menghormati Master Data Import & Edit Kustom
+    const existingCustomer = await prisma.customer.findUnique({ where: { wa_number: waNumber } });
+    const waPushName = (!fromMe && messageData.pushName) ? messageData.pushName : null;
+
+    let customerUpdateData = {};
+    if (waPushName) {
+      customerUpdateData.wa_push_name = waPushName; // Selalu simpan nama profil WA asli sebagai pembanding
+    }
+
+    // Nama hanya di-update jika BUKAN hasil import resmi Admin dan BUKAN hasil edit manual dashboard
+    if (!existingCustomer?.is_imported_contact && !existingCustomer?.is_custom_name) {
+      if (!fromMe && resolvedName && resolvedName !== waNumber) {
+        customerUpdateData.name = resolvedName;
       }
     }
 
+    const customer = await prisma.customer.upsert({
+      where: { wa_number: waNumber },
+      update: customerUpdateData,
+      create: {
+        wa_number: waNumber,
+        name: resolvedName,
+        wa_push_name: waPushName,
+        is_custom_name: false,
+        is_imported_contact: false
+      }
+    });
+
     // 2. Cek apakah ada tiket aktif (status OPEN atau RESOLVED yang belum ditutup L1)
-    const activeTicket = await prisma.ticket.findFirst({
+    let activeTicket = await prisma.ticket.findFirst({
       where: { 
         customer_id: customer.id, 
         status: { in: ['OPEN', 'RESOLVED'] } 
@@ -150,38 +158,46 @@ const handleIncomingMessage = async (req, res) => {
     let ticketId;
 
     if (!activeTicket) {
-      // 3a. Jika belum ada tiket aktif, buat tiket baru (default awal V4: Percakapan Biasa)
-      const newTicket = await prisma.ticket.create({
-        data: { 
-          customer_id: customer.id, 
-          status: 'OPEN',
-          is_aduan: false,
-          service_type: 'GENERAL_CHAT'
-        }
-      });
-      ticketId = newTicket.id;
+      // 3a. Jika belum ada tiket aktif, buat tiket baru secara aman dengan proteksi bentrok konkurensi
+      try {
+        const newTicket = await prisma.ticket.create({
+          data: { 
+            customer_id: customer.id, 
+            status: 'OPEN',
+            is_aduan: false,
+            service_type: 'GENERAL_CHAT'
+          }
+        });
+        ticketId = newTicket.id;
 
-      // F1: Auto-Reply Bot (HANYA kirim jika pesan masuk DARI PELANGGAN, bukan dari helpdesk sendiri)
-      if (!fromMe) {
-        let botSetting = await prisma.setting.findUnique({ where: { key: 'auto_reply' } });
-        const isBotActive = botSetting ? botSetting.is_active : true;
-        const autoReplyText = botSetting?.value || "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
+        // F1: Auto-Reply Bot (HANYA kirim jika pesan masuk DARI PELANGGAN, bukan dari helpdesk sendiri)
+        if (!fromMe) {
+          let botSetting = await prisma.setting.findUnique({ where: { key: 'auto_reply' } });
+          const isBotActive = botSetting ? botSetting.is_active : true;
+          const autoReplyText = botSetting?.value || "Baik untuk aduan akan kami cek dahulu mohon ditunggu.";
 
-        if (isBotActive && autoReplyText.trim()) {
-          try {
-            await evolutionService.sendText(waNumber, autoReplyText);
-            // Simpan pesan sistem (Bot) ke database
-            await prisma.message.create({
-              data: {
-                ticket_id: ticketId,
-                sender_type: 'BOT',
-                message_text: autoReplyText
-              }
-            });
-          } catch (botErr) {
-            console.error('[Webhook] Failed to send auto-reply bot:', botErr.message);
+          if (isBotActive && autoReplyText.trim()) {
+            try {
+              await evolutionService.sendText(waNumber, autoReplyText);
+              await prisma.message.create({
+                data: {
+                  ticket_id: ticketId,
+                  sender_type: 'BOT',
+                  message_text: autoReplyText
+                }
+              });
+            } catch (botErr) {
+              console.error('[Webhook] Failed to send auto-reply bot:', botErr.message);
+            }
           }
         }
+      } catch (raceErr) {
+        // Jika request paralel lain baru saja membuat tiket di saat yang sama, ambil tiket tersebut
+        const fallbackTicket = await prisma.ticket.findFirst({
+          where: { customer_id: customer.id, status: { in: ['OPEN', 'RESOLVED'] } },
+          orderBy: { created_at: 'desc' }
+        });
+        ticketId = fallbackTicket ? fallbackTicket.id : null;
       }
     } else {
       ticketId = activeTicket.id;

@@ -247,6 +247,112 @@ module.exports = {
   getCategoryContacts,
   addCategoryContact,
   deleteCategoryContact,
-  updateCategoryContact
+  updateCategoryContact,
+  importCustomerContacts
 };
 
+
+const xlsx = require('xlsx');
+
+// Import Master Data Kontak Pelanggan / OPD (Khusus ADMIN - Prioritas Utama)
+const importCustomerContacts = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'File Excel (.xlsx/.xls) atau CSV wajib diunggah' });
+  }
+
+  try {
+    const workbook = xlsx.read(req.file.buffer || req.file.path, { type: req.file.buffer ? 'buffer' : 'file' });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: 'File tidak memuat data kontak' });
+    }
+
+    let importedCount = 0;
+    let updatedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      // Dukungan Fleksibel: Format Standar, Excel Kustom, dan Format Resmi Google Contacts CSV
+      // 1. Nama: Prioritaskan Name, lalu Given Name + Family Name (Google Contacts)
+      let rawName = row['nama'] || row['Nama'] || row['NAME'] || row['name'] || row['kontak'] || row['Kontak'] || row['Name'] || '';
+      if (!rawName && (row['Given Name'] || row['Family Name'])) {
+        rawName = `${row['Given Name'] || ''} ${row['Family Name'] || ''}`.trim();
+      }
+
+      // 2. Nomor WhatsApp: Prioritaskan Phone 1 - Value (Google Contacts), nomor_wa, phone, dll.
+      let rawNumber = row['Phone 1 - Value'] || row['Phone 2 - Value'] || row['Phone 1'] || 
+                        row['nomor_wa'] || row['nomor'] || row['wa'] || row['no_hp'] || 
+                        row['phone'] || row['Phone'] || row['WA'] || row['No WA'] || row['Mobile'] || '';
+
+      // 3. Instansi / OPD: Prioritaskan Organization 1 - Name (Google Contacts), instansi, opd, skpd
+      let rawSkpd = row['Organization 1 - Name'] || row['Organization Name'] || row['Department'] || row['Organization 1 - Department'] ||
+                    row['instansi'] || row['Instansi'] || row['opd'] || row['OPD'] || row['skpd'] || row['SKPD'] || '';
+
+      if (!rawNumber) {
+        errors.push(`Baris ${i + 2}: Nomor WhatsApp kosong`);
+        continue;
+      }
+
+      // Bersihkan nomor WhatsApp (ganti 08xxx -> 628xxx)
+      let cleanNum = String(rawNumber).replace(/\D/g, '');
+      if (cleanNum.startsWith('0')) {
+        cleanNum = '62' + cleanNum.substring(1);
+      } else if (!cleanNum.startsWith('62') && cleanNum.length <= 11) {
+        cleanNum = '62' + cleanNum;
+      }
+
+      if (cleanNum.length < 10) {
+        errors.push(`Baris ${i + 2}: Format nomor WA '${rawNumber}' tidak valid`);
+        continue;
+      }
+
+      const officialName = rawName ? String(rawName).trim() : cleanNum;
+      const officialSkpd = rawSkpd ? String(rawSkpd).trim() : null;
+
+      // Upsert ke Customer dengan flag is_imported_contact = true
+      const existing = await prisma.customer.findUnique({ where: { wa_number: cleanNum } });
+      if (existing) {
+        await prisma.customer.update({
+          where: { id: existing.id },
+          data: {
+            name: officialName,
+            skpd_name: officialSkpd || existing.skpd_name,
+            is_imported_contact: true, // Prioritas Utama
+            is_custom_name: true
+          }
+        });
+        updatedCount++;
+      } else {
+        await prisma.customer.create({
+          data: {
+            wa_number: cleanNum,
+            name: officialName,
+            skpd_name: officialSkpd,
+            is_imported_contact: true, // Prioritas Utama
+            is_custom_name: true
+          }
+        });
+        importedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Berhasil mengimpor kontak master data: ${importedCount} kontak baru, ${updatedCount} kontak diperbarui.`,
+      stats: {
+        totalRows: rows.length,
+        importedCount,
+        updatedCount,
+        errorCount: errors.length,
+        errors: errors.slice(0, 10)
+      }
+    });
+  } catch (error) {
+    console.error('[Admin API] Error importing contacts:', error);
+    res.status(500).json({ error: error.message || 'Gagal memproses file import kontak' });
+  }
+};
