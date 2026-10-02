@@ -561,6 +561,7 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
 
   // Jika input berupa nomor trouble, cari ID trouble numerik yang sebenarnya dari get_aduan_data (pending)
   if (String(htsTicketId).includes('-')) {
+    let lookupOk = false;
     try {
       const pendingRes = await axios.post(`${HTS_BASE_URL}/get_aduan_data`, {
         page: 1,
@@ -583,10 +584,15 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
         );
         if (matchItem && matchItem.id_trouble) {
           idTrouble = String(matchItem.id_trouble);
+          lookupOk = true;
         }
       }
     } catch (errP) {
-      console.warn('[HTS Service] Gagal query pending aduan, gunakan idTrouble default:', errP.message);
+      console.error('[HTS Service] Gagal query pending aduan:', errP.message);
+    }
+
+    if (!lookupOk) {
+      throw new Error(`Tiket HTS #${htsTicketId} tidak ditemukan dalam daftar PENDING di portal HTS. Periksa status di portal HTS atau tautkan ulang nomor tiket.`);
     }
   }
 

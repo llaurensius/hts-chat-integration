@@ -994,7 +994,11 @@ Tetap tautkan tiket ini?`)) {
 
     setSummaryText(l2Solutions || '');
     setCloseHtsSolution(l2Solutions || '');
-    const isAlreadySolved = activeTicket.hts_ticket_status === 'SOLVED' || (activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0 && activeTicket.hts_tickets.every(h => h.hts_ticket_status === 'SOLVED'));
+    // FIX 5: baca SSOT TicketHts lebih dulu; legacy hanya fallback bila relasi kosong
+    const htsRowsFE = activeTicket.hts_tickets || [];
+    const isAlreadySolved = htsRowsFE.length > 0
+      ? htsRowsFE.every(h => h.hts_ticket_status === 'SOLVED')
+      : activeTicket.hts_ticket_status === 'SOLVED';
     setCloseHtsTicket(Boolean(activeTicket.hts_ticket_no && !isAlreadySolved));
     
     // Multi PIC Penyelesaian & Waktu Teknis: Hubungkan PIC Penerima/Awal tiket HTS

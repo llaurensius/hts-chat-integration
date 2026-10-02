@@ -181,7 +181,8 @@ const closeTicket = async (req, res) => {
 
   try {
     const existingTicket = await prisma.ticket.findUnique({
-      where: { id: parseInt(ticketId) }
+      where: { id: parseInt(ticketId) },
+      include: { hts_tickets: true }
     });
 
     if (!existingTicket) {
@@ -192,21 +193,45 @@ const closeTicket = async (req, res) => {
     let htsCloseSuccess = false;
     let htsCloseMessage = '';
     let finalMergedPicIds = [];
-    const isAlreadySolvedInHts = existingTicket.hts_ticket_status === 'SOLVED';
+
+    // FIX 1 & 2: status HTS dibaca dari SSOT TicketHts (bukan kolom legacy yang rawan salah)
+    const htsRows = existingTicket.hts_tickets || [];
+    const pendingHtsList = htsRows.filter(h => h.hts_ticket_status !== 'SOLVED');
+    const isAlreadySolvedInHts = htsRows.length > 0
+      ? pendingHtsList.length === 0
+      : existingTicket.hts_ticket_status === 'SOLVED';
+
+    // Self-healing: kolom legacy pernah salah menyatakan SOLVED padahal TicketHts masih PENDING
+    if (!isAlreadySolvedInHts && existingTicket.hts_ticket_status === 'SOLVED') {
+      await prisma.ticket.update({
+        where: { id: existingTicket.id },
+        data: { hts_ticket_status: pendingHtsList[0]?.hts_ticket_status || 'PENDING' }
+      });
+    }
+
     if (existingTicket.hts_ticket_no && !isAlreadySolvedInHts && closeHtsTicket !== false && closeHtsTicket !== 'false') {
       try {
-        let attachmentUrl = null;
-        if (req.file) {
-          attachmentUrl = `/uploads/${req.file.filename}`;
+        // FIX 3: deklarasikan attachmentUrls (sebelumnya TIDAK ADA -> ReferenceError setiap submit)
+        const attachmentUrls = [];
+        if (req.files && req.files.length > 0) {
+          req.files.forEach(f => attachmentUrls.push(`/uploads/${f.filename}`));
+        } else if (req.file) {
+          attachmentUrls.push(`/uploads/${req.file.filename}`);
+        } else if (req.body.selectedAttachmentUrls) {
+          const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
+            ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
+            : req.body.selectedAttachmentUrls;
+          parsedUrls.forEach(u => { if (u && !attachmentUrls.includes(u)) attachmentUrls.push(u); });
         } else if (req.body.selectedAttachmentUrl) {
-          attachmentUrl = req.body.selectedAttachmentUrl;
+          if (!attachmentUrls.includes(req.body.selectedAttachmentUrl)) attachmentUrls.push(req.body.selectedAttachmentUrl);
         } else if (useChatImage === true || useChatImage === 'true') {
           const imageMsg = await prisma.message.findFirst({
             where: { ticket_id: existingTicket.id, attachment_url: { not: null } },
             orderBy: { created_at: 'desc' }
           });
-          if (imageMsg) attachmentUrl = imageMsg.attachment_url;
+          if (imageMsg) attachmentUrls.push(imageMsg.attachment_url);
         }
+        const attachmentUrl = attachmentUrls[0] || null;
 
         // Hubungkan PIC Penerima/Awal dengan PIC Penanganan Akhir agar tersambung
         const initialPicIds = parsePicIds(existingTicket.hts_pic_ids);
@@ -216,19 +241,12 @@ const closeTicket = async (req, res) => {
           finalMergedPicIds = ['14']; // Default PIC Helpdesk jika belum ditentukan
         }
 
-        // Cari seluruh tiket HTS terkait yang masih PENDING
-        const pendingHtsList = await prisma.ticketHts.findMany({
-          where: {
-            ticket_id: existingTicket.id,
-            hts_ticket_status: { not: 'SOLVED' }
-          }
-        });
-
-        const targetsToSolve = pendingHtsList.length > 0 
-          ? pendingHtsList 
-          : [{ hts_ticket_id: existingTicket.hts_ticket_id, hts_ticket_no: existingTicket.hts_ticket_no }];
+        const targetsToSolve = pendingHtsList.length > 0
+          ? pendingHtsList
+          : [{ id: null, hts_ticket_id: existingTicket.hts_ticket_id, hts_ticket_no: existingTicket.hts_ticket_no }];
 
         const solvedNos = [];
+        const failedItems = [];
         for (const target of targetsToSolve) {
           try {
             await htsClientService.solveTicketHts(
@@ -252,8 +270,21 @@ const closeTicket = async (req, res) => {
             }
             solvedNos.push(target.hts_ticket_no);
           } catch (itemErr) {
-            console.warn(`[Chat API] Warning solving HTS #${target.hts_ticket_no}:`, itemErr.message);
+            failedItems.push(`#${target.hts_ticket_no}: ${itemErr.message}`);
+            console.error(`[Chat API] Gagal solve HTS #${target.hts_ticket_no}:`, itemErr.message);
           }
+        }
+
+        // FIX 1: sukses hanya bila SELURUH target selesai. Gagal sebagianpun -> batalkan penutupan lokal.
+        if (failedItems.length > 0) {
+          return res.status(400).json({
+            error: `Gagal menyelesaikan tiket di portal HTS - ${failedItems.join('; ')}. Tiket lokal TIDAK ditutup agar percakapan tidak terputus. Silakan hubungkan ulang akun portal HTS lalu coba kembali.`
+          });
+        }
+        if (solvedNos.length === 0) {
+          return res.status(400).json({
+            error: 'Tidak ada tiket HTS berstatus PENDING yang dapat diselesaikan. Periksa status tiket di portal HTS.'
+          });
         }
 
         htsCloseSuccess = true;
