@@ -693,6 +693,33 @@ const assignTicket = async (req, res) => {
           }
         });
 
+        // Guard Anti-Duplikasi Universal (FIX-02) & Simpan ke hub Multi-HTS
+        const duplicateCheckAssign = await prisma.ticketHts.findFirst({
+          where: {
+            ticket_id: ticket.id,
+            OR: [
+              { hts_ticket_no: { equals: htsResult.noTrouble, mode: 'insensitive' } },
+              { hts_ticket_id: String(htsResult.idTrouble) }
+            ]
+          }
+        });
+
+        if (!duplicateCheckAssign) {
+          await prisma.ticketHts.create({
+            data: {
+              ticket_id: ticket.id,
+              category_id: newCategories?.[0]?.id || ticket.categories?.[0]?.category_id || null,
+              hts_ticket_id: String(htsResult.idTrouble || ''),
+              hts_ticket_no: htsResult.noTrouble,
+              hts_ticket_status: htsResult.status || 'PENDING',
+              hts_kategori: hts_kategori || 'troubleshoot',
+              hts_sub_kategori: hts_sub_kategori || null,
+              hts_detil: hts_detil || firstCustomerMsg?.message_text || null,
+              hts_pic_ids: JSON.stringify(htsResult.picIds || (chosenPicIds.length > 0 ? chosenPicIds : ['14']))
+            }
+          });
+        }
+
         htsSyncSuccess = true;
         htsNoTrouble = htsResult.noTrouble;
         noteText += `\n[PORTAL HTS] Tiket resmi berhasil diterbitkan: #${htsResult.noTrouble} (Status: Proses Penanganan)`;
@@ -1067,28 +1094,57 @@ const addInternalNote = async (req, res) => {
   }
 };
 
-// Memperbarui Identitas Pelapor (Nama & Instansi/SKPD) - Khusus L1 dan ADMIN
+// Memperbarui Identitas Pelapor (Nama, Instansi/SKPD, & Nomor WhatsApp) - Khusus L1 dan ADMIN
 const updateCustomer = async (req, res) => {
   const { customerId } = req.params;
-  const { name, skpd_name } = req.body;
-
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Nama pelapor tidak boleh kosong' });
-  }
+  const { name, skpd_name, wa_number } = req.body;
 
   // Hak akses: L1, ADMIN, SPV
   if (req.user && !['L1', 'ADMIN', 'SPV'].includes(req.user.role)) {
-    return res.status(403).json({ error: 'Hanya L1 dan Admin yang memiliki izin mengubah nama pelapor' });
+    return res.status(403).json({ error: 'Hanya L1 dan Admin yang memiliki izin mengubah identitas pelapor' });
   }
 
   try {
+    const existing = await prisma.customer.findUnique({
+      where: { id: parseInt(customerId) }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'Pelanggan tidak ditemukan' });
+    }
+
+    if (name !== undefined && (!name || !name.trim())) {
+      return res.status(400).json({ error: 'Nama pelapor tidak boleh kosong' });
+    }
+
+    let updateData = {
+      name: name ? name.trim() : existing.name,
+      skpd_name: skpd_name !== undefined ? (skpd_name ? skpd_name.trim() : null) : existing.skpd_name,
+      is_custom_name: true // Tandai bahwa nama telah dikustomisasi manual di Web Dashboard
+    };
+
+    if (wa_number && wa_number.trim()) {
+      let sanitizedNumber = wa_number.replace(/\D/g, '');
+      if (sanitizedNumber.startsWith('0')) {
+        sanitizedNumber = '62' + sanitizedNumber.substring(1);
+      } else if (sanitizedNumber.startsWith('8')) {
+        sanitizedNumber = '62' + sanitizedNumber;
+      }
+
+      if (sanitizedNumber !== existing.wa_number) {
+        // Cek bentrok nomor pada customer lain
+        const conflict = await prisma.customer.findUnique({
+          where: { wa_number: sanitizedNumber }
+        });
+        if (conflict && conflict.id !== existing.id) {
+          return res.status(400).json({ error: 'Nomor WhatsApp tersebut sudah terdaftar pada kontak lain' });
+        }
+        updateData.wa_number = sanitizedNumber;
+      }
+    }
+
     const updatedCustomer = await prisma.customer.update({
       where: { id: parseInt(customerId) },
-      data: {
-        name: name.trim(),
-        skpd_name: skpd_name !== undefined ? (skpd_name ? skpd_name.trim() : null) : undefined,
-        is_custom_name: true // Tandai bahwa nama telah dikustomisasi manual di Web Dashboard
-      }
+      data: updateData
     });
 
     // Catat ke catatan internal bahwa identitas pelapor diperbarui
@@ -1104,12 +1160,13 @@ const updateCustomer = async (req, res) => {
     if (activeTicket) {
       const editorName = req.user ? req.user.name : 'Petugas Helpdesk';
       const skpdInfo = updatedCustomer.skpd_name ? ` (Instansi: ${updatedCustomer.skpd_name})` : '';
+      const waInfo = updateData.wa_number ? ` [Nomor WA: ${updatedCustomer.wa_number}]` : '';
       const noteMsg = await prisma.message.create({
         data: {
           ticket_id: activeTicket.id,
           sender_type: 'AGENT',
           sender_id: req.user ? req.user.id : null,
-          message_text: `[SISTEM] Identitas pelapor diperbarui oleh ${editorName}: "${updatedCustomer.name}"${skpdInfo}`,
+          message_text: `[SISTEM] Identitas pelapor diperbarui oleh ${editorName}: "${updatedCustomer.name}"${skpdInfo}${waInfo}`,
           is_internal: true
         }
       });
@@ -1130,6 +1187,7 @@ const updateCustomer = async (req, res) => {
         customerId: updatedCustomer.id,
         name: updatedCustomer.name,
         skpd_name: updatedCustomer.skpd_name,
+        wa_number: updatedCustomer.wa_number,
         is_custom_name: updatedCustomer.is_custom_name
       });
     }
@@ -1137,7 +1195,7 @@ const updateCustomer = async (req, res) => {
     res.json({ success: true, customer: updatedCustomer });
   } catch (error) {
     console.error('[Chat API] Error updating customer:', error);
-    res.status(500).json({ error: 'Gagal memperbarui identitas pelapor' });
+    res.status(500).json({ error: error.message || 'Gagal memperbarui identitas pelapor' });
   }
 };
 
@@ -1245,6 +1303,23 @@ const syncTicketToHts = async (req, res) => {
       attachmentUrl: attachmentUrl,
       attachmentUrls: attachmentUrls
     });
+
+    // Guard Anti-Duplikasi Universal (FIX-02)
+    const duplicateCheckSync = await prisma.ticketHts.findFirst({
+      where: {
+        ticket_id: ticket.id,
+        OR: [
+          { hts_ticket_no: { equals: htsResult.noTrouble, mode: 'insensitive' } },
+          { hts_ticket_id: String(htsResult.idTrouble || '') }
+        ]
+      }
+    });
+
+    if (duplicateCheckSync) {
+      return res.status(400).json({
+        error: `Nomor aduan HTS #${htsResult.noTrouble} sudah tertaut di percakapan ini.`
+      });
+    }
 
     const updated = await prisma.ticket.update({
       where: { id: ticket.id },
@@ -1507,6 +1582,23 @@ const createTicketHts = async (req, res) => {
       attachmentUrl: attachmentUrl,
       attachmentUrls: attachmentUrls
     });
+
+    // Guard Anti-Duplikasi Universal (FIX-02)
+    const duplicateCheck = await prisma.ticketHts.findFirst({
+      where: {
+        ticket_id: ticket.id,
+        OR: [
+          { hts_ticket_no: { equals: htsResult.noTrouble, mode: 'insensitive' } },
+          { hts_ticket_id: String(htsResult.idTrouble) }
+        ]
+      }
+    });
+
+    if (duplicateCheck) {
+      return res.status(400).json({
+        error: `Nomor aduan HTS #${htsResult.noTrouble} sudah tertaut di percakapan ini.`
+      });
+    }
 
     // Simpan ke tabel TicketHts baru (V4)
     const newTicketHts = await prisma.ticketHts.create({
@@ -2545,6 +2637,23 @@ const linkHtsTicket = async (req, res) => {
 
     // 2. Hubungi portal HTS untuk memverifikasi dan menarik data tiket
     const htsData = await htsClientService.lookupTicketByNumber(req.user.id, cleanNo);
+
+    // Guard Anti-Duplikasi Tambahan pasca-lookup (FIX-02)
+    const duplicateAfterLookup = await prisma.ticketHts.findFirst({
+      where: {
+        ticket_id: ticket.id,
+        OR: [
+          { hts_ticket_no: { equals: htsData.noTrouble, mode: 'insensitive' } },
+          { hts_ticket_id: String(htsData.idTrouble) }
+        ]
+      }
+    });
+
+    if (duplicateAfterLookup) {
+      return res.status(400).json({
+        error: `Nomor aduan HTS #${htsData.noTrouble} sudah tertaut pada percakapan ini!`
+      });
+    }
 
     // 3. Simpan ke tabel TicketHts (Hub Multi-HTS V4)
     const newTicketHts = await prisma.ticketHts.create({
