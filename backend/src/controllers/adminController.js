@@ -239,20 +239,53 @@ const updateCategoryContact = async (req, res) => {
   }
 };
 
-module.exports = {
-  getUsers,
-  createUser,
-  deleteUser,
-  updateUser,
-  getCategoryContacts,
-  addCategoryContact,
-  deleteCategoryContact,
-  updateCategoryContact,
-  importCustomerContacts
-};
 
 
 const xlsx = require('xlsx');
+
+// Menghapus SEMUA data kontak pelanggan / master data (Khusus ADMIN)
+const clearAllCustomerContacts = async (req, res) => {
+  try {
+    // 1. Cek apakah ada tiket yang sedang aktif
+    const activeTicketsCount = await prisma.ticket.count({
+      where: { status: { in: ['OPEN', 'RESOLVED'] } }
+    });
+
+    if (activeTicketsCount > 0 && !req.body.force) {
+      return res.status(400).json({
+        requires_force: true,
+        error: `Terdapat ${activeTicketsCount} tiket yang masih aktif (OPEN / RESOLVED). Selesaikan atau hapus tiket terlebih dahulu, atau gunakan opsi hapus paksa.`
+      });
+    }
+
+    // 2. Hapus seluruh data Customer (dan tiket/pesan terkait jika force)
+    await prisma.$transaction(async (tx) => {
+      if (req.body.force) {
+        await tx.ticketHts.deleteMany();
+        await tx.message.deleteMany();
+        await tx.ticketCategory.deleteMany();
+        await tx.ticket.deleteMany();
+        await tx.$executeRawUnsafe('ALTER SEQUENCE "Ticket_id_seq" RESTART WITH 1');
+        await tx.$executeRawUnsafe('ALTER SEQUENCE "Message_id_seq" RESTART WITH 1');
+      }
+      await tx.customer.deleteMany();
+      await tx.$executeRawUnsafe('ALTER SEQUENCE "Customer_id_seq" RESTART WITH 1');
+    });
+
+    if (req.io) {
+      req.io.emit('customer_updated', { customerId: 'all' });
+      req.io.emit('ticket_closed', { ticketId: 'all' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Seluruh data master kontak pelanggan berhasil dihapus bersih dan ID di-reset ke 1.'
+    });
+  } catch (error) {
+    console.error('[Admin API] Error clearing customer contacts:', error);
+    res.status(500).json({ error: error.message || 'Gagal menghapus data kontak pelanggan' });
+  }
+};
 
 // Import Master Data Kontak Pelanggan / OPD (Khusus ADMIN - Prioritas Utama)
 const importCustomerContacts = async (req, res) => {
@@ -355,4 +388,19 @@ const importCustomerContacts = async (req, res) => {
     console.error('[Admin API] Error importing contacts:', error);
     res.status(500).json({ error: error.message || 'Gagal memproses file import kontak' });
   }
+};
+
+
+module.exports = {
+
+  getUsers,
+  createUser,
+  deleteUser,
+  updateUser,
+  getCategoryContacts,
+  addCategoryContact,
+  deleteCategoryContact,
+  updateCategoryContact,
+  importCustomerContacts,
+  clearAllCustomerContacts
 };

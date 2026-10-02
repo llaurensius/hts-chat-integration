@@ -333,6 +333,28 @@ function Dashboard() {
     }
   };
 
+  // Handler Hapus Seluruh Data Master Kontak Pelanggan (Admin Only)
+  const handleClearAllCustomerContacts = async () => {
+    const confirmation = prompt('PERINGATAN: Tindakan ini akan MENGHAPUS SEMUA MASTER KONTAK pelanggan di database.\n\nKetik "HAPUS KONTAK" untuk melanjutkan:');
+    if (confirmation !== 'HAPUS KONTAK') {
+      if (confirmation !== null) alert('Penghapusan dibatalkan. Kata konfirmasi tidak cocok.');
+      return;
+    }
+
+    try {
+      const res = await axios.delete(`${API_URL}/admin/contacts/clear-all`, {
+        data: { force: true }
+      });
+      alert(res.data?.message || 'Seluruh data master kontak berhasil dihapus bersih');
+      setShowImportContactsModal(false);
+      handleSearchContacts('');
+      loadTickets();
+      setActiveTicket(null);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Gagal menghapus data master kontak');
+    }
+  };
+
   // Handler Import Master Data Kontak (Excel / CSV)
   const handleImportContactsSubmit = async (e) => {
     e.preventDefault();
@@ -4863,22 +4885,33 @@ Tetap tautkan tiket ini?`)) {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowImportContactsModal(false);
-                    setImportStatsResult(null);
-                  }}
-                  className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                  onClick={handleClearAllCustomerContacts}
+                  className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-xl font-medium transition flex items-center gap-1 border border-red-200"
+                  title="Hapus seluruh master data kontak pelanggan yang pernah diimpor"
                 >
-                  Tutup
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Semua Kontak</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={isImportingContacts || !importContactFile}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center gap-1.5 disabled:opacity-50"
-                >
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportContactsModal(false);
+                      setImportStatsResult(null);
+                    }}
+                    className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                  >
+                    Tutup
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isImportingContacts || !importContactFile}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
                   {isImportingContacts ? (
                     <>
                       <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
@@ -4891,6 +4924,7 @@ Tetap tautkan tiket ini?`)) {
                     </>
                   )}
                 </button>
+                </div>
               </div>
             </form>
           </div>
