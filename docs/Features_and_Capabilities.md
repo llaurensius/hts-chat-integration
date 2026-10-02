@@ -1,158 +1,197 @@
 # 🚀 Fitur & Kemampuan Sistem (Features & Capabilities)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi Sistem:** Workflow V4.0 Produksi  
-**Terakhir Diperbarui:** 01 Oktober 2026  
-
-Dokumen ini mendefinisikan seluruh fitur fungsional, kapabilitas bisnis, dan alur kerja operasional yang aktif di sistem saat ini.
+**Versi Sistem:** Workflow V4.1 Produksi  
+**Status:** Semua fitur tercantum aktif di kode riil  
+**Terakhir Diperbarui:** 02 Oktober 2026  
 
 ---
 
 ## 📌 Daftar Isi
-1. [Integrasi WhatsApp Gateway & Sinkronisasi Dua Arah](#1-integrasi-whatsapp-gateway--sinkronisasi-dua-arah)
-2. [Klasifikasi Obrolan: Percakapan Biasa vs Aduan Teknis](#2-klasifikasi-obrolan-percakapan-biasa-vs-aduan-teknis)
-3. [Arsitektur Multi-HTS (1 Chat ke Banyak Tiket HTS Resmi)](#3-arsitektur-multi-hts-1-chat-ke-banyak-tiket-hts-resmi)
-4. [Penautan Manual & Pemulihan Tiket HTS (Disaster Recovery)](#4-penautan-manual--pemulihan-tiket-hts-disaster-recovery)
-5. [Pendelegasian Tugas Multi-Assign & WhatsApp Blast L2](#5-pendelegasian-tugas-multi-assign--whatsapp-blast-l2)
-6. [Catatan Internal Multimedia Dua Arah (L1 ↔ L2)](#6-catatan-internal-multimedia-dua-arah-l1--l2)
-7. [Riwayat Lampau, Timeline Divider & Tarik Arsip WhatsApp](#7-riwayat-lampau-timeline-divider--tarik-arsip-whatsapp)
-8. [Efisiensi Dispatcher: Balasan Cepat (Quick Replies) & Audio Chime](#8-efisiensi-dispatcher-balasan-cepat-quick-replies--audio-chime)
-9. [Resolusi Identitas Pelapor Hybrid](#9-resolusi-identitas-pelapor-hybrid)
-10. [Laporan Rekapitulasi, Metrik SLA (MTTR/FRT) & Ekspor CSV](#10-laporan-rekapitulasi-metrik-sla-mttrfrt--ekspor-csv)
-11. [Manajemen Pengguna & Pengaturan Sistem (Admin Only)](#11-manajemen-pengguna--pengaturan-sistem-admin-only)
+1. [Integrasi WhatsApp Gateway & Sinkronisasi Dua Arah](#1)
+2. [Klasifikasi Obrolan: Percakapan Biasa vs Aduan Teknis](#2)
+3. [Arsitektur Multi-HTS (1 Chat → Banyak Tiket HTS)](#3)
+4. [Penautan Manual & Pemulihan Tiket HTS (Disaster Recovery)](#4)
+5. [Pendelegasian Multi-Assign & WhatsApp Blast L2](#5)
+6. [Catatan Internal Multimedia Dua Arah (L1 ↔ L2)](#6)
+7. [Riwayat Lampau & Tarik Arsip WhatsApp](#7)
+8. [Efisiensi Dispatcher (Quick Replies, Audio, SLA)](#8)
+9. [Master Data Kontak & Hierarki Nama Pelapor](#9)
+10. [Start New Chat (Outbound) & Direktori Kontak](#10)
+11. [Re-Open Tiket (Aktifkan Kembali Percakapan Selesai)](#11)
+12. [Resolusi Identitas Pelapor Hybrid](#12)
+13. [Laporan SLA (MTTR/FRT) & Ekspor CSV](#13)
+14. [Manajemen Pengguna & Pengaturan Sistem (Admin)](#14)
 
 ---
 
 ## 1. Integrasi WhatsApp Gateway & Sinkronisasi Dua Arah
 
-- **Mesin Gateway:** Didukung oleh **Evolution API v2 (Baileys Engine)** berjalan di dalam kontainer Docker lokal.
+- **Mesin Gateway:** Evolution API v2.3.7 (Baileys) berjalan di kontainer Docker lokal.
 - **Pesan Masuk (Inbound):**
-  - Webhook otomatis mendeteksi event `messages.upsert`.
-  - Pesan dari pelanggan langsung memunculkan tiket baru berstatus `OPEN` (default: Percakapan Biasa) atau menyambung ke tiket aktif yang belum ditutup.
-  - Mendukung pesan teks, gambar, video, dan dokumen.
-- **Balasan Dua Arah Riil (Web Dashboard & HP WhatsApp):**
-  - **Via Dashboard:** Petugas L1 dapat mengetik balasan langsung dari layar web.
-  - **Via HP WhatsApp Fisik:** Petugas helpdesk yang membalas langsung dari ponsel WhatsApp resmi tersinkronisasi otomatis ke aplikasi web sebagai balasan agen (`AGENT`).
-  - **Dukungan WhatsApp LID Addressing:** Sistem mampu memetakan pesan yang menggunakan enkripsi privasi akun WhatsApp (`@lid`) kembali ke nomor telepon asli pelanggan (`@s.whatsapp.net`).
-  - **Deduplikasi Cerdas:** Sistem mencegah penggandaan gelembung chat saat pesan dikirim via dashboard menggunakan pencatatan `wa_message_id`.
+  - Webhook `POST /api/webhook/whatsapp` menangani event `messages.upsert`.
+  - Pesan pelanggan baru otomatis membuat tiket `OPEN` (default: Percakapan Biasa); pesan susulan menyambung ke tiket aktif (`OPEN`/`RESOLVED`).
+  - Dukungan teks, gambar, video, dokumen.
+- **Balasan Dua Arah Riil (Web Dashboard & HP WhatsApp Fisik):**
+  - **Via Dashboard:** Petugas L1 membalas langsung dari web.
+  - **Via HP WhatsApp Fisik:** Balasan dari nomor helpdesk tersinkronisasi otomatis ke aplikasi web sebagai `AGENT` (fitur V4.1 — fix filter `fromMe`).
+  - **Dukungan WhatsApp LID Addressing:** pemetaan `@lid` → nomor HP asli via `key.remoteJidAlt`.
+  - **Deduplikasi Cerdas:** kolom `Message.wa_message_id` mencegah balon ganda; time-window 60 detik untuk balasan agen.
+  - **Race-Condition Safety:** `prisma.customer.upsert` atomik + fallback pembuatan tiket jika dua webhook masuk paralel.
+- **Anti-Collision Berkas:** nama upload `img_<timestamp>_<randomSuffix>` (mencegah overwrite di milidetik sama).
 - **Bot Auto-Reply:**
-  - Balasan otomatis dapat diaktifkan/dinonaktifkan (*toggle switch*) oleh L1.
-  - Template pesan bot dapat dikustomisasi langsung melalui antarmuka web.
-  - Bot hanya membalas pesan masuk pertama dari pelanggan, dan tidak akan terpicu jika helpdesk yang memulai chat duluan.
+  - Sakelar ON/OFF + template kustom via antarmuka web (khusus L1).
+  - Hanya terpicu saat pesan masuk dari pelanggan (`fromMe=false`) — tidak membalas percakapan yang dibantu helpdesk duluan.
 
 ---
 
 ## 2. Klasifikasi Obrolan: Percakapan Biasa vs Aduan Teknis
 
-Untuk menjaga akurasi laporan performa SLA, sistem memisahkan jenis pesan masuk menjadi dua kategori:
-
-1. **Percakapan Biasa (`GENERAL_CHAT`):**
-   - Ditujukan untuk konsultasi umum, salam sapa, pertanyaan informasi, atau pesan salah sambung.
-   - **Tombol Penyelesaian Cepat:** L1 dapat menyelesaikan percakapan secara instan dengan tombol `[ ✅ Selesaikan Percakapan ]` tanpa perlu mengisi formulir HTS atau solusi teknisi.
-   - **Isolasi Antrean L2:** Percakapan biasa tidak muncul di layar teknisi L2 (`where.is_aduan = true`).
-   - **Bebas Metrik SLA:** Dikecualikan 100% dari perhitungan durasi penyelesaian MTTR agar tidak merusak metrik kinerja.
-2. **Aduan Teknis Resmi (`is_aduan = true`):**
-   - Ditujukan untuk gangguan jaringan, server, aplikasi, atau infrastruktur M&E.
-   - **Auto-Promotion:** Percakapan biasa otomatis naik status menjadi aduan teknis saat:
-     - L1 menugaskan tiket ke tim teknisi L2 (`assignTicket`).
-     - L1 menerbitkan atau menautkan tiket ke portal resmi HTS Diskomdigi.
-   - **Toggle Manual:** L1 dapat mengklik badge `💬 Percakapan Biasa` untuk beralih secara fleksibel ke `🚨 Aduan Teknis` kapan saja.
+1. **Percakapan Biasa (`GENERAL_CHAT`, `is_aduan=false`):**
+   - Konsultasi umum, sapaan, informasi, salah sambung.
+   - **Tombol `[ ✅ Selesaikan Percakapan ]`** — penyelesaian instan tanpa formulir HTS.
+   - **Isolasi Antrean L2:** tidak muncul di layar teknisi (`is_aduan=true`).
+   - **Bebas SLA:** dikecualikan 100% dari kalkulasi MTTR agar metrik tetap murni.
+2. **Aduan Teknis Resmi (`is_aduan=true`):**
+   - Gangguan jaringan/server/infrastruktur M&E.
+   - **Auto-Promotion:** percakapan biasa otomatis naik saat L1 menugaskan tim L2 / menerbitkan / menautkan tiket HTS.
+   - **Toggle Manual:** badge `💬 Percakapan Biasa` bisa diklik untuk berpindah kelas kapan saja (kecuali tiket sudah terhubung HTS).
 
 ---
 
-## 3. Arsitektur Multi-HTS (1 Chat ke Banyak Tiket HTS Resmi)
+## 3. Arsitektur Multi-HTS (1 Chat → Banyak Tiket HTS)
 
-Satu obrolan WhatsApp dari pelanggan seringkali melibatkan lebih dari satu masalah teknis (misalnya kendala koneksi internet sekaligus permohonan restart server). Sistem V4 mengadopsi model relasi **One-to-Many (`Ticket` $\rightarrow$ `TicketHts[]`)**:
-
-- **Banyak Nomor HTS per Percakapan:** L1 dapat menerbitkan beberapa nomor aduan resmi HTS secara mandiri pada percakapan yang sama ke divisi yang berbeda.
-- **Penyelesaian Parsial (*Partial Resolution*):** Setiap tiket HTS memiliki status mandiri (`PENDING` atau `SOLVED`). Penyelesaian tiket HTS divisi Network tidak akan membatalkan tiket HTS divisi Server.
-- **Sinkronisasi Sesi Otomatis (*Keep-Alive Heartbeat*):** Servis latar belakang memvalidasi sesi cookie PHP `ci_session` ke server HTS setiap 15 menit agar petugas tidak logout mendadak saat bertugas.
+Model relasi **One-to-Many** `Ticket` → `TicketHts[]` (V4):
+- **Banyak Nomor HTS per Percakapan:** 1 chat bisa menerbitkan nomor aduan ke divisi Network + Server sekaligus.
+- **Penyelesaian Parsial:** tiap tiket HTS punya status mandiri (`PENDING`/`SOLVED`); menyelesaikan tiket Network tidak membatalkan tiket Server.
+- **Multi-Kartu di Panel Kanan:** seluruh tiket HTS tampil sebagai kartu tersendiri (nomor, divisi, status) + tombol tambah/lepas tautan per kartu.
+- **Sesuai SSOT:** baca dari tabel `TicketHts`, bukan kolom legacy `Ticket.hts_*`.
+- **Keep-Alive Heartbeat:** refresh cookie `ci_session` tiap 15 menit (`htsKeepAliveService`) — sesi HTS anti-logout.
 
 ---
 
 ## 4. Penautan Manual & Pemulihan Tiket HTS (Disaster Recovery)
 
-Jika terjadi kendala koneksi internet saat submit tiket ke portal HTS, sistem menyediakan fitur pemulihan:
-
-- **Tab Form Penautan Manual:** Drawer HTS menyediakan dua tab:
-  - `[ ➕ Terbitkan Tiket Baru ]` — Pipeline registrasi standar ke HTS.
-  - `[ 🔗 Tautkan yang Sudah Ada ]` — Menginput nomor tiket HTS yang sudah terlanjur terbit di portal resmi.
-- **Verifikasi Nomor Tiket:** Sistem mengecek ke server portal HTS untuk memastikan keabsahan nomor aduan sebelum ditautkan.
-- **Deteksi Tiket Duplikat:** Mencegah satu nomor HTS ditautkan ke dua percakapan berbeda (peringatan dialog konfirmasi *force link*).
-- **Pemulihan Tiket Gantung (`INPUT_PIC`):** Menyediakan tombol **`[ ⚡ Lengkapi Penugasan PIC di HTS ]`** jika tiket terhenti pada tahap pemilihan teknisi.
+Ketika submit ke HTS gagal (koneksi/database putus pasca-submit):
+- **Tab Drawer 2 Mode:**
+  - `[ ➕ Terbitkan Tiket Baru ]` — pipeline standar 3 tahap.
+  - `[ 🔗 Tautkan yang Sudah Ada ]` — input nomor aduan manual.
+- **Verifikasi Live:** `lookupTicketByNumber()` mengecek ke server HTS sebelum menyimpan.
+- **Proteksi Duplikat:**
+  - Nomor sama dalam 1 percakapan → **DITOLAK** (400).
+  - Nomor sudah terpakai di tiket lain → dialog konfirmasi **Force Link** (409).
+- **Auto-Promotion & Auto-Assign:** penautan otomatis mengubah `is_aduan=true`; jika divisi tim dipilih, `TicketCategory` dibuat otomatis (tim langsung muncul di antrean L2).
+- **Deteksi Status SOLVED:** status asli dari HTS (termasuk `SOLVED`) dibaca saat lookup — form penutupan HTS otomatis disembunyikan jika seluruh tiket HTS sudah `SOLVED`.
+- **Pemulihan `INPUT_PIC`:** tombol **`[ ⚡ Lengkapi Penugasan PIC di HTS ]`** menaikkan tiket gantung ke `PENDING`.
+- **Unlink (V4.1):** tombol hapus per kartu HTS → `DELETE /tickets/:id/hts/:htsId/unlink`, catatan internal sistem dicatat.
 
 ---
 
-## 5. Pendelegasian Tugas Multi-Assign & WhatsApp Blast L2
+## 5. Pendelegasian Multi-Assign & WhatsApp Blast L2
 
-- **3 Pilar Tim Teknisi L2:** `Network`, `Server`, dan `Mechanical & Electrical (M&E)`.
-- **Multi-Assign Cerdas:** L1 dapat mencentang lebih dari satu tim sekaligus. Menambahkan tim baru tidak akan mereset tim yang sedang bertugas atau yang telah selesai.
-- **WhatsApp Multi-Contact Blast:** Saat didelegasikan, sistem secara otomatis membroadcast pesan notifikasi WA berformat rapi ke seluruh personil dan grup WA teknisi yang terdaftar pada tim tersebut.
-- **Penyelesaian Per-Tim (*Per-Team Resolution*):** Setiap tim menandai selesai tugas bagiannya secara mandiri (`is_resolved = true`) beserta catatan solusi. Tiket utama otomatis `RESOLVED` hanya saat seluruh tim telah menyatakan selesai.
-- **Pelepasan Tugas Mandiri (*Self-Unassign Return*):** Teknisi dapat melepas tugas jika salah sasaran penugasan disertai alasan pengembalian.
+- **3 Pilar Tim:** `Network`, `Server`, `Mechanical & Electrical (M&E)`.
+- **Multi-Assign Cerdas:** centang banyak tim sekaligus; tim berjalan tidak pernah ke-reset (logika diff & merge).
+- **WhatsApp Blast:** notifikasi rapi ke seluruh nomor personil + grup WA (`CategoryContact`) **hanya untuk tim yang baru ditambahkan** (anti-spam).
+- **Per-Team Resolution:** `TicketCategory.is_resolved` per tim + solusi teknis. Tiket utama `RESOLVED` hanya saat **seluruh** tim selesai.
+- **Self-Unassign Return:** L2 bisa melepas tugas dengan alasan tanpa mengganggu tim lain.
 
 ---
 
 ## 6. Catatan Internal Multimedia Dua Arah (L1 ↔ L2)
 
-- **Pemisahan Mode Chat:** Petugas L1 memiliki sakelar dua tab:
-  - Tab 💬 **Balas Pelanggan:** Pesan dikirimkan ke WhatsApp pelanggan.
-  - Tab 🔒 **Catatan Internal (Kuning):** Pesan hanya dibaca oleh tim internal (L1, L2, Admin) dan tidak pernah dikirim ke pelanggan.
-- **Dukungan Media Gambar Internal:** Teknisi L2 dan L1 dapat saling mengirim foto kendala kabel, topologi, atau layar server di tab internal.
-- **Pemanfaatan Foto L2 untuk Bukti HTS:** Foto catatan internal L2 dapat dipilih langsung oleh L1 sebagai berkas lampiran penutupan tiket di portal resmi HTS tanpa perlu download-upload ulang.
+- **Dual-Tab L1:** tab `💬 Balas Pelanggan` (kirim ke WA) vs tab `🔒 Catatan Internal` (kuning, rahasia).
+- **Foto Internal:** L1 ↔ L2 kirim gambar teknis — dijamin `is_internal=true`, **tidak pernah terkirim** ke WhatsApp pelanggan.
+- **Bukti HTS:** foto internal L2 bisa dipilih langsung sebagai lampiran penyelesaian di portal HTS (tanpa re-upload).
+- **Badge Identitas:** `🏷️ Catatan Internal - Tim [Network] ([Nama Teknisi])`.
 
 ---
 
-## 7. Riwayat Lampau, Timeline Divider & Tarik Arsip WhatsApp
+## 7. Riwayat Lampau & Tarik Arsip WhatsApp
 
-- **Accordion Riwayat Lampau:** Di bagian atas jendela chat, terdapat tombol collapsible untuk melihat seluruh tiket lama dari pelanggan yang sama yang sudah berstatus `CLOSED`.
-- **Timeline Divider:** Chat lama ditampilkan secara redup (*dimmed*) dengan pembatas visual yang jelas, memisahkan riwayat lampau dengan percakapan aktif saat ini.
-- **Tarik Arsip WhatsApp (*On-Demand Lazy Load*):**
-  - Tombol **`[ 📥 Tarik Arsip WA ]`** mengambil 20 pesan historis langsung dari memori WhatsApp via Evolution API.
-  - Bekerja baik untuk pesan era lama maupun pesan baru berbasis WhatsApp LID.
+- **Accordion Timeline Divider:** riwayat tiket `CLOSED` pelanggan sama ditampilkan redup (*dimmed*) dengan pembatas waktu.
+- **`[ 📥 Tarik Arsip WA ]`:** lazy-load 20 pesan historis langsung dari memori WhatsApp via Evolution API (query ganda `remoteJid` + `remoteJidAlt` sehingga kompatibel LID).
 
 ---
 
-## 8. Efisiensi Dispatcher: Balasan Cepat (Quick Replies) & Audio Chime
+## 8. Efisiensi Dispatcher (Quick Replies, Audio, SLA)
 
-- **Penyaran Balasan Cepat (*Slash Commands*):**
-  - Ketik tanda garis miring (`/`) pada kotak input untuk memunculkan popup daftar template balasan cepat (contoh: `/salam`, `/aduan`, `/progres`, `/selesai`).
-  - Navigasi keyboard responsif (panah atas/bawah dan tombol Enter untuk memilih).
-- **Manajemen Template:** Dispatcher dan Admin dapat menambah, mengedit, dan menghapus template balasan cepat di pengaturan.
-- **Notifikasi Suara (*Web Audio API*):**
-  - Chime nada sintesis native dua nada (D5 $\rightarrow$ A5) yang berbunyi seketika saat ada pesan pelanggan baru atau penugasan tiket masuk.
-  - Dilengkapi tombol toggle Mute/Unmute audio di bar navigasi atas.
-- **HTML5 Desktop Notification:** Notifikasi desktop browser yang tetap muncul meskipun tab aplikasi sedang diminimize.
+- **Quick Replies (`/canned`):** ketik `/` di kotak chat → popup template (navigasi panah + Enter).
+  - **Edit inline (V4.1):** tombol ✏️ per template di modal Quick Reply → form edit shortcut/judul/isi → `PUT /quick-replies/:id`.
+- **Audio Chime:** nada sintesis native D5 → A5 (Web Audio API) + toggle mute.
+- **Desktop Notification:** alert browser saat tab diminimize.
+- **Metrik SLA SPV:** Total Aduan Teknis, Total Percakapan Biasa, Rata-rata FRT, Rata-rata MTTR (aduan murni) + ekspor CSV.
 
 ---
 
-## 9. Resolusi Identitas Pelapor Hybrid
+## 9. Master Data Kontak & Hierarki Nama Pelapor
 
-Sistem menggunakan hierarki cerdas untuk menentukan nama pelapor yang ditampilkan:
-1. **Nama Kustom Dasbor:** Nama yang telah disunting secara manual oleh L1/Admin (prioritas tertinggi).
-2. **Buku Kontak HP Helpdesk:** Nama kontak resmi yang tersimpan di buku telepon ponsel WhatsApp gateway.
-3. **WhatsApp Push Name:** Nama profil akun WhatsApp yang disetel oleh pengguna.
-4. **Nomor Telepon:** Fallback jika nama tidak tersedia.
+**Fitur V4.1 — prioritas utama identitas pelapor:**
 
-Dispatcher L1 dan Admin dapat memperbarui nama pelapor dan nama instansi/SKPD secara langsung melalui tombol edit pensil di header chat.
+```
+1. 🥇 Hasil Import Admin (is_imported_contact=true)  ← TIDAK TERTIMPA
+2. 🥈 Edit Manual via Dashboard (is_custom_name=true)
+3. 🥉 Kontak HP Evolution (pushName)
+4. 🏅 WhatsApp Push Name  → disimpan ke wa_push_name (data pembanding)
+5. 📱 Nomor telepon (fallback)
+```
 
----
-
-## 10. Laporan Rekapitulasi, Metrik SLA (MTTR/FRT) & Ekspor CSV
-
-- **Metrik KPI Dasbor SPV & Admin:**
-  - Total Percakapan Masuk.
-  - Total Aduan Teknis Murni.
-  - Total Percakapan Biasa.
-  - Rata-rata Waktu Respons Awal (*First Response Time - FRT*).
-  - Rata-rata Durasi Penyelesaian Aduan Murni (*Mean Time to Resolve - MTTR*).
-- **Tabel Rekapitulasi Lengkap:** Menampilkan ID tiket, nama pelapor, instansi SKPD, tim teknisi, jenis layanan, tanggal masuk, durasi penanganan, status, dan kesimpulan akhir (*mandatory summary*).
-- **Filter Berdasarkan Tanggal & Kategori:** Memfilter data rekapitulasi berdasarkan rentang waktu atau tim teknisi.
-- **Ekspor Data ke CSV:** Mengunduh seluruh rekapitulasi dalam format spreadsheet Excel/CSV yang kompatibel dengan format pelaporan kedinasan.
+- **Import (khusus ADMIN):** `POST /api/admin/contacts/import`
+  - Format: **Excel `.xlsx/.xls`**, **CSV**, **VCF/vCard**.
+  - Parser CSV mendukung header **Google Contacts** (`First Name`+`Middle Name`+`Last Name`, `Given Name`+`Family Name`, `Phone 1 - Value`, `Organization Name`) dan header kustom (`nama`, `nomor_wa`, `instansi`).
+  - Parser **VCF** manual (tanpa library): `FN`/`N` → nama, `TEL` → nomor (1 baris per TEL), `ORG` → instansi.
+  - Normalisasi nomor `08xxx` → `628xxx`.
+  - Status: `contacts.csv` **1300/1300 terbaca**, `contacts.vcf` **1335 dari 1342 kartu** (7 kartu tanpa TEL dilewati).
+- **Hapus Semua Kontak (khusus ADMIN):** `DELETE /api/admin/contacts/clear-all` — transaksi aman, reset sequence `Customer_id_seq`, proteksi tiket aktif + opsi `force`.
+- **Proteksi:** webhook tidak pernah menimpa nama pelanggan yang berflag import/custom; nama profil WA asli selalu dicatat ke `wa_push_name` sebagai **pembanding** (tampil di panel kanan jika berbeda).
 
 ---
 
-## 11. Manajemen Pengguna & Pengaturan Sistem (Admin Only)
+## 10. Start New Chat (Outbound) & Direktori Kontak
 
-- **Manajemen Akun Pengguna (CRUD Penuh):** Admin dapat membuat akun baru, memperbarui peran (`ADMIN`, `L1`, `L2`, `SPV`), menetapkan divisi tim teknisi L2, serta melakukan reset kata sandi staf.
-- **Buku Kontak Notifikasi Tim L2:** Admin dapat mengelola nomor telepon WhatsApp personil maupun ID Grup WA (`@g.us`) yang menjadi target blast penugasan per divisi.
-- **Pembersihan Data Testing & Reset Penomoran ID:** Admin dapat menghapus data aduan testing dan mereset penomoran urut tiket database PostgreSQL kembali ke ID #1.
+- **Tombol `[ ➕ Chat Baru ]`** di atas antrean percakapan (khusus L1/ADMIN).
+- **Direktori Kontak dengan Pagination (V4.1):**
+  - Menggabungkan **Master Data DB (prioritas)** + **990+ kontak HP Evolution**.
+  - Halaman pertama 30 entri; tombol **`↓ Muat lebih banyak (N tersisa)`** memuat halaman berikutnya (`limit`+`offset`, `hasMore`); footer **`✓ Semua kontak dimuat (N total)`** saat habis.
+  - Pencarian live berdasarkan nama / nomor / OPD.
+- **Pilih sekali klik:** nomor, nama, dan instansi terisi otomatis.
+- **Toggle Pesan Pembuka:**
+  - **ON (default):** kirim teks pembuka via Evolution, simpan sebagai `AGENT`, buka chat.
+  - **OFF (Mode Tiket Kosong):** hanya membuat tiket + membuka ruang chat web — **tidak ada pesan terkirim** ke nomor WA; balasan dikirim manual nanti.
+- **Klasifikasi Awal:** bisa langsung ditandai `🚨 Aduan Teknis`.
+
+---
+
+## 11. Re-Open Tiket (Aktifkan Kembali Percakapan Selesai)
+
+Untuk kasus aduan `CLOSED` tapi ada pertanyaan lanjutan:
+- **Tab `✓ Selesai`** di filter antrean (khusus L1/ADMIN).
+- Tombol **`[ 🔄 Aktifkan Kembali Tiket ]`** di header chat saat tiket berstatus `CLOSED`.
+- Dialog alasan (opsional) → `POST /tickets/:id/reopen`.
+- Efek: `status=OPEN`, `closed_at=null`, catatan internal sistem + event `ticket_updated`.
+
+---
+
+## 12. Resolusi Identitas Pelapor Hybrid
+
+Hierarki lengkap ada di [Bagian 9](#9). Perbedaan nama import vs profil WA ditampilkan di panel kanan (badge `Master Data` + blok italic *Nama Profil WhatsApp*).
+
+---
+
+## 13. Laporan SLA (MTTR/FRT) & Ekspor CSV
+
+- **KPI SPV:** Total aduan teknis, total percakapan biasa, rata-rata FRT, rata-rata MTTR (aduan murni — percakapan biasa dikecualikan).
+- **Tabel Rekapitulasi:** ID tiket, pelapor, SKPD, tim, jenis layanan, waktu, durasi, status, kesimpulan, nomor HTS (format multi-HTS).
+- **Filter tanggal & kategori.** **Ekspor CSV.**
+
+---
+
+## 14. Manajemen Pengguna & Pengaturan Sistem (Admin)
+
+- **CRUD Pengguna:** buat, edit, hapus staf (role `ADMIN`/`L1`/`L2`/`SPV`), set kategori tim L2, reset password (bcrypt).
+- **Buku Kontak Blast Tim L2:** kelola nomor personil (`628xxx`) & ID grup (`xxx@g.us`) per divisi + inline edit.
+- **Pembersihan Data Testing:** hapus rekap terpilih / hapus semua + **reset sequence ID ke 1**.
+- **Import & Hapus Master Data Kontak** (Bagian 9).
+
+---
+
+## Status Pengujian Fitur
+Lihat `QA_and_Quality.md` — **Modul 1–7 lolos**, sebagian Modul 8 teruji, fitur V4.1 (Modul 9) **belum diuji menyeluruh**.

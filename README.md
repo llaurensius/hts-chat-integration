@@ -169,21 +169,16 @@ Semua akun terdaftar menggunakan **Password:** `password123`
 
 ---
 
-## 📂 Indeks Dokumentasi Teknis di Folder `/docs`
+## 📂 Indeks Dokumentasi di Folder `/docs` (V4.1)
 
 Seluruh dokumentasi teknis mendalam tersedia di direktori [`docs/`](./docs/):
 
-1. **[Product Requirements Document (PRD)](docs/PRD_WhatsApp_Helpdesk.md)** - Kebutuhan bisnis, persona pengguna, dan fitur F01 s/d F17.
-2. **[Database Schema / ERD](docs/Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, enum, dan reset sequence.
-3. **[Spesifikasi API Endpoints](docs/API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, Bot Setting, Multi-Contact L2, dan Socket.io.
-4. **[Spesifikasi Keamanan](docs/Security_Specification.md)** - Standar enkripsi JWT, RBAC matrix lengkap, Helmet CSP/CORP, dan Rate Limiter.
-5. **[Diagram Alur Sistem (Flowcharts)](docs/System_Flowcharts.md)** - Diagram alur proses sistem Mermaid (Inbound, Smart Assign, Resolve, Return, Close, Reset).
-6. **[Arsitektur & Tech Stack](docs/Tech_Stack_Architecture.md)** - Topologi infrastruktur, daftar pustaka, dan dependensi sistem.
-7. **[Panduan Deployment](docs/Deployment_Guide.md)** - Panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
-8. **[Panduan Operasional (SOP)](docs/Operational_Guide.md)** - Panduan operasional harian untuk Dispatcher L1, Teknisi L2, Admin, dan SPV.
-9. **[Rangkuman Lengkap Proyek](docs/Summary.md)** - Rekapitulasi komprehensif implementasi Workflow V1 hingga V2.2.
-10. **[Kredensial Pengguna & RBAC](docs/User.md)** - Daftar akun pengujian default sistem dan matriks hak akses.
-11. **[Rencana Implementasi V2](docs/Implementation_Plan_V2.md)** - Catatan historis tahapan pengembangan Fase 1 hingga Fase 4.
+1. **[Gambaran Umum Proyek (Project Overview)](docs/Project_Overview.md)** - Ringkasan eksekutif, persona pengguna, peran & matriks RBAC, daftar akun pengujian, dan evolusi sistem V1 s/d V4.1.
+2. **[Arsitektur, Diagram Alur & Keamanan (Architecture)](docs/Architecture.md)** - Tech stack, topologi Docker, diagram Mermaid seluruh alur inti, dan spesifikasi keamanan (JWT, RBAC, Helmet, Rate Limit).
+3. **[Skema Database & Kontrak API (Database_and_API)](docs/Database_and_API.md)** - ERD, struktur tabel & kolom (termasuk `TicketHts`, `wa_message_id`, `is_imported_contact`), kontrak REST API, dan event Socket.io.
+4. **[Fitur & Kemampuan Sistem (Features_and_Capabilities)](docs/Features_and_Capabilities.md)** - Seluruh fitur aktif V1 s/d V4.1: Multi-HTS, General Chat, Master Data Kontak, Start New Chat, Re-Open Tiket, Unlink, Quick Replies, SLA.
+5. **[Panduan Operasional & Deployment (Operations_and_Deployment)](docs/Operations_and_Deployment.md)** - SOP Dispatcher L1, Teknisi L2, Admin, SPV beserta panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
+6. **[Pengujian QA, Potensi Bug & Audit (QA_and_Quality)](docs/QA_and_Quality.md)** - Skenario uji Modul 1-9 beserta status jujur, analisis potensi kendala & mitigasi, log progres, dan hasil audit arsitektur.
 
 ---
 
