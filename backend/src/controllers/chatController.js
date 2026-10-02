@@ -6,11 +6,11 @@ const htsClientService = require('../services/htsClientService');
 const getTickets = async (req, res) => {
   try {
     // Filter tiket berdasarkan peran
-    // L1 / Admin / SPV melihat semua tiket OPEN dan RESOLVED
-    // Filter tiket berdasarkan peran
-    // L1 / Admin / SPV melihat semua tiket OPEN dan RESOLVED
-    // L2 HANYA melihat tiket OPEN dan RESOLVED yang berstatus aduan (is_aduan = true) dan di-assign ke kategorinya
-    let whereClause = { status: { in: ['OPEN', 'RESOLVED'] } };
+    // L1 / Admin / SPV melihat semua tiket (termasuk CLOSED agar tab "✓ Selesai"
+    // dan tombol Re-Open di App.jsx:2310 punya sumber data).
+    // L2 HANYA melihat tiket yang berstatus aduan (is_aduan = true) dan di-assign ke kategorinya.
+    // Pemisahan tab aktif vs selesai dilakukan di frontend (App.jsx:2146-2150).
+    let whereClause = {};
 
     if (req.user && req.user.role === 'L2' && req.user.category_id) {
       whereClause.is_aduan = true; // Isolasi percakapan biasa dari antrean L2 (Fase 1 - V4)
@@ -2746,6 +2746,5 @@ module.exports = {
   startNewChat,
   reopenTicket
 };
-
 
 
