@@ -319,18 +319,41 @@ function Dashboard() {
   };
 
   // Handler Pencarian Kontak Buku Telepon HP & Master Data Import
-  const handleSearchContacts = async (query = '') => {
-    setNewChatSearchContact(query);
-    setIsSearchingContacts(true);
+  const handleSearchContacts = async (query = '', { append = false } = {}) => {
+    if (append) {
+      setIsLoadingMoreContacts(true);
+    } else {
+      setNewChatSearchContact(query);
+      setIsSearchingContacts(true);
+    }
     try {
-      const qParam = query && query.trim() ? `?q=${encodeURIComponent(query.trim())}&limit=30` : '?limit=30';
-      const res = await axios.get(`${API_URL}/chat/contacts/search${qParam}`);
-      setNewChatContactsList(res.data || []);
+      const offset = append ? contactsOffset : 0;
+      const params = new URLSearchParams({
+        limit: String(CONTACTS_PAGE_SIZE),
+        offset: String(offset)
+      });
+      const q = (query ?? newChatSearchContact).trim();
+      if (q) params.set('q', q);
+
+      const res = await axios.get(`${API_URL}/chat/contacts/search?${params.toString()}`);
+      const data = res.data || {};
+      const page = Array.isArray(data) ? data : (data.contacts || []);
+
+      setNewChatContactsList(prev => (append ? [...prev, ...page] : page));
+      setContactsTotal(data.total ?? page.length);
+      setContactsHasMore(Boolean(data.hasMore));
+      setContactsOffset(offset + page.length);
     } catch (err) {
-      console.warn('Gagal memuat direktori kontak:', err.message);
+      console.warn(append ? 'Gagal memuat kontak lanjutan:' : 'Gagal memuat direktori kontak:', err.message);
     } finally {
       setIsSearchingContacts(false);
+      setIsLoadingMoreContacts(false);
     }
+  };
+
+  const handleLoadMoreContacts = () => {
+    if (isLoadingMoreContacts || !contactsHasMore) return;
+    handleSearchContacts(newChatSearchContact, { append: true });
   };
 
   // Handler Hapus Seluruh Data Master Kontak Pelanggan (Admin Only)
@@ -713,6 +736,12 @@ Tetap tautkan tiket ini?`)) {
   const [newChatSearchContact, setNewChatSearchContact] = useState('');
   const [newChatContactsList, setNewChatContactsList] = useState([]);
   const [isSearchingContacts, setIsSearchingContacts] = useState(false);
+  // State paginasi direktori kontak (Opsi B: tombol Muat Lebih)
+  const [contactsTotal, setContactsTotal] = useState(0);
+  const [contactsHasMore, setContactsHasMore] = useState(false);
+  const [contactsOffset, setContactsOffset] = useState(0);
+  const [isLoadingMoreContacts, setIsLoadingMoreContacts] = useState(false);
+  const CONTACTS_PAGE_SIZE = 30;
   const [newChatWaNumber, setNewChatWaNumber] = useState('');
   const [newChatName, setNewChatName] = useState('');
   const [newChatSkpd, setNewChatSkpd] = useState('');
@@ -4694,6 +4723,33 @@ Tetap tautkan tiket ini?`)) {
                       <div className="p-4 text-center text-xs text-gray-400">
                         {isSearchingContacts ? 'Mencari kontak...' : 'Tidak ada kontak yang cocok.'}
                       </div>
+                    )}
+
+                    {/* Pagination: tombol Muat Lebih (Opsi B) */}
+                    {newChatContactsList.length > 0 && (
+                      contactsHasMore ? (
+                        <button
+                          type="button"
+                          onClick={handleLoadMoreContacts}
+                          disabled={isLoadingMoreContacts}
+                          className="w-full py-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 border-t border-gray-100 transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                          {isLoadingMoreContacts ? (
+                            <>
+                              <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+                              Memuat kontak lain...
+                            </>
+                          ) : (
+                            <>
+                              ↓ Muat lebih banyak ({contactsTotal - newChatContactsList.length} tersisa)
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <div className="py-2 text-center text-[10px] text-gray-400 border-t border-gray-100 bg-gray-50">
+                          ✓ Semua kontak dimuat ({contactsTotal} total)
+                        </div>
+                      )
                     )}
                   </div>
                 </div>

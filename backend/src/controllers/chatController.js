@@ -2238,8 +2238,9 @@ const reopenTicket = async (req, res) => {
 
 // 1. Mencari kontak dari Buku Master Data DB (Prioritas 1) dan Buku Kontak HP Evolution (Prioritas 2)
 const searchPhoneContacts = async (req, res) => {
-  const { q = '', limit = 20 } = req.query;
-  const maxLimit = parseInt(limit) || 20;
+  const { q = '', limit = 30, offset = 0 } = req.query;
+  const maxLimit = Math.min(parseInt(limit) || 30, 100);
+  const skip = Math.max(parseInt(offset) || 0, 0);
   const cleanQ = (q || '').trim();
 
   try {
@@ -2252,15 +2253,20 @@ const searchPhoneContacts = async (req, res) => {
       ]
     } : {};
 
-    const dbCustomers = await prisma.customer.findMany({
-      where: dbWhere,
-      orderBy: [
-        { is_imported_contact: 'desc' },
-        { is_custom_name: 'desc' },
-        { name: 'asc' }
-      ],
-      take: maxLimit
-    });
+    const [totalDb, dbCustomers] = await Promise.all([
+      prisma.customer.count({ where: dbWhere }),
+      prisma.customer.findMany({
+        where: dbWhere,
+        orderBy: [
+          { is_imported_contact: 'desc' },
+          { is_custom_name: 'desc' },
+          { name: 'asc' },
+          { wa_number: 'asc' } // tiebreaker: urutan wajib stabil antar-halaman
+        ],
+        take: maxLimit,
+        skip
+      })
+    ]);
 
     const seenNumbers = new Set();
     const results = [];
@@ -2281,8 +2287,8 @@ const searchPhoneContacts = async (req, res) => {
       });
     }
 
-    // 2. Query tambahan dari buku kontak HP Evolution API (jika kuota limit masih ada)
-    if (results.length < maxLimit) {
+    // 2. Query tambahan dari buku kontak HP Evolution API (hanya halaman pertama, cegah duplikat lintas halaman)
+    if (skip === 0 && results.length < maxLimit) {
       const evoContacts = await evolutionService.searchContacts(cleanQ, maxLimit - results.length);
       for (const ec of evoContacts) {
         if (!seenNumbers.has(ec.waNumber)) {
@@ -2302,7 +2308,13 @@ const searchPhoneContacts = async (req, res) => {
       }
     }
 
-    res.json(results);
+    res.json({
+      contacts: results,
+      total: totalDb,
+      offset: skip,
+      limit: maxLimit,
+      hasMore: skip + dbCustomers.length < totalDb
+    });
   } catch (error) {
     console.error('[Chat API] Error searching combined contacts:', error);
     res.status(500).json({ error: 'Gagal mencari kontak' });
