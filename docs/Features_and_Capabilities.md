@@ -83,6 +83,7 @@ Ketika submit ke HTS gagal (koneksi/database putus pasca-submit):
 - **Deteksi Status SOLVED:** status asli dari HTS (termasuk `SOLVED`) dibaca saat lookup — form penutupan HTS otomatis disembunyikan jika seluruh tiket HTS sudah `SOLVED`.
 - **Pemulihan `INPUT_PIC`:** tombol **`[ ⚡ Lengkapi Penugasan PIC di HTS ]`** menaikkan tiket gantung ke `PENDING`.
 - **Unlink (V4.1):** tombol hapus per kartu HTS → `DELETE /tickets/:id/hts/:htsId/unlink`, catatan internal sistem dicatat.
+- **Integritas Dual-Close (V4.1):** status HTS dibaca dari SSOT `TicketHts`. Penutupan lokal hanya terjadi bila **seluruh** tiket HTS terkait benar-benar `SOLVED`; bila tidak, `400` dikembalikan beserta daftar kegagalan (mis. sesi expired, nomor tidak ditemukan). Kolom legacy yang salah di-set `SOLVED` otomatis diluruskan (*self-healing*), sehingga tiket yang terlanjur tersangkut di status `PENDING` dapat diselesaikan kembali tanpa reset data manual.
 
 ---
 

@@ -125,6 +125,7 @@ Semua di bawah **wajib diuji sebelum produksi**:
 | 12 | **Orphan record saat hapus tiket** | `onDelete: Cascade` pada `TicketCategory` & `Message` |
 | 13 | **Performa chat besar** | Index `Message(ticket_id)`, `(ticket_id, created_at)`, `(wa_message_id)` |
 | 14 | **Memory leak Socket.io frontend** | Cleanup listener absolut di `useEffect` return |
+| 15 | **Dual-close HTS false-success & gate legacy terkunci** | `htsCloseSuccess` hanya saat seluruh target selesai; kegagalan → `400` berisi daftar `#HTS` + alasan, penutupan lokal dibatalkan; gate & self-healing baca SSOT `TicketHts`; `solveTicketHts` melempar error bila lookup ID gagal (fallback tebakan dihapus); `attachmentUrls` kini dideklarasikan |
 
 ### 🔴 Belum Diperbaiki (Diketahui)
 | # | Risiko | Dampak | Rekomendasi |
@@ -144,7 +145,7 @@ Semua di bawah **wajib diuji sebelum produksi**:
 | 01 Okt 2026 | Fix Tarik Arsip WA (query LID ganda) | ✅ |
 | 01 Okt 2026 | Fix modal penutupan (validasi `sender_id` + error detail frontend) | ✅ |
 | 01 Okt 2026 | Konsolidasi dokumentasi `/docs` (14 → 6 file tematik V4.1) | ✅ |
-| 01–02 Okt 2026 | QA Bersama Modul 1–7 | ✅ LULUS |
+| 02 Okt 2026 | Fix dual-close HTS: `attachmentUrls` tak dideklarasikan (ReferenceError tiap submit), `htsCloseSuccess` tanpa syarat, gate legacy terkunci, fallback diam-diam ID trouble | ✅ |
 | 02 Okt 2026 | Fitur V4.1: Master Data Kontak, Start New Chat, Direktori Kontak, Re-Open, Unlink, auto-assign saat link | ✅ Kode selesai |
 | 02 Okt 2026 | Audit arsitektur (7 temuan P0/P1/P2) + perbaikan | ✅ 6/7 fixed, 1 (CSRF mutex) tertunda |
 | 02 Okt 2026 | Uji QA Modul 9 | ⬜ **Belum dikerjakan** |

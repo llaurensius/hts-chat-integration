@@ -187,7 +187,7 @@ server {
 2. Di modal: kategori tercentang otomatis, kesimpulan terisi dari solusi L2 (min. 10 karakter).
 3. Opsi HTS: checkbox "Tutup di HTS" hanya muncul bila masih ada tiket HTS `PENDING`; jika **semua sudah SOLVED**, badge hijau tampil dan form HTS disembunyikan.
 4. PIC penerima (badge hijau) + PIC penanganan (badge biru) digabung (`"14,8"`).
-5. **Kebijakan keamanan:** submit ke HTS gagal → penutupan lokal **dibatalkan**, chat tetap terbuka.
+5. **Kebijakan keamanan (V4.1):** submit ke HTS gagal — termasuk **sebagian** dari banyak tiket HTS — → penutupan lokal **dibatalkan**, chat tetap terbuka, dan alert menampilkan **daftar nomor HTS yang gagal beserta alasan** (mis. sesi expired / nomor tidak ditemukan). Setelah itu, hubungkan ulang akun HTS lalu coba kembali. Tiket HTS yang kolom legacy-nya salah di-set `SOLVED` akan otomatis dikembalikan ke `PENDING` (*self-healing*), sehingga form penutupan HTS muncul kembali tanpa perbaikan data manual.
 6. Tombol **`[ Selesaikan ke Portal HTS ]`** untuk menuntaskan sisa tiket `PENDING`.
 
 ### Tahap 8 — Fitur Tambahan L1

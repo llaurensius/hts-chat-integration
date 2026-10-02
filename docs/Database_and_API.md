@@ -193,7 +193,7 @@ enum ServiceType   { TROUBLESHOOTING REQUEST_LAYANAN MONITORING GENERAL_CHAT }
 | POST | `/tickets/:ticketId/assign` | Multi-assign L2 + WA blast (diff & merge tim) |
 | POST | `/tickets/:ticketId/resolve` | L2 tandai selesai tim + solusi |
 | POST | `/tickets/:ticketId/return` | L2 lepas penugasan + alasan |
-| POST | `/tickets/:ticketId/close` | Tutup tiket resmi (mandatory summary, dual-close HTS) |
+| POST | `/tickets/:ticketId/close` | Tutup tiket resmi (mandatory summary). Dual-close HTS: loop seluruh `TicketHts` `PENDING` — **gagal sebagianpun** → `400` berisi daftar `#HTS` + alasan, penutupan lokal dibatalkan; gate & self-healing baca SSOT `TicketHts` |
 | POST | `/tickets/:ticketId/close-general` | Selesaikan percakapan biasa instan |
 | PATCH | `/tickets/:ticketId/toggle-aduan` | Beralih Percakapan Biasa $\leftrightarrow$ Aduan Teknis |
 | POST | `/tickets/:ticketId/internal-note` | Catatan internal teks (rahasia) |

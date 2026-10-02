@@ -235,15 +235,15 @@ flowchart TD
     E --> F[L1 Centang PIC:<br/>PIC Penerima + PIC Penanganan]
     D --> G[Klik Tutup Tiket]
     F --> G
-    G --> H[POST /api/chat/tickets/:id/close]
-    H --> I[Loop TicketHts berstatus PENDING<br/>Submit solveTicketHts per tiket]
-    I --> J{Submit ke HTS Berhasil?}
-    J -- Gagal --> K[BATALKAN Penutupan Lokal!<br/>Chat tetap terbuka]
-    J -- Berhasil --> L[Update lokal CLOSED + summary]
+    G --> H[POST /api/chat/tickets/:id/close<br/>Gate baca SSOT TicketHts]
+    H --> I[Loop TicketHts berstatus PENDING<br/>Submit solveTicketHts per tiket<br/>Catat failedItems]
+    I --> J{Semua target HTS SOLVED?}
+    J -- Ada yang gagal --> K[BATALKAN Penutupan Lokal!<br/>Return 400: daftar #HTS + alasan<br/>Chat tetap terbuka]
+    J -- Semua selesai --> L[Update lokal CLOSED + summary]
     L --> M[Emit Socket.io ticket_closed]
 ```
 
-**Kebijakan integritas:** Jika submit ke portal HTS gagal (file ditolak / sesi expired), tiket lokal **tidak tertutup** sehingga percakapan tidak terputus sepihak.
+**Kebijakan integritas (V4.1):** Status HTS dibaca dari **SSOT `TicketHts`**, bukan kolom legacy. Kegagalan diperiksa **per tiket**: bila ada satu pun yang gagal, seluruh penutupan lokal dibatalkan dan `400` berisi daftar nomor HTS gagal beserta alasan dikembalikan ke UI (mis. sesi expired, nomor tidak ditemukan di portal HTS). Kolom legacy `Ticket.hts_ticket_status` yang salah di-set `SOLVED` padahal `TicketHts` masih `PENDING` otomatis diluruskan (*self-healing*), sehingga form/tombol selesaikan HTS muncul kembali tanpa perbaikan data manual. Lookup ID trouble yang gagal kini melempar error jelas — fallback tebakan diam-diam telah dihapus.
 
 #### D. Manual Link & Disaster Recovery
 ```mermaid
