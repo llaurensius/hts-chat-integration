@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles, Link as LinkIcon } from 'lucide-react';
+import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles, Link as LinkIcon, Eye, Copy } from 'lucide-react';
 import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -507,20 +507,25 @@ function Dashboard() {
 
   // Handler Tautkan Nomor Aduan HTS Manual (Fase 7 Disaster Recovery)
   const handleLinkHtsTicket = async (force = false) => {
-    if (!activeTicket) return;
+    const target = syncTargetTicket || activeTicket;
+    if (!target) {
+      alert('Sesi tiket tidak valid. Silakan pilih kembali tiket aduan dari daftar antrean.');
+      return;
+    }
     if (!linkHtsNo.trim()) {
       return alert('Nomor aduan HTS wajib diisi!');
     }
     setIsLinkingHts(true);
     setSyncHtsError('');
     try {
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/link-hts`, {
+      const res = await axios.post(`${API_URL}/chat/tickets/${target.id}/link-hts`, {
         hts_ticket_no: linkHtsNo.trim(),
         category_id: linkHtsCategoryId ? parseInt(linkHtsCategoryId) : null,
         force: force
       });
       alert(res.data?.message || 'Nomor tiket HTS berhasil ditautkan!');
       setShowSyncHtsModal(false);
+      setSyncTargetTicket(null);
       setLinkHtsNo('');
       setLinkHtsCategoryId('');
       loadTickets();
@@ -621,7 +626,117 @@ Tetap tautkan tiket ini?`)) {
   const [closeHtsChatImagePreview, setCloseHtsChatImagePreview] = useState(null);
   const [closeHtsSelectedInternalUrl, setCloseHtsSelectedInternalUrl] = useState(null);
   const [closeHtsSelectedInternalUrls, setCloseHtsSelectedInternalUrls] = useState([]);
+  const [closeHtsTabActive, setCloseHtsTabActive] = useState(null);
+  const [closeHtsFormData, setCloseHtsFormData] = useState({});
   const [isClosingTicket, setIsClosingTicket] = useState(false);
+
+  // State Penyelesaian Mandiri Per-HTS di Panel Kanan (V4.3)
+  const [showSolveSingleHtsModal, setShowSolveSingleHtsModal] = useState(false);
+  const [selectedHtsToSolve, setSelectedHtsToSolve] = useState(null);
+  const [singleHtsSolution, setSingleHtsSolution] = useState('');
+  const [singleHtsPicIds, setSingleHtsPicIds] = useState([]);
+  const [singleHtsPicSearch, setSingleHtsPicSearch] = useState('');
+  const [singleHtsTanggal, setSingleHtsTanggal] = useState(getTodayDate());
+  const [singleHtsJam, setSingleHtsJam] = useState(getCurrentTime());
+  const [singleHtsFiles, setSingleHtsFiles] = useState([]);
+  const [singleHtsFile, setSingleHtsFile] = useState(null);
+  const [singleHtsUseChatImage, setSingleHtsUseChatImage] = useState(false);
+  const [singleHtsSelectedInternalUrls, setSingleHtsSelectedInternalUrls] = useState([]);
+  const [isSolvingSingleHts, setIsSolvingSingleHts] = useState(false);
+
+  // State Modal Detail Solusi HTS (V4.3)
+  const [showDetailHtsModal, setShowDetailHtsModal] = useState(false);
+  const [selectedHtsDetail, setSelectedHtsDetail] = useState(null);
+  const [copiedHtsNo, setCopiedHtsNo] = useState(null);
+
+  const handleCopyHtsTicketNo = (ticketNo) => {
+    if (!ticketNo) return;
+    navigator.clipboard?.writeText(ticketNo);
+    setCopiedHtsNo(ticketNo);
+    setTimeout(() => setCopiedHtsNo(null), 2000);
+  };
+
+  const handleOpenSolveSingleHts = (ht) => {
+    setSelectedHtsToSolve(ht);
+    const initialPics = getTicketInitialPicIds(ht);
+    const fallbackPic = initialPics.length > 0 
+      ? initialPics 
+      : (activeTicket?.hts_pic_ids ? getTicketInitialPicIds(activeTicket) : ['14']);
+    setSingleHtsPicIds(fallbackPic);
+    setSingleHtsPicSearch('');
+    setSingleHtsTanggal(getTodayDate());
+    setSingleHtsJam(getCurrentTime());
+    
+    // Draf solusi dari L2 jika kategori cocok
+    let draftSolution = ht.solution || '';
+    if (!draftSolution && ht.category_id && activeTicket?.categories) {
+      const catMatch = activeTicket.categories.find(c => c.category_id === ht.category_id);
+      if (catMatch?.solution) draftSolution = catMatch.solution;
+    }
+    setSingleHtsSolution(draftSolution);
+    setSingleHtsFiles([]);
+    setSingleHtsFile(null);
+    setSingleHtsSelectedInternalUrls([]);
+    setSingleHtsUseChatImage(false);
+    setShowSolveSingleHtsModal(true);
+  };
+
+  const handleOpenDetailHts = (ht) => {
+    setSelectedHtsDetail(ht);
+    setShowDetailHtsModal(true);
+  };
+
+  const handleSubmitSolveSingleHts = async (e) => {
+    if (e) e.preventDefault();
+    if (!singleHtsSolution || singleHtsSolution.trim().length < 10) {
+      return alert('Solusi teknis penanganan wajib diisi minimal 10 karakter!');
+    }
+    if (singleHtsPicIds.length === 0) {
+      return alert('Pilih minimal 1 PIC Penanganan Teknis!');
+    }
+    setIsSolvingSingleHts(true);
+    try {
+      const formData = new FormData();
+      formData.append('solution', singleHtsSolution.trim());
+      formData.append('picId', singleHtsPicIds[0]);
+      singleHtsPicIds.forEach(pid => formData.append('picIds', pid));
+      formData.append('tglteknis', singleHtsTanggal);
+      formData.append('jam_problem', singleHtsJam);
+
+      if (singleHtsFiles && singleHtsFiles.length > 0) {
+        singleHtsFiles.forEach(f => formData.append('attachment', f));
+      } else if (singleHtsFile) {
+        formData.append('attachment', singleHtsFile);
+      }
+
+      if (singleHtsSelectedInternalUrls && singleHtsSelectedInternalUrls.length > 0) {
+        formData.append('selectedAttachmentUrls', JSON.stringify(singleHtsSelectedInternalUrls));
+      }
+
+      if (singleHtsUseChatImage) {
+        formData.append('useChatImage', 'true');
+      }
+
+      const res = await axios.post(
+        `${API_URL}/chat/tickets/${activeTicket.id}/hts/${selectedHtsToSolve.id}/solve`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+
+      alert(res.data?.message || 'Tiket HTS berhasil diselesaikan di portal HTS!');
+      setShowSolveSingleHtsModal(false);
+      setSelectedHtsToSolve(null);
+      await loadTickets();
+      if (activeTicket?.id) {
+        loadMessages(activeTicket.id);
+      }
+    } catch (err) {
+      console.error('Error solve single HTS:', err);
+      alert(err.response?.data?.error || 'Gagal menyelesaikan tiket HTS');
+    } finally {
+      setIsSolvingSingleHts(false);
+    }
+  };
 
   // State L2 Tandai Selesai Modal (Fase 3 & 4)
   const [showResolveModal, setShowResolveModal] = useState(false);
@@ -720,6 +835,7 @@ Tetap tautkan tiket ini?`)) {
     pics: []
   });
   const [createHtsTicket, setCreateHtsTicket] = useState(false);
+  const [autoOpenHtsAfterAssign, setAutoOpenHtsAfterAssign] = useState(false);
   const [assignHtsCust, setAssignHtsCust] = useState('');
   const [assignHtsOpd, setAssignHtsOpd] = useState('');
   const [assignIndukOpdId, setAssignIndukOpdId] = useState('');
@@ -764,6 +880,7 @@ Tetap tautkan tiket ini?`)) {
   const [isStartingNewChat, setIsStartingNewChat] = useState(false);
 
   const [showSyncHtsModal, setShowSyncHtsModal] = useState(false);
+  const [syncTargetTicket, setSyncTargetTicket] = useState(null);
   const [syncHtsTab, setSyncHtsTab] = useState('create'); // 'create' | 'link'
   const [linkHtsNo, setLinkHtsNo] = useState('');
   const [linkHtsCategoryId, setLinkHtsCategoryId] = useState('');
@@ -934,62 +1051,8 @@ Tetap tautkan tiket ini?`)) {
     if (!activeTicket) return;
     const currentCatIds = activeTicket.categories?.map(tc => tc.category_id || tc.category?.id).filter(Boolean) || [];
     setAssignCategoryIds(currentCatIds);
-    
-    const initialServiceType = activeTicket.service_type || 'TROUBLESHOOTING';
-    setAssignServiceType(initialServiceType);
-    setAssignHtsKategori(initialServiceType === 'REQUEST_LAYANAN' ? 'request' : initialServiceType === 'MONITORING' ? 'monitoring' : 'troubleshoot');
-
-    // Identitas Pelapor HTS Editable
-    setAssignHtsCust(activeTicket.customer?.name || '');
-    setAssignHtsOpd(activeTicket.customer?.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah');
-
-    // Tanggal & Jam Editable
-    setAssignHtsTanggal(getTodayDate());
-    setAssignHtsJam(getCurrentTime());
-    
-    // Auto setup HTS
-    const hasHts = Boolean(activeTicket.hts_ticket_no);
-    setCreateHtsTicket(!hasHts && Boolean(htsStatus?.isLoggedIn));
-
-    // Auto match OPD Induk (opsional)
-    const custSkpd = (activeTicket.customer?.skpd_name || '').toLowerCase();
-    const matchedOpd = custSkpd ? htsMasterData.indukOpd?.find(o => 
-      o.name.toLowerCase().includes(custSkpd) || custSkpd.includes(o.name.toLowerCase())
-    ) : null;
-    setAssignIndukOpdId(matchedOpd ? matchedOpd.id : '');
-
-    // Pre-fill first customer complaint
-    const firstCustMsg = messages.find(m => m.sender_type === 'CUSTOMER')?.message_text || '';
-    setAssignHtsDetil(firstCustMsg);
-
-    // Pre-fill sub-kategori
-    const activeNames = (activeTicket.categories || []).map(c => c.category?.name || '').join(' ').toLowerCase();
-    if (activeNames.includes('network')) {
-      setAssignHtsSubKategori('DISTRIBUTION NETWORK');
-    } else if (activeNames.includes('server')) {
-      setAssignHtsSubKategori('SERVER');
-    } else {
-      setAssignHtsSubKategori('DISTRIBUTION NETWORK');
-    }
-
-    // PIC (Multi-PIC - default tidak auto ceklist)
-    setAssignHtsPicId('');
-    setAssignHtsPicIds([]);
-    setAssignHtsPicSearch('');
-
-    // Lampiran Gambar dari Chat WA atau Baru
-    const imgMsg = messages.slice().reverse().find(m => m.attachment_url);
-    if (imgMsg) {
-      const fullImgUrl = imgMsg.attachment_url.startsWith('http') ? imgMsg.attachment_url : `${BASE_URL}${imgMsg.attachment_url}`;
-      setAssignHtsChatImagePreview(fullImgUrl);
-      setAssignHtsUseChatImage(true);
-    } else {
-      setAssignHtsChatImagePreview(null);
-      setAssignHtsUseChatImage(false);
-    }
-    setAssignHtsFile(null);
-
-    setOpdSearchTerm('');
+    setAssignServiceType(activeTicket.service_type && activeTicket.service_type !== 'GENERAL_CHAT' ? activeTicket.service_type : 'TROUBLESHOOTING');
+    setAutoOpenHtsAfterAssign(false);
     setShowAssignModal(true);
   };
 
@@ -1008,24 +1071,66 @@ Tetap tautkan tiket ini?`)) {
 
     setSummaryText(l2Solutions || '');
     setCloseHtsSolution(l2Solutions || '');
-    // FIX 5: baca SSOT TicketHts lebih dulu; legacy hanya fallback bila relasi kosong
-    const htsRowsFE = activeTicket.hts_tickets || [];
+
+    const htsRowsFE = (activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0)
+      ? activeTicket.hts_tickets
+      : (activeTicket.hts_ticket_no ? [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }] : []);
+    const pendingHts = htsRowsFE.filter(h => h.hts_ticket_status !== 'SOLVED');
     const isAlreadySolved = htsRowsFE.length > 0
-      ? htsRowsFE.every(h => h.hts_ticket_status === 'SOLVED')
+      ? pendingHts.length === 0
       : activeTicket.hts_ticket_status === 'SOLVED';
     setCloseHtsTicket(Boolean(activeTicket.hts_ticket_no && !isAlreadySolved));
-    
-    // Multi PIC Penyelesaian & Waktu Teknis: Hubungkan PIC Penerima/Awal tiket HTS
-    const initialPicIds = getTicketInitialPicIds(activeTicket);
-    // Jika tiket punya nomor HTS tapi belum tersimpan hts_pic_ids (tiket lama), fallback ke '14' (Helpdesk)
-    const defaultPicIds = initialPicIds.length > 0 ? initialPicIds : (activeTicket.hts_ticket_no ? ['14'] : []);
-    setCloseHtsPicId(defaultPicIds[0] || '');
-    setCloseHtsPicIds(defaultPicIds);
+
+    // Multi PIC Penyelesaian & Waktu Teknis
+    const defaultPicAwal = getTicketInitialPicIds(activeTicket);
+    const fallbackPic = defaultPicAwal.length > 0 ? defaultPicAwal : (activeTicket.hts_ticket_no ? ['14'] : []);
+
+    // Bangun form data per-HTS untuk multi-HTS (V4.3)
+    const initialForms = {};
+    htsRowsFE.forEach(ht => {
+      const htPics = getTicketInitialPicIds(ht);
+      const picList = htPics.length > 0 ? htPics : fallbackPic;
+
+      let dSol = ht.solution || '';
+      if (!dSol && ht.category_id && activeTicket.categories) {
+        const catMatch = activeTicket.categories.find(c => c.category_id === ht.category_id);
+        if (catMatch?.solution) dSol = catMatch.solution;
+      }
+      if (!dSol) dSol = l2Solutions;
+
+      initialForms[ht.id] = {
+        htsId: ht.id,
+        htsTicketNo: ht.hts_ticket_no,
+        solution: dSol || '',
+        picIds: picList,
+        picSearch: '',
+        tglteknis: getTodayDate(),
+        jam_problem: getCurrentTime(),
+        files: [],
+        selectedInternalUrls: [],
+        useChatImage: false
+      };
+    });
+
+    setCloseHtsFormData(initialForms);
+    if (pendingHts.length > 0) {
+      setCloseHtsTabActive(pendingHts[0].id);
+    } else if (htsRowsFE.length > 0) {
+      setCloseHtsTabActive(htsRowsFE[0].id);
+    } else {
+      setCloseHtsTabActive(null);
+    }
+
+    setCloseHtsPicId(fallbackPic[0] || '');
+    setCloseHtsPicIds(fallbackPic);
     setCloseHtsPicSearch('');
     setCloseHtsTanggal(getTodayDate());
     setCloseHtsJam(getCurrentTime());
+    setCloseHtsSelectedInternalUrl(null);
+    setCloseHtsSelectedInternalUrls([]);
+    setCloseHtsFile(null);
+    setCloseHtsFiles([]);
 
-    // Lampiran Gambar Bukti Penyelesaian
     const imgMsg = messages.slice().reverse().find(m => m.attachment_url);
     if (imgMsg) {
       const fullImgUrl = imgMsg.attachment_url.startsWith('http') ? imgMsg.attachment_url : `${BASE_URL}${imgMsg.attachment_url}`;
@@ -1035,10 +1140,6 @@ Tetap tautkan tiket ini?`)) {
       setCloseHtsChatImagePreview(null);
       setCloseHtsUseChatImage(false);
     }
-    setCloseHtsSelectedInternalUrl(null);
-    setCloseHtsSelectedInternalUrls([]);
-    setCloseHtsFile(null);
-    setCloseHtsFiles([]);
 
     setShowCloseModal(true);
   };
@@ -1055,16 +1156,6 @@ Tetap tautkan tiket ini?`)) {
       if (!confirmRemove) return;
     }
 
-    const willCreateHts = Boolean(createHtsTicket && !activeTicket?.hts_ticket_no);
-    if (willCreateHts) {
-      if (assignHtsPicIds.length === 0) {
-        return alert('Pilih minimal 1 PIC Penerima/Penanganan untuk portal HTS!');
-      }
-      if (!assignHtsDetil || assignHtsDetil.trim().length < 10) {
-        return alert(`Detil Permasalahan wajib diisi minimal 10 karakter untuk portal HTS! (Saat ini: ${assignHtsDetil ? assignHtsDetil.trim().length : 0} karakter)`);
-      }
-    }
-
     setIsSubmittingAssign(true);
     try {
       const formData = new FormData();
@@ -1073,37 +1164,25 @@ Tetap tautkan tiket ini?`)) {
         formData.append('categoryId', assignCategoryIds[0]);
       }
       formData.append('serviceType', assignServiceType);
-      formData.append('createHtsTicket', willCreateHts);
+      formData.append('createHtsTicket', 'false');
 
-      if (willCreateHts) {
-        formData.append('hts_cust', assignHtsCust);
-        formData.append('hts_opd', assignHtsOpd);
-        formData.append('induk_opd_id', assignIndukOpdId);
-        formData.append('hts_tgltshoot', assignHtsTanggal);
-        formData.append('hts_jam_problem', assignHtsJam);
-        formData.append('hts_kategori', assignHtsKategori);
-        formData.append('hts_sub_kategori', assignHtsSubKategori);
-        formData.append('hts_detil', assignHtsDetil);
-        formData.append('hts_pic_id', assignHtsPicIds[0] || '14');
-        assignHtsPicIds.forEach(pid => formData.append('hts_pic_ids', pid));
-        if (assignHtsFile) {
-          formData.append('attachment', assignHtsFile);
-        } else if (assignHtsUseChatImage) {
-          formData.append('useChatImage', 'true');
-        }
-      }
-
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/assign`, formData);
       setShowAssignModal(false);
-      if (res.data?.htsError) {
-        alert(`Penugasan tim berhasil disimpan, namun sinkronisasi ke portal HTS mengalami kendala:\n${res.data.htsError}\n\nAnda dapat menyinkronkan ulang tiket ke portal HTS nanti.`);
-      } else {
-        alert(res.data?.message || 'Penugasan tiket berhasil disimpan.');
+      alert(res.data?.message || 'Penugasan tiket berhasil disimpan.');
+      
+      const updatedTicketData = res.data?.ticket || activeTicket;
+      if (res.data?.ticket) {
+        setActiveTicket(res.data.ticket);
       }
-      loadTickets();
-      if (activeTicket) loadMessages(activeTicket.id);
+      await loadTickets();
+      if (updatedTicketData?.id) loadMessages(updatedTicketData.id);
+
+      // Jembatan UX: Jika operator memilih untuk langsung membuka form HTS
+      if (autoOpenHtsAfterAssign) {
+        setTimeout(() => {
+          handleOpenSyncHtsModal(updatedTicketData);
+        }, 150);
+      }
     } catch (error) {
       alert(error.response?.data?.error || 'Gagal meng-assign tiket');
     } finally {
@@ -1111,27 +1190,33 @@ Tetap tautkan tiket ini?`)) {
     }
   };
 
-  const handleOpenSyncHtsModal = () => {
-    if (!activeTicket) return;
+  const handleOpenSyncHtsModal = (targetTicket = null) => {
+    const target = (targetTicket && targetTicket.id) ? targetTicket : activeTicket;
+    if (!target) {
+      alert('Sesi tiket tidak valid. Silakan pilih kembali tiket aduan dari daftar antrean.');
+      return;
+    }
     if (!htsStatus?.isLoggedIn) {
       alert('Silakan hubungkan akun HTS Diskomdigi Anda terlebih dahulu di panel kanan.');
       setShowHtsModal(true);
       return;
     }
-    const custSkpd = (activeTicket.customer?.skpd_name || '').toLowerCase();
+    setSyncTargetTicket(target);
+
+    const custSkpd = (target.customer?.skpd_name || '').toLowerCase();
     const matchedOpd = custSkpd ? htsMasterData.indukOpd?.find(o => 
       o.name.toLowerCase().includes(custSkpd) || custSkpd.includes(o.name.toLowerCase())
     ) : null;
     setSyncIndukOpdId(matchedOpd ? matchedOpd.id : '');
-    setSyncHtsCust(activeTicket.customer?.name || '');
-    setSyncHtsWa(activeTicket.customer?.wa_number || '');
-    setSyncHtsOpd(activeTicket.customer?.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah');
+    setSyncHtsCust(target.customer?.name || '');
+    setSyncHtsWa(target.customer?.wa_number || '');
+    setSyncHtsOpd(target.customer?.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah');
     setSyncHtsTanggal(getTodayDate());
     setSyncHtsJam(getCurrentTime());
 
     const firstCustMsg = messages.find(m => m.sender_type === 'CUSTOMER')?.message_text || '';
     setSyncHtsDetil(firstCustMsg);
-    setSyncHtsKategori(activeTicket.service_type === 'REQUEST_LAYANAN' ? 'request' : activeTicket.service_type === 'MONITORING' ? 'monitoring' : 'troubleshoot');
+    setSyncHtsKategori(target.service_type === 'REQUEST_LAYANAN' ? 'request' : target.service_type === 'MONITORING' ? 'monitoring' : 'troubleshoot');
     setSyncHtsSubKategori('DISTRIBUTION NETWORK');
     
     // PIC (Multi-PIC - default tidak auto ceklist)
@@ -1161,7 +1246,11 @@ Tetap tautkan tiket ini?`)) {
 
   const handleSyncTicketToHts = async (e) => {
     e.preventDefault();
-    if (!activeTicket) return;
+    const target = syncTargetTicket || activeTicket;
+    if (!target) {
+      alert('Sesi tiket tidak valid. Silakan pilih kembali tiket aduan dari daftar antrean.');
+      return;
+    }
 
     if (syncHtsPicIds.length === 0) {
       setSyncHtsError('Pilih minimal 1 PIC Penerima/Penanganan untuk portal HTS!');
@@ -1194,21 +1283,32 @@ Tetap tautkan tiket ini?`)) {
         }
       } else if (syncHtsFile) {
         formData.append('attachment', syncHtsFile);
-      } else if (syncHtsUseChatImage) {
+      }
+      if (syncHtsUseChatImage) {
         formData.append('useChatImage', 'true');
       }
 
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/sync-hts`, formData, {
+      // Kirim categoryId jika tiket sudah memiliki kategori tim internal
+      if (target.categories && target.categories.length > 0) {
+        const catId = target.categories[0].category_id || target.categories[0].category?.id;
+        if (catId) formData.append('categoryId', catId);
+      }
+
+      // Endpoint V4 Multi-HTS (createTicketHts)
+      const res = await axios.post(`${API_URL}/chat/tickets/${target.id}/hts`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       alert(res.data?.message || 'Tiket berhasil disinkronkan ke portal HTS!');
       setShowSyncHtsModal(false);
-      loadTickets();
-      if (res.data?.ticket) {
-        setActiveTicket(res.data.ticket);
+      setSyncTargetTicket(null);
+      await loadTickets();
+      if (target?.id) {
+        loadMessages(target.id);
+        if (res.data?.ticket) {
+          setActiveTicket(res.data.ticket);
+        }
       }
-      loadMessages(activeTicket.id);
     } catch (err) {
       setSyncHtsError(err.response?.data?.error || 'Gagal menyinkronkan tiket ke portal HTS');
     } finally {
@@ -1572,13 +1672,29 @@ Tetap tautkan tiket ini?`)) {
       );
     };
 
+    const handleTicketUpdated = (data) => {
+      loadTickets();
+      if (currentTabRef.current === 'report') loadReports();
+
+      if (activeTicketRef.current && data?.ticketId === activeTicketRef.current.id) {
+        if (data.ticket) {
+          setActiveTicket(data.ticket);
+        }
+      }
+    };
+
     const handleTicketClosed = (data) => {
       loadTickets(); 
       if (currentTabRef.current === 'report') loadReports();
       
-      if (activeTicketRef.current && data.ticketId === activeTicketRef.current.id) {
+      if (activeTicketRef.current && (data.ticketId === activeTicketRef.current.id || data.ticketId === 'all' || data.ticketId === 'batch')) {
+        // Jangan reset activeTicket jika data ticket jelas-jelas masih berstatus bukan CLOSED
+        if (data.ticket && data.ticket.status !== 'CLOSED') {
+          setActiveTicket(data.ticket);
+          return;
+        }
         setActiveTicket(null);
-        alert('Tiket ini baru saja diupdate statusnya.');
+        alert('Tiket ini telah ditutup.');
       }
     };
 
@@ -1627,6 +1743,7 @@ Tetap tautkan tiket ini?`)) {
 
     socket.on('new_message', handleNewMessage);
     socket.on('ticket_assigned', handleTicketAssigned);
+    socket.on('ticket_updated', handleTicketUpdated);
     socket.on('ticket_closed', handleTicketClosed);
     socket.on('customer_updated', handleCustomerUpdated);
     socket.on('hts_ticket_created', handleHtsEvent);
@@ -1636,6 +1753,7 @@ Tetap tautkan tiket ini?`)) {
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('ticket_assigned', handleTicketAssigned);
+      socket.off('ticket_updated', handleTicketUpdated);
       socket.off('ticket_closed', handleTicketClosed);
       socket.off('customer_updated', handleCustomerUpdated);
       socket.off('hts_ticket_created', handleHtsEvent);
@@ -1777,27 +1895,74 @@ Tetap tautkan tiket ini?`)) {
     }
   };
 
-  // L1 menutup tiket & Dual-Close HTS (Revisi Spec)
+  // L1 menutup tiket & Multi-HTS Dual-Close (V4.3)
   const handleCloseTicket = async () => {
     if (summaryText.trim().length < 10) {
-      alert('Kesimpulan wajib diisi minimal 10 karakter!');
+      alert('Kesimpulan untuk pelanggan wajib diisi minimal 10 karakter!');
       return;
     }
+
+    const htsRowsFE = (activeTicket?.hts_tickets && activeTicket.hts_tickets.length > 0)
+      ? activeTicket.hts_tickets
+      : (activeTicket?.hts_ticket_no ? [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }] : []);
+    const pendingHts = htsRowsFE.filter(h => h.hts_ticket_status !== 'SOLVED');
+
+    // Validasi aturan bisnis mutlak: seluruh tiket HTS pending wajib diisi lengkap
+    if (pendingHts.length > 0) {
+      for (const ht of pendingHts) {
+        const item = closeHtsFormData[ht.id];
+        if (!item || !item.solution || item.solution.trim().length < 10) {
+          setCloseHtsTabActive(ht.id);
+          return alert(`Solusi teknis untuk tiket HTS #${ht.hts_ticket_no} wajib diisi minimal 10 karakter!`);
+        }
+        if (!item.picIds || item.picIds.length === 0) {
+          setCloseHtsTabActive(ht.id);
+          return alert(`Pilih minimal 1 PIC Penyelesaian Teknis untuk tiket HTS #${ht.hts_ticket_no}!`);
+        }
+      }
+    } else if (activeTicket?.hts_ticket_no && activeTicket?.hts_ticket_status !== 'SOLVED' && htsRowsFE.length === 0) {
+      // Fallback tiket legacy (belum punya record di TicketHts)
+      if (closeHtsPicIds.length === 0) {
+        return alert('Pilih minimal 1 PIC Penyelesaian Teknis untuk portal HTS!');
+      }
+    }
+
     setIsClosingTicket(true);
     try {
       const formData = new FormData();
       formData.append('summary', summaryText.trim());
       selectedCategories.forEach(cid => formData.append('categoryIds', cid));
-      
-      const willCloseHts = Boolean(activeTicket?.hts_ticket_no && closeHtsTicket);
+
+      const willCloseHts = Boolean(activeTicket?.hts_ticket_no && (pendingHts.length > 0 || activeTicket.hts_ticket_status !== 'SOLVED'));
       formData.append('closeHtsTicket', willCloseHts);
 
-      if (willCloseHts) {
-        if (closeHtsPicIds.length === 0) {
-          setIsClosingTicket(false);
-          return alert('Pilih minimal 1 PIC Penyelesaian Teknis untuk portal HTS!');
-        }
-        formData.append('htsPicId', closeHtsPicIds[0]);
+      if (pendingHts.length > 0) {
+        const htsResolutions = [];
+        pendingHts.forEach(ht => {
+          const item = closeHtsFormData[ht.id] || {};
+          htsResolutions.push({
+            htsId: ht.id,
+            htsTicketNo: ht.hts_ticket_no,
+            solution: item.solution ? item.solution.trim() : summaryText.trim(),
+            picIds: item.picIds || ['14'],
+            tglteknis: item.tglteknis || getTodayDate(),
+            jam_problem: item.jam_problem || getCurrentTime(),
+            selectedAttachmentUrls: item.selectedInternalUrls || [],
+            useChatImage: Boolean(item.useChatImage)
+          });
+
+          // Lampirkan berkas komputer lokal khusus tiket ini
+          if (item.files && item.files.length > 0) {
+            item.files.forEach(f => {
+              formData.append(`attachment_${ht.id}`, f);
+            });
+          }
+        });
+
+        formData.append('htsResolutions', JSON.stringify(htsResolutions));
+      } else if (willCloseHts) {
+        // Fallback kompatibilitas tiket legacy
+        formData.append('htsPicId', closeHtsPicIds[0] || '14');
         closeHtsPicIds.forEach(pid => formData.append('htsPicIds', pid));
         formData.append('htsSolution', closeHtsSolution || summaryText.trim());
         formData.append('htsTglTeknis', closeHtsTanggal);
@@ -1809,11 +1974,8 @@ Tetap tautkan tiket ini?`)) {
         } else if (closeHtsFile) {
           formData.append('attachment', closeHtsFile);
         }
-
         if (closeHtsSelectedInternalUrls && closeHtsSelectedInternalUrls.length > 0) {
           formData.append('selectedAttachmentUrls', JSON.stringify(closeHtsSelectedInternalUrls));
-        } else if (closeHtsSelectedInternalUrl) {
-          formData.append('selectedAttachmentUrl', closeHtsSelectedInternalUrl);
         } else if (closeHtsUseChatImage && closeHtsFiles.length === 0 && !closeHtsFile) {
           formData.append('useChatImage', 'true');
         }
@@ -3171,41 +3333,108 @@ Tetap tautkan tiket ini?`)) {
                               {/* Daftar Tiket HTS (SSOT Unifikasi V4.2) */}
                               {displayedHtsTickets.length > 0 ? (
                                 <div className="space-y-2">
-                                  {displayedHtsTickets.map((ht) => (
-                                    <div key={ht.id || ht.hts_ticket_no} className="p-2.5 bg-white rounded-lg border border-gray-200 shadow-2xs space-y-1.5">
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="font-mono font-bold text-xs text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                            #{ht.hts_ticket_no}
-                                          </span>
-                                          {ht.category?.name && (
-                                            <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.2 rounded">
-                                              {ht.category.name}
+                                  {displayedHtsTickets.map((ht) => {
+                                    const isSolved = ht.hts_ticket_status === 'SOLVED';
+                                    const cardPicIds = getTicketInitialPicIds(ht);
+                                    const cardPicNames = cardPicIds.map(id => htsMasterData.pics?.find(p => String(p.id) === String(id))?.name?.split(',')[0] || `PIC #${id}`).join(', ');
+
+                                    return (
+                                      <div key={ht.id || ht.hts_ticket_no} className="p-2.5 bg-white rounded-lg border border-gray-200 shadow-2xs space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-mono font-bold text-xs text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                              #{ht.hts_ticket_no}
                                             </span>
+                                            {ht.category?.name && (
+                                              <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.2 rounded">
+                                                {ht.category.name}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                              isSolved
+                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                : 'bg-amber-100 text-amber-800 border-amber-300'
+                                            }`}>
+                                              {ht.hts_ticket_status || 'PENDING'}
+                                            </span>
+                                            {isL1 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleUnlinkHtsTicket(ht.id || ht.hts_ticket_id, ht.hts_ticket_no)}
+                                                className="p-1 text-gray-400 hover:text-red-600 hover:bg-rose-50 rounded transition"
+                                                title="Lepas tautan tiket HTS dari percakapan ini"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Info Tambahan PIC / Waktu Selesai */}
+                                        <div className="text-[10.5px] text-gray-600 bg-gray-50 p-1.5 rounded-md border border-gray-150 space-y-0.5 leading-snug">
+                                          {isSolved ? (
+                                            <>
+                                              <div className="flex items-center justify-between text-emerald-800 font-semibold text-[10px]">
+                                                <span>✓ Selesai: {ht.solved_at ? format(new Date(ht.solved_at), 'dd/MM/yyyy HH:mm') : 'SOLVED'}</span>
+                                              </div>
+                                              {ht.solution && (
+                                                <p className="text-gray-700 italic text-[10px] line-clamp-2">
+                                                  "{ht.solution}"
+                                                </p>
+                                              )}
+                                            </>
+                                          ) : (
+                                            <div className="flex items-center gap-1 text-gray-600 text-[10px]">
+                                              <span className="font-semibold text-gray-500">PIC:</span>
+                                              <span className="truncate">{cardPicNames || 'Helpdesk - Ori'}</span>
+                                            </div>
                                           )}
                                         </div>
-                                        <div className="flex items-center gap-1">
-                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                                            ht.hts_ticket_status === 'SOLVED'
-                                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                              : 'bg-amber-100 text-amber-800 border-amber-300'
-                                          }`}>
-                                            {ht.hts_ticket_status || 'PENDING'}
-                                          </span>
-                                          {isL1 && (
+
+                                        {/* Tombol Aksi Mandiri */}
+                                        <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                                          {!isSolved ? (
                                             <button
                                               type="button"
-                                              onClick={() => handleUnlinkHtsTicket(ht.id || ht.hts_ticket_id, ht.hts_ticket_no)}
-                                              className="p-1 text-gray-400 hover:text-red-600 hover:bg-rose-50 rounded transition"
-                                              title="Lepas tautan tiket HTS dari percakapan ini"
+                                              onClick={() => handleOpenSolveSingleHts(ht)}
+                                              className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[10.5px] rounded-md transition shadow-2xs flex items-center justify-center gap-1"
                                             >
-                                              <Trash2 className="w-3.5 h-3.5" />
+                                              <Check className="w-3 h-3" /> Selesaikan HTS
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenDetailHts(ht)}
+                                              className="flex-1 py-1 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] rounded-md transition flex items-center justify-center gap-1"
+                                            >
+                                              <Eye className="w-3 h-3" /> Lihat Detail Solusi
                                             </button>
                                           )}
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyHtsTicketNo(ht.hts_ticket_no)}
+                                            className="py-1 px-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-[10.5px] font-medium transition flex items-center gap-1 shrink-0"
+                                            title="Salin nomor tiket HTS"
+                                          >
+                                            {copiedHtsNo === ht.hts_ticket_no ? (
+                                              <>
+                                                <Check className="w-3 h-3 text-emerald-600" />
+                                                <span className="text-emerald-700 text-[9.5px] font-bold">Disalin</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Copy className="w-3 h-3 text-gray-500" />
+                                                <span className="text-[9.5px]">Salin</span>
+                                              </>
+                                            )}
+                                          </button>
                                         </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
 
                                   {/* Tombol Tambah Tautan / Tiket HTS Lain */}
                                   {isL1 && (
@@ -4161,10 +4390,10 @@ Tetap tautkan tiket ini?`)) {
               <div>
                 <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                   <UserPlus className="w-5 h-5 text-blue-600" />
-                  {activeTicket?.categories?.length > 0 ? 'Kelola / Tambah Tim L2' : 'Assign ke Teknisi L2'}
+                  {activeTicket?.categories?.length > 0 ? 'Kelola / Ubah Tim L2' : 'Assign ke Teknisi L2'}
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Tugaskan tim teknisi internal dan sinkronkan dengan Portal Resmi HTS Diskomdigi
+                  Tugaskan tim teknisi internal dan atur jenis layanan helpdesk
                 </p>
               </div>
               <button 
@@ -4228,9 +4457,9 @@ Tetap tautkan tiket ini?`)) {
                 </select>
               </div>
 
-              {/* Bagian 3: Integrasi Portal HTS Diskomdigi */}
-              <div className="pt-3 border-t border-gray-200">
-                <div className="flex items-center justify-between mb-3">
+              {/* Bagian 3: Integrasi Portal HTS Diskomdigi (Separation of Concerns - Opsi B) */}
+              <div className="pt-3 border-t border-gray-200 space-y-3">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Globe className="w-4 h-4 text-blue-600" />
                     <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
@@ -4239,13 +4468,13 @@ Tetap tautkan tiket ini?`)) {
                   </div>
                 </div>
 
-                {/* Kondisi 1: Sudah ada tiket HTS terhubung (Multi-HTS) */}
+                {/* Kondisi 1: Sudah ada tiket HTS terhubung */}
                 {(activeTicket?.hts_tickets?.length > 0 || activeTicket?.hts_ticket_no) ? (
                   <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 space-y-2">
                     <div className="font-bold flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <CheckCircle className="w-4 h-4 text-emerald-600" />
-                        <span>Terhubung ke Portal HTS Diskomdigi ({activeTicket.hts_tickets?.length || 1} Tiket)</span>
+                        <span>Terhubung ke Portal HTS Diskomdigi ({(activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0) ? activeTicket.hts_tickets.length : 1} Tiket)</span>
                       </div>
                     </div>
                     <div className="space-y-1.5 pt-1">
@@ -4269,333 +4498,31 @@ Tetap tautkan tiket ini?`)) {
                         </div>
                       ))}
                     </div>
-                  </div>
-                ) : !htsStatus?.isLoggedIn ? (
-                  /* Kondisi 2: Belum login HTS */
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-2">
-                    <div className="flex items-center gap-1.5 font-semibold">
-                      <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                      <span>Akun Portal HTS Belum Terhubung</span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-amber-700">
-                      Anda belum terhubung ke portal HTS. Tiket tetap bisa ditugaskan ke Tim L2 secara internal, dan dapat disinkronkan ke portal HTS nanti.
+                    <p className="text-[11px] text-emerald-700 pt-1">
+                      Untuk menambah, menautkan, atau melepas tiket HTS, gunakan menu di <strong>Pusat Kendali (Panel Kanan)</strong>.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAssignModal(false);
-                        handleOpenHtsModal();
-                      }}
-                      className="text-xs px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition inline-flex items-center gap-1"
-                    >
-                      <Key className="w-3 h-3" /> Login ke Portal HTS Sekarang
-                    </button>
                   </div>
                 ) : (
-                  /* Kondisi 3: Sudah login HTS & belum terbit tiket HTS */
-                  <div className="space-y-3">
-                    <label className="flex items-start gap-2.5 p-3 bg-blue-50/70 border border-blue-200 rounded-xl cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={createHtsTicket}
-                        onChange={(e) => setCreateHtsTicket(e.target.checked)}
-                        className="w-4 h-4 text-blue-600 rounded mt-0.5 focus:ring-blue-500"
+                  /* Kondisi 2: Belum ada tiket HTS */
+                  <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+                    <p className="text-xs text-blue-900 font-semibold flex items-center gap-1.5">
+                      <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                      Penerbitan Tiket Resmi HTS
+                    </p>
+                    <p className="text-[11px] text-blue-700 leading-relaxed">
+                      Formulir penerbitan tiket resmi, pemilihan OPD, PIC teknis, serta multi-lampiran bukti kendala dipusatkan di <strong>Pusat Kendali (Panel Kanan)</strong>.
+                    </p>
+                    <label className="flex items-center gap-2.5 pt-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoOpenHtsAfterAssign}
+                        onChange={e => setAutoOpenHtsAfterAssign(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
-                      <div className="text-xs">
-                        <span className="font-semibold text-blue-900 block">
-                          Terbitkan Tiket Resmi di Portal HTS Diskomdigi
-                        </span>
-                        <span className="text-blue-700 text-[11px] leading-tight block mt-0.5">
-                          Otomatis memproses submit aduan, status, dan penugasan PIC di portal hts.diskomdigi.jatengprov.go.id.
-                        </span>
-                      </div>
+                      <span className="text-xs font-semibold text-blue-900">
+                        Langsung buka formulir Portal HTS setelah menyimpan penugasan
+                      </span>
                     </label>
-
-                    {createHtsTicket && (
-                      <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-3 animate-in fade-in duration-150">
-                        {/* 1. Nama Pemohon Editable */}
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-700 mb-1">
-                            Nama Pemohon *
-                          </label>
-                          <input
-                            type="text"
-                            value={assignHtsCust}
-                            onChange={e => setAssignHtsCust(e.target.value)}
-                            placeholder="Nama pemohon / pelapor..."
-                            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                            required
-                          />
-                        </div>
-
-                        {/* 2. Instansi Pelapor & OPD Induk */}
-                        <div className="space-y-2">
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1">
-                              Instansi / Unit Kerja Pelapor *
-                            </label>
-                            <input
-                              type="text"
-                              value={assignHtsOpd}
-                              onChange={e => setAssignHtsOpd(e.target.value)}
-                              placeholder="Nama instansi/unit kerja pemohon..."
-                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                              required
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1">
-                              OPD Induk (Klasifikasi HTS) <span className="text-gray-400 font-normal">(Opsional)</span>
-                            </label>
-                            <div className="relative mb-1.5">
-                              <input 
-                                type="text" 
-                                placeholder="Cari nama OPD Induk..."
-                                value={opdSearchTerm}
-                                onChange={(e) => handleAssignOpdSearch(e.target.value)}
-                                className="w-full pl-2.5 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                              />
-                              {opdSearchTerm && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleAssignOpdSearch('')}
-                                  className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
-                                  title="Reset / Kosongkan pencarian"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                            <select
-                              value={assignIndukOpdId}
-                              onChange={(e) => setAssignIndukOpdId(e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                            >
-                              {!opdSearchTerm && (
-                                <option value="">-- Tanpa OPD Induk (Kosongkan) --</option>
-                              )}
-                              {htsMasterData.indukOpd
-                                ?.filter(o => !opdSearchTerm || o.name.toLowerCase().includes(opdSearchTerm.toLowerCase()))
-                                ?.map(o => (
-                                  <option key={o.id} value={o.id}>{o.name}</option>
-                                ))
-                              }
-                              {opdSearchTerm && htsMasterData.indukOpd?.filter(o => o.name.toLowerCase().includes(opdSearchTerm.toLowerCase())).length === 0 && (
-                                <option value="" disabled>-- Tidak ada OPD yang cocok --</option>
-                              )}
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* 3. Tanggal & Jam Problem */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                              <Calendar className="w-3.5 h-3.5 text-gray-500" />
-                              Tanggal Problem *
-                            </label>
-                            <input
-                              type="date"
-                              value={assignHtsTanggal}
-                              onChange={e => setAssignHtsTanggal(e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                              required
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5 text-gray-500" />
-                              Jam Problem *
-                            </label>
-                            <input
-                              type="time"
-                              value={assignHtsJam}
-                              onChange={e => setAssignHtsJam(e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                              required
-                            />
-                          </div>
-                        </div>
-
-                        {/* 4. Kategori & Sub-Kategori Layanan Portal HTS */}
-                        <div className={`grid ${assignHtsKategori === 'troubleshoot' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'} gap-2`}>
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1">
-                              Kategori HTS *
-                            </label>
-                            <select
-                              value={assignHtsKategori}
-                              onChange={e => handleAssignHtsKategoriChange(e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                            >
-                              {htsMasterData.kategori?.map(k => (
-                                <option key={k.id} value={k.id}>{k.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {assignHtsKategori === 'troubleshoot' && (
-                            <div>
-                              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                Sub-Kategori HTS *
-                              </label>
-                              <select
-                                value={assignHtsSubKategori}
-                                onChange={(e) => setAssignHtsSubKategori(e.target.value)}
-                                className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                              >
-                                {htsMasterData.subKategori?.map(s => (
-                                  <option key={s.id} value={s.id}>{s.name} ({s.team})</option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Detil Aduan */}
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="block text-xs font-semibold text-gray-700">
-                              Detil Aduan / Permasalahan *
-                            </label>
-                            <span className={`text-[10px] font-medium ${assignHtsDetil.trim().length < 10 ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                              {assignHtsDetil.trim().length < 10 
-                                ? `Minimal 10 karakter (${assignHtsDetil.trim().length}/10)` 
-                                : `${assignHtsDetil.trim().length} karakter`}
-                            </span>
-                          </div>
-                          <textarea
-                            rows={3}
-                            value={assignHtsDetil}
-                            onChange={(e) => setAssignHtsDetil(e.target.value)}
-                            placeholder="Ketik detail keluhan teknis untuk dicatat di portal HTS (minimal 10 karakter)..."
-                            className={`w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 bg-white ${assignHtsDetil.trim().length > 0 && assignHtsDetil.trim().length < 10 ? 'border-red-300 focus:ring-red-400' : 'border-gray-300 focus:ring-blue-500'}`}
-                            minLength={10}
-                            required
-                          />
-                        </div>
-
-                        {/* 5. PIC Helpdesk Penerima (Multi-PIC + Search + Checked di Atas) */}
-                        <div>
-                          <div className="flex justify-between items-center mb-1.5">
-                            <label className="block text-xs font-semibold text-gray-700">
-                              PIC Penerima / Penanganan *
-                            </label>
-                            <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                              {assignHtsPicIds.length} PIC Terpilih
-                            </span>
-                          </div>
-
-                          {/* Kotak Pencarian PIC */}
-                          <div className="relative mb-1.5">
-                            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
-                            <input
-                              type="text"
-                              value={assignHtsPicSearch}
-                              onChange={e => setAssignHtsPicSearch(e.target.value)}
-                              placeholder="Cari nama petugas PIC..."
-                              className="w-full pl-8 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                            />
-                            {assignHtsPicSearch && (
-                              <button
-                                type="button"
-                                onClick={() => setAssignHtsPicSearch('')}
-                                className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          {/* List PIC (Terpilih Selalu di Atas) */}
-                          <div className="max-h-36 overflow-y-auto border border-gray-300 rounded-lg p-1 bg-white divide-y divide-gray-100">
-                            {getSortedPics(htsMasterData.pics, assignHtsPicIds, assignHtsPicSearch).map(p => {
-                              const isChecked = assignHtsPicIds.includes(String(p.id));
-                              return (
-                                <label key={p.id} className={`flex items-center justify-between py-1.5 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
-                                      checked={isChecked}
-                                      onChange={(e) => {
-                                        const strId = String(p.id);
-                                        if (e.target.checked) {
-                                          setAssignHtsPicIds([...assignHtsPicIds, strId]);
-                                        } else {
-                                          setAssignHtsPicIds(assignHtsPicIds.filter(id => id !== strId));
-                                        }
-                                      }}
-                                    />
-                                    <span className="truncate">{p.name}</span>
-                                  </div>
-                                  {isChecked && (
-                                    <span className="text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.2 rounded font-bold ml-2">
-                                      Terpilih
-                                    </span>
-                                  )}
-                                </label>
-                              );
-                            })}
-                            {getSortedPics(htsMasterData.pics, assignHtsPicIds, assignHtsPicSearch).length === 0 && (
-                              <div className="p-3 text-center text-xs text-gray-400">
-                                Tidak ada petugas PIC yang cocok
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* 6. Lampiran Gambar Bukti */}
-                        <div className="space-y-1.5 pt-2 border-t border-gray-200">
-                          <label className="block text-xs font-semibold text-gray-700">
-                            Lampiran Bukti / Gambar (Opsional)
-                          </label>
-                          {assignHtsChatImagePreview && (
-                            <label className="flex items-center gap-2.5 p-2 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={assignHtsUseChatImage && !assignHtsFile}
-                                disabled={!!assignHtsFile}
-                                onChange={e => setAssignHtsUseChatImage(e.target.checked)}
-                                className="w-4 h-4 text-blue-600 rounded"
-                              />
-                              <img src={assignHtsChatImagePreview} alt="Bukti WA" className="w-8 h-8 object-cover rounded border border-blue-300" />
-                              <div className="text-[11px] leading-tight">
-                                <span className="font-semibold text-blue-900 block">Gunakan foto dari chat WhatsApp</span>
-                                <span className="text-blue-700 text-[10px]">Lampirkan gambar kendala yang dikirim pelapor</span>
-                              </div>
-                            </label>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <label className="flex-1 border border-dashed border-gray-300 hover:border-blue-400 rounded-lg p-1.5 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={e => {
-                                  if (e.target.files?.[0]) {
-                                    setAssignHtsFile(e.target.files[0]);
-                                    setAssignHtsUseChatImage(false);
-                                  }
-                                }}
-                              />
-                              <Paperclip className="w-3.5 h-3.5 text-gray-500" />
-                              <span className="truncate max-w-[200px]">{assignHtsFile ? assignHtsFile.name : 'Upload file gambar baru'}</span>
-                            </label>
-                            {assignHtsFile && (
-                              <button
-                                type="button"
-                                onClick={() => setAssignHtsFile(null)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs"
-                                title="Batal upload file"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -4619,11 +4546,11 @@ Tetap tautkan tiket ini?`)) {
                 {isSubmittingAssign ? (
                   <>
                     <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    Menyimpan & Menerbitkan Tiket...
+                    Menyimpan Penugasan...
                   </>
                 ) : (
                   <>
-                    {createHtsTicket && !activeTicket?.hts_ticket_no ? 'Tugaskan & Terbitkan Tiket HTS' : (activeTicket?.categories?.length > 0 ? 'Simpan Penugasan' : 'Tugaskan L2')}
+                    {activeTicket?.categories?.length > 0 ? 'Simpan Penugasan Tim' : 'Tugaskan ke Tim L2'}
                   </>
                 )}
               </button>
@@ -5013,7 +4940,10 @@ Tetap tautkan tiket ini?`)) {
                   </div>
                 </div>
                 <button 
-                  onClick={() => setShowSyncHtsModal(false)}
+                  onClick={() => {
+                    setShowSyncHtsModal(false);
+                    setSyncTargetTicket(null);
+                  }}
                   className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
                 >
                   <X className="w-5 h-5" />
@@ -5107,7 +5037,10 @@ Tetap tautkan tiket ini?`)) {
                 <div className="p-3.5 px-5 border-t border-gray-200 flex justify-end gap-2.5 bg-white sticky bottom-0 z-10 shadow-sm">
                   <button
                     type="button"
-                    onClick={() => setShowSyncHtsModal(false)}
+                    onClick={() => {
+                      setShowSyncHtsModal(false);
+                      setSyncTargetTicket(null);
+                    }}
                     className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
                   >
                     Batal
@@ -5397,8 +5330,7 @@ Tetap tautkan tiket ini?`)) {
                   <label className="flex items-center gap-2.5 p-2 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={syncHtsUseChatImage && !syncHtsFile}
-                      disabled={!!syncHtsFile}
+                      checked={syncHtsUseChatImage}
                       onChange={e => setSyncHtsUseChatImage(e.target.checked)}
                       className="w-4 h-4 text-blue-600 rounded"
                     />
@@ -5422,7 +5354,6 @@ Tetap tautkan tiket ini?`)) {
                             const newFiles = Array.from(e.target.files);
                             setSyncHtsFiles(prev => [...prev, ...newFiles].slice(0, 5));
                             setSyncHtsFile(newFiles[0]);
-                            setSyncHtsUseChatImage(false);
                           }
                         }}
                       />
@@ -5465,7 +5396,10 @@ Tetap tautkan tiket ini?`)) {
               <div className="p-3.5 px-5 border-t border-gray-200 flex justify-end gap-2.5 bg-white sticky bottom-0 z-10 shadow-sm">
                 <button
                   type="button"
-                  onClick={() => setShowSyncHtsModal(false)}
+                  onClick={() => {
+                    setShowSyncHtsModal(false);
+                    setSyncTargetTicket(null);
+                  }}
                   className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
                 >
                   Batal
@@ -5493,10 +5427,446 @@ Tetap tautkan tiket ini?`)) {
         </div>
       )}
 
+      {/* MODAL SELESAIKAN TIKET HTS MANDIRI (V4.3) */}
+      {showSolveSingleHtsModal && selectedHtsToSolve && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Header */}
+            <div className="p-4 px-5 border-b border-gray-100 flex justify-between items-start bg-gray-50/70">
+              <div>
+                <h2 className="text-base font-bold text-gray-800 flex items-center gap-1.5">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                  Selesaikan Tiket Portal HTS
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">Penutupan resmi aduan teknis di portal HTS Diskomdigi</p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowSolveSingleHtsModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmitSolveSingleHts} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+              {/* Target Aduan Info Box */}
+              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-xs text-blue-950 bg-blue-100 px-2 py-0.5 rounded border border-blue-300">
+                    #{selectedHtsToSolve.hts_ticket_no}
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                    {selectedHtsToSolve.hts_ticket_status || 'PENDING'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-gray-700">
+                  <div>
+                    <span className="text-gray-500 block">Kategori Tim:</span>
+                    <span className="font-semibold text-gray-800">{selectedHtsToSolve.category?.name || selectedHtsToSolve.hts_kategori || 'Troubleshoot'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block">Pelapor / SKPD:</span>
+                    <span className="font-semibold text-gray-800 truncate block">
+                      {activeTicket?.customer?.name || '-'} {activeTicket?.customer?.skpd_name ? `(${activeTicket.customer.skpd_name})` : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tanggal & Jam Penanganan Teknis */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-blue-600" /> Tanggal Penanganan *
+                  </label>
+                  <input
+                    type="date"
+                    value={singleHtsTanggal}
+                    onChange={e => setSingleHtsTanggal(e.target.value)}
+                    required
+                    className="w-full bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" /> Jam Penanganan *
+                  </label>
+                  <input
+                    type="time"
+                    value={singleHtsJam}
+                    onChange={e => setSingleHtsJam(e.target.value)}
+                    required
+                    className="w-full bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* PIC Penanganan Teknis */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-semibold text-gray-700">
+                    PIC Penanganan Teknis HTS *
+                  </label>
+                  <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                    {singleHtsPicIds.length} PIC Terpilih
+                  </span>
+                </div>
+                
+                {/* Search Box */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    value={singleHtsPicSearch}
+                    onChange={e => setSingleHtsPicSearch(e.target.value)}
+                    placeholder="Cari nama teknisi PIC..."
+                    className="w-full pl-8 pr-7 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  />
+                  {singleHtsPicSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setSingleHtsPicSearch('')}
+                      className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* PIC List */}
+                <div className="max-h-28 overflow-y-auto border border-gray-200 rounded-lg p-1 bg-white divide-y divide-gray-100">
+                  {getSortedPics(htsMasterData.pics, singleHtsPicIds, singleHtsPicSearch).map(p => {
+                    const isChecked = singleHtsPicIds.includes(String(p.id));
+                    const initialPics = getTicketInitialPicIds(selectedHtsToSolve);
+                    const isInitialPic = initialPics.length > 0 
+                      ? initialPics.includes(String(p.id))
+                      : String(p.id) === '14';
+                    return (
+                      <label key={p.id} className={`flex items-center justify-between py-1 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const strId = String(p.id);
+                              if (e.target.checked) {
+                                setSingleHtsPicIds([...singleHtsPicIds, strId]);
+                              } else {
+                                setSingleHtsPicIds(singleHtsPicIds.filter(id => id !== strId));
+                              }
+                            }}
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {isChecked && isInitialPic && (
+                            <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.2 rounded font-bold ml-2">
+                              PIC Penerima
+                            </span>
+                          )}
+                          {isChecked && !isInitialPic && (
+                            <span className="text-[9px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded font-bold ml-2">
+                              PIC Penanganan
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                  {getSortedPics(htsMasterData.pics, singleHtsPicIds, singleHtsPicSearch).length === 0 && (
+                    <div className="p-2 text-center text-xs text-gray-400">Tidak ada teknisi PIC yang cocok</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Lampiran Bukti Penyelesaian */}
+              <div className="space-y-2 pt-1 border-t border-gray-200">
+                <label className="block text-[11px] font-semibold text-gray-700">
+                  Bukti Lampiran Selesai / Foto Tindakan (Opsional)
+                </label>
+
+                {/* 1. Galeri Catatan Internal */}
+                {messages.some(m => m.is_internal && m.attachment_url) && (
+                  <div className="p-2 bg-amber-50/80 border border-amber-200 rounded-lg space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-bold text-amber-900 flex items-center gap-1">
+                        📸 Dari Catatan Internal Teknisi:
+                      </span>
+                      {singleHtsSelectedInternalUrls.length > 0 && (
+                        <span className="text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.2 rounded">
+                          {singleHtsSelectedInternalUrls.length} Foto Terpilih
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto py-1">
+                      {messages.filter(m => m.is_internal && m.attachment_url).map(m => {
+                        const fullUrl = m.attachment_url.startsWith('http') ? m.attachment_url : `${BASE_URL}${m.attachment_url}`;
+                        const isSelected = singleHtsSelectedInternalUrls.includes(m.attachment_url);
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSingleHtsSelectedInternalUrls(singleHtsSelectedInternalUrls.filter(u => u !== m.attachment_url));
+                              } else {
+                                setSingleHtsSelectedInternalUrls([...singleHtsSelectedInternalUrls, m.attachment_url]);
+                              }
+                            }}
+                            className={`relative rounded-lg border-2 cursor-pointer transition p-0.5 shrink-0 ${
+                              isSelected ? 'border-amber-600 ring-2 ring-amber-300' : 'border-amber-200 hover:border-amber-400 bg-white'
+                            }`}
+                          >
+                            <img src={fullUrl} alt="Internal Media" className="w-12 h-12 object-cover rounded-md" />
+                            {isSelected && (
+                              <span className="absolute top-1 right-1 bg-amber-600 text-white rounded-full p-0.5">
+                                <Check className="w-2.5 h-2.5" />
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Upload dari Komputer */}
+                <div className="space-y-1.5">
+                  <label className="border border-dashed border-gray-300 hover:border-blue-500 rounded-lg p-2 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={e => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          const newFiles = Array.from(e.target.files);
+                          setSingleHtsFiles(prev => [...prev, ...newFiles]);
+                        }
+                      }}
+                    />
+                    <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                    <span>Upload foto dari komputer (bisa pilih multiple)</span>
+                  </label>
+                  {singleHtsFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {singleHtsFiles.map((file, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10.5px] border border-blue-200">
+                          <span className="truncate max-w-[130px]">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSingleHtsFiles(singleHtsFiles.filter((_, i) => i !== idx))}
+                            className="text-blue-500 hover:text-red-500"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Solusi Teknis */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[11px] font-semibold text-gray-700">
+                    Solusi / Catatan Penanganan Teknis *
+                  </label>
+                  <span className={`text-[10px] ${singleHtsSolution.trim().length >= 10 ? 'text-emerald-600 font-bold' : 'text-gray-400'}`}>
+                    {singleHtsSolution.trim().length}/10 min. karakter
+                  </span>
+                </div>
+                <textarea
+                  value={singleHtsSolution}
+                  onChange={e => setSingleHtsSolution(e.target.value)}
+                  placeholder="Jelaskan tindakan teknis atau perbaikan yang telah dilakukan..."
+                  rows={3}
+                  required
+                  className="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-xs text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none leading-relaxed"
+                />
+              </div>
+
+              {/* Sticky Footer */}
+              <div className="pt-2 border-t border-gray-200 flex justify-end gap-2 bg-white sticky bottom-0">
+                <button
+                  type="button"
+                  onClick={() => setShowSolveSingleHtsModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSolvingSingleHts || singleHtsSolution.trim().length < 10 || singleHtsPicIds.length === 0}
+                  className="px-5 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSolvingSingleHts ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Menyelesaikan HTS...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" /> Selesaikan di Portal HTS
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL LIHAT DETAIL SOLUSI HTS (V4.3) */}
+      {showDetailHtsModal && selectedHtsDetail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Header */}
+            <div className="p-4 px-5 border-b border-gray-100 flex justify-between items-start bg-gray-50/70">
+              <div>
+                <h2 className="text-base font-bold text-gray-800 flex items-center gap-1.5">
+                  <Globe className="w-5 h-5 text-blue-600" />
+                  Detail Solusi Tiket HTS
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">Rekaman penanganan teknis resmi di portal HTS Diskomdigi</p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowDetailHtsModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+              {/* Header Box */}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="font-mono font-bold text-sm text-emerald-950">#{selectedHtsDetail.hts_ticket_no}</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {selectedHtsDetail.category?.name && (
+                      <span className="text-[10px] bg-white text-emerald-800 px-1.5 py-0.2 rounded border border-emerald-200 font-semibold">
+                        {selectedHtsDetail.category.name}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-500">
+                      ID: {selectedHtsDetail.hts_ticket_id || selectedHtsDetail.id}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5" /> SOLVED
+                </span>
+              </div>
+
+              {/* Grid Waktu Selesai & PIC Penangan */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                  <span className="text-[10.5px] font-semibold text-gray-500 block mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-gray-400" /> Waktu Penyelesaian:
+                  </span>
+                  <span className="font-medium text-gray-800 text-xs">
+                    {selectedHtsDetail.solved_at ? format(new Date(selectedHtsDetail.solved_at), 'dd/MM/yyyy HH:mm') + ' WIB' : 'Terkonfirmasi Selesai'}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                  <span className="text-[10.5px] font-semibold text-gray-500 block mb-1 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5 text-gray-400" /> Teknisi PIC Penangan:
+                  </span>
+                  <div className="font-medium text-gray-800 text-xs truncate">
+                    {(() => {
+                      const picIds = getTicketInitialPicIds(selectedHtsDetail);
+                      if (picIds.length === 0) return 'Helpdesk - Ori';
+                      return picIds.map(id => htsMasterData.pics?.find(p => String(p.id) === String(id))?.name?.split(',')[0] || `PIC #${id}`).join(', ');
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Deskripsi Solusi */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5 text-blue-600" /> Solusi / Tindakan Teknis:
+                </label>
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-gray-800 text-xs whitespace-pre-wrap leading-relaxed">
+                  {selectedHtsDetail.solution || 'Permasalahan telah selesai ditangani secara teknis.'}
+                </div>
+              </div>
+
+              {/* Galeri Foto Bukti Lampiran */}
+              <div className="space-y-1.5 pt-1 border-t border-gray-200">
+                <label className="text-[11px] font-semibold text-gray-700 flex items-center gap-1">
+                  <ImageIcon className="w-3.5 h-3.5 text-blue-600" /> Foto Bukti Penanganan Teknis:
+                </label>
+                {(() => {
+                  let urls = [];
+                  if (selectedHtsDetail.attachment_urls) {
+                    try {
+                      urls = typeof selectedHtsDetail.attachment_urls === 'string'
+                        ? JSON.parse(selectedHtsDetail.attachment_urls)
+                        : selectedHtsDetail.attachment_urls;
+                    } catch (e) {
+                      urls = [selectedHtsDetail.attachment_urls];
+                    }
+                  }
+                  if (!Array.isArray(urls)) urls = urls ? [urls] : [];
+
+                  if (urls.length === 0) {
+                    return (
+                      <p className="text-[11px] text-gray-400 italic bg-gray-50 p-2.5 rounded-lg border border-dashed border-gray-200 text-center">
+                        Tidak ada berkas foto bukti penanganan yang tersimpan.
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      {urls.map((url, idx) => {
+                        const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => setPreviewImageUrl(fullUrl)}
+                            className="group relative rounded-xl overflow-hidden border border-gray-200 hover:border-blue-400 cursor-pointer shadow-2xs transition"
+                            title="Klik untuk memperbesar gambar"
+                          >
+                            <img src={fullUrl} alt={`Bukti ${idx + 1}`} className="w-full h-20 object-cover group-hover:scale-105 transition duration-150" />
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                              <Eye className="w-4 h-4" />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3.5 px-5 border-t border-gray-100 flex justify-end bg-gray-50/50">
+              <button
+                type="button"
+                onClick={() => setShowDetailHtsModal(false)}
+                className="px-5 py-2 text-xs font-semibold bg-gray-800 text-white rounded-xl hover:bg-gray-900 transition shadow-sm"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL TUTUP TIKET & DUAL-CLOSE HTS */}
       {showCloseModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
             <div className="p-5 border-b border-gray-100 flex justify-between items-start bg-gray-50/50">
               <div>
                 <h2 className="text-lg font-bold text-gray-800">Selesaikan Tiket</h2>
@@ -5512,303 +5882,426 @@ Tetap tautkan tiket ini?`)) {
 
             <div className="flex-1 p-5 overflow-y-auto space-y-4">
 
-            {/* Banner HTS Multi-Tiket jika tiket terhubung ke HTS */}
-            {(activeTicket?.hts_tickets?.length > 0 || activeTicket?.hts_ticket_no) && (
-              <div className="mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-2">
-                <div className="flex items-center justify-between font-bold">
-                  <div className="flex items-center gap-1.5">
-                    <Globe className="w-4 h-4 text-blue-600" />
-                    <span>Tiket HTS Terkait ({activeTicket.hts_tickets?.length || 1})</span>
-                  </div>
-                  {(activeTicket.hts_tickets?.length > 0 ? activeTicket.hts_tickets.every(h => h.hts_ticket_status === 'SOLVED') : activeTicket.hts_ticket_status === 'SOLVED') ? (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      ✓ Seluruh Tiket HTS Sudah SOLVED
-                    </span>
-                  ) : (
-                    <label className="inline-flex items-center gap-1 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={closeHtsTicket} 
-                        onChange={e => setCloseHtsTicket(e.target.checked)}
-                        className="rounded text-blue-600 focus:ring-blue-500" 
-                      />
-                      <span className="text-[11px] font-semibold text-blue-700">Selesaikan yang PENDING di HTS</span>
-                    </label>
-                  )}
-                </div>
+            {/* Hitung Data HTS Multi-Tiket */}
+            {(() => {
+              const htsList = (activeTicket?.hts_tickets && activeTicket.hts_tickets.length > 0)
+                ? activeTicket.hts_tickets
+                : (activeTicket?.hts_ticket_no ? [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }] : []);
+              const hasHts = htsList.length > 0;
+              const pendingHts = htsList.filter(h => h.hts_ticket_status !== 'SOLVED');
+              const allHtsSolved = hasHts && pendingHts.length === 0;
 
-                {/* List Tiket-Tiket HTS Terkait */}
-                <div className="space-y-1.5 pt-1">
-                  {(activeTicket.hts_tickets?.length > 0 ? activeTicket.hts_tickets : [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }]).map((h) => (
-                    <div key={h.id || h.hts_ticket_no} className="flex items-center justify-between bg-white/80 p-2 rounded-lg border border-blue-100 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-blue-950">#{h.hts_ticket_no}</span>
-                        {h.category?.name && (
-                          <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-medium">
-                            {h.category.name}
-                          </span>
-                        )}
+              if (!hasHts) return null;
+
+              if (allHtsSolved) {
+                return (
+                  <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 space-y-2">
+                    <div className="flex items-center justify-between font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>Seluruh Tiket HTS Terkait ({htsList.length}) Sudah SOLVED</span>
                       </div>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                        h.hts_ticket_status === 'SOLVED'
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                          : 'bg-amber-100 text-amber-800 border-amber-300'
-                      }`}>
-                        {h.hts_ticket_status || 'PENDING'}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        ✓ Siap Tutup Tiket
                       </span>
                     </div>
-                  ))}
-                </div>
-                {closeHtsTicket && (
-                  <div className="space-y-2.5 mt-2.5 pt-2.5 border-t border-blue-200">
-                    {/* Tanggal & Jam Penyelesaian Teknis */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-blue-800 mb-1 flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-blue-600" />
-                          Tanggal Penanganan *
-                        </label>
-                        <input
-                          type="date"
-                          value={closeHtsTanggal}
-                          onChange={e => setCloseHtsTanggal(e.target.value)}
-                          className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 outline-none"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-blue-800 mb-1 flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-blue-600" />
-                          Jam Penanganan *
-                        </label>
-                        <input
-                          type="time"
-                          value={closeHtsJam}
-                          onChange={e => setCloseHtsJam(e.target.value)}
-                          className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 outline-none"
-                          required
-                        />
-                      </div>
+                    <p className="text-[11px] text-emerald-700 leading-relaxed">
+                      Seluruh penanganan teknis di portal HTS telah diselesaikan sebelumnya. Anda dapat langsung mengonfirmasi kategori dan kesimpulan penanganan di bawah ini untuk menutup sesi chat pelanggan.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {htsList.map(h => (
+                        <div key={h.id || h.hts_ticket_no} className="flex items-center gap-1.5 bg-white/90 px-2.5 py-1 rounded-lg border border-emerald-200 text-xs">
+                          <span className="font-mono font-bold text-gray-800">#{h.hts_ticket_no}</span>
+                          {h.category?.name && (
+                            <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+                              {h.category.name}
+                            </span>
+                          )}
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            SOLVED
+                          </span>
+                        </div>
+                      ))}
                     </div>
+                  </div>
+                );
+              }
 
-                    {/* Multi PIC Penyelesaian (Search + Checked di Atas) */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1.5">
-                        <label className="block text-[11px] font-semibold text-blue-800">
-                          PIC Penyelesaian Teknis HTS *
-                        </label>
-                        <span className="text-[10px] text-blue-700 font-bold bg-white px-2 py-0.5 rounded-full border border-blue-200">
-                          {closeHtsPicIds.length} PIC Terpilih
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-blue-700 mb-1.5 leading-tight">
-                        PIC Penerima/Awal otomatis tersambung. Anda dapat mencentang teknisi tambahan sebagai PIC Penanganan.
-                      </p>
+              return (
+                <div className="mb-4 p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-3">
+                  <div className="flex items-center justify-between font-bold pb-2 border-b border-blue-200/80">
+                    <div className="flex items-center gap-1.5">
+                      <Globe className="w-4 h-4 text-blue-600" />
+                      <span>Penyelesaian Tiket HTS Terkait ({htsList.length})</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Wajib Selesaikan {pendingHts.length} HTS PENDING
+                    </span>
+                  </div>
 
-                      {/* Kotak Pencarian PIC */}
-                      <div className="relative mb-1.5">
-                        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
-                        <input
-                          type="text"
-                          value={closeHtsPicSearch}
-                          onChange={e => setCloseHtsPicSearch(e.target.value)}
-                          placeholder="Cari nama teknisi PIC..."
-                          className="w-full pl-8 pr-7 py-1 text-xs border border-blue-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                        />
-                        {closeHtsPicSearch && (
-                          <button
-                            type="button"
-                            onClick={() => setCloseHtsPicSearch('')}
-                            className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                  <p className="text-[11px] text-blue-800 leading-snug">
+                    Sesuai SOP, <b>seluruh tiket HTS wajib diselesaikan</b> sebelum chat pelanggan dapat ditutup resmi. Lengkapi solusi dan teknisi PIC untuk masing-masing tab tiket di bawah:
+                  </p>
 
-                      {/* List PIC (Terpilih Selalu di Atas) */}
-                      <div className="max-h-32 overflow-y-auto border border-blue-200 rounded-lg p-1 bg-white divide-y divide-gray-100">
-                        {getSortedPics(htsMasterData.pics, closeHtsPicIds, closeHtsPicSearch).map(p => {
-                          const isChecked = closeHtsPicIds.includes(String(p.id));
-                          const initialPics = getTicketInitialPicIds(activeTicket);
-                          const isInitialPic = initialPics.length > 0 
-                            ? initialPics.includes(String(p.id))
-                            : String(p.id) === '14';
-                          return (
-                            <label key={p.id} className={`flex items-center justify-between py-1 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
-                              <div className="flex items-center gap-2">
+                  {/* Tab Navigation per Tiket HTS */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5 border-b border-blue-200">
+                    {htsList.map((h) => {
+                      const isSelected = (closeHtsTabActive ?? pendingHts[0]?.id ?? htsList[0]?.id) === h.id;
+                      const isSolved = h.hts_ticket_status === 'SOLVED';
+                      const fState = closeHtsFormData[h.id] || {};
+                      const isFormReady = (fState.solution?.trim()?.length >= 10) && (fState.picIds?.length > 0);
+
+                      return (
+                        <button
+                          key={h.id || h.hts_ticket_no}
+                          type="button"
+                          onClick={() => setCloseHtsTabActive(h.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 ${
+                            isSelected
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-white text-gray-700 hover:bg-blue-100/60 border border-blue-200'
+                          }`}
+                        >
+                          <span className="font-mono">#{h.hts_ticket_no}</span>
+                          {h.category?.name && (
+                            <span className={`text-[10px] px-1 rounded ${isSelected ? 'bg-blue-500 text-blue-100' : 'bg-gray-100 text-gray-600'}`}>
+                              {h.category.name}
+                            </span>
+                          )}
+                          {isSolved ? (
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${isSelected ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                              ✓ SOLVED
+                            </span>
+                          ) : isFormReady ? (
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${isSelected ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                              ✓ Siap
+                            </span>
+                          ) : (
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${isSelected ? 'bg-amber-400 text-blue-950' : 'bg-amber-100 text-amber-800'}`}>
+                              ⚠️ Belum
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Konten Form Tab Aktif */}
+                  {(() => {
+                    const curActiveId = closeHtsTabActive ?? pendingHts[0]?.id ?? htsList[0]?.id;
+                    const activeHt = htsList.find(h => h.id === curActiveId) || htsList[0];
+                    if (!activeHt) return null;
+
+                    if (activeHt.hts_ticket_status === 'SOLVED') {
+                      return (
+                        <div className="bg-white/90 p-3 rounded-xl border border-emerald-200 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                              <CheckCircle className="w-4 h-4 text-emerald-600" />
+                              Tiket HTS #{activeHt.hts_ticket_no} sudah SOLVED
+                            </span>
+                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-medium border border-emerald-200">
+                              Selesai Mandiri
+                            </span>
+                          </div>
+                          {activeHt.solution && (
+                            <div className="text-xs text-gray-700 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                              <span className="font-semibold text-gray-500 text-[10px] block mb-0.5">Solusi Tercatat:</span>
+                              {activeHt.solution}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const curForm = closeHtsFormData[activeHt.id] || {
+                      picIds: [],
+                      picSearch: '',
+                      solution: '',
+                      tglteknis: getTodayDate(),
+                      jam_problem: getCurrentTime(),
+                      files: [],
+                      selectedInternalUrls: [],
+                      useChatImage: false
+                    };
+
+                    const updateForm = (field, val) => {
+                      setCloseHtsFormData(prev => ({
+                        ...prev,
+                        [activeHt.id]: {
+                          ...(prev[activeHt.id] || curForm),
+                          [field]: val
+                        }
+                      }));
+                    };
+
+                    return (
+                      <div className="space-y-3 pt-1">
+                        {/* Header Tab Aktif */}
+                        <div className="flex items-center justify-between text-xs bg-white p-2 rounded-lg border border-blue-100">
+                          <div>
+                            <span className="font-bold text-blue-950">Form Penyelesaian #{activeHt.hts_ticket_no}</span>
+                            {activeHt.category?.name && (
+                              <span className="text-[11px] text-gray-500 ml-1.5">({activeHt.category.name})</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                            PENDING (Wajib Dilengkapi)
+                          </span>
+                        </div>
+
+                        {/* Tanggal & Jam Penanganan */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-blue-800 mb-1 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-blue-600" />
+                              Tanggal Penanganan *
+                            </label>
+                            <input
+                              type="date"
+                              value={curForm.tglteknis || getTodayDate()}
+                              onChange={e => updateForm('tglteknis', e.target.value)}
+                              className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 outline-none"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-blue-800 mb-1 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-blue-600" />
+                              Jam Penanganan *
+                            </label>
+                            <input
+                              type="time"
+                              value={curForm.jam_problem || getCurrentTime()}
+                              onChange={e => updateForm('jam_problem', e.target.value)}
+                              className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 outline-none"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        {/* Multi PIC Penyelesaian */}
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="block text-[11px] font-semibold text-blue-800">
+                              PIC Penyelesaian Teknis HTS *
+                            </label>
+                            <span className="text-[10px] text-blue-700 font-bold bg-white px-2 py-0.5 rounded-full border border-blue-200">
+                              {(curForm.picIds || []).length} PIC Terpilih
+                            </span>
+                          </div>
+
+                          {/* Kotak Pencarian PIC */}
+                          <div className="relative mb-1.5">
+                            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
+                            <input
+                              type="text"
+                              value={curForm.picSearch || ''}
+                              onChange={e => updateForm('picSearch', e.target.value)}
+                              placeholder="Cari nama teknisi PIC..."
+                              className="w-full pl-8 pr-7 py-1 text-xs border border-blue-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                            />
+                            {curForm.picSearch && (
+                              <button
+                                type="button"
+                                onClick={() => updateForm('picSearch', '')}
+                                className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* List PIC (Terpilih Selalu di Atas) */}
+                          <div className="max-h-28 overflow-y-auto border border-blue-200 rounded-lg p-1 bg-white divide-y divide-gray-100">
+                            {getSortedPics(htsMasterData.pics, curForm.picIds || [], curForm.picSearch || '').map(p => {
+                              const isChecked = (curForm.picIds || []).includes(String(p.id));
+                              const initialPics = getTicketInitialPicIds(activeHt);
+                              const isInitialPic = initialPics.length > 0
+                                ? initialPics.includes(String(p.id))
+                                : String(p.id) === '14';
+                              return (
+                                <label key={p.id} className={`flex items-center justify-between py-1 px-2 rounded cursor-pointer text-xs transition ${isChecked ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
+                                      checked={isChecked}
+                                      onChange={(e) => {
+                                        const strId = String(p.id);
+                                        const next = e.target.checked
+                                          ? [...(curForm.picIds || []), strId]
+                                          : (curForm.picIds || []).filter(id => id !== strId);
+                                        updateForm('picIds', next);
+                                      }}
+                                    />
+                                    <span className="truncate">{p.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    {isChecked && isInitialPic && (
+                                      <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.2 rounded font-bold ml-2">
+                                        PIC Penerima
+                                      </span>
+                                    )}
+                                    {isChecked && !isInitialPic && (
+                                      <span className="text-[9px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded font-bold ml-2">
+                                        PIC Penanganan
+                                      </span>
+                                    )}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                            {getSortedPics(htsMasterData.pics, curForm.picIds || [], curForm.picSearch || '').length === 0 && (
+                              <div className="p-2 text-center text-xs text-gray-400">
+                                Tidak ada teknisi PIC yang cocok
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Solusi Teknis Khusus HTS Ini */}
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="block text-[11px] font-semibold text-blue-800">
+                              Solusi Teknis HTS #{activeHt.hts_ticket_no} * (Min. 10 karakter)
+                            </label>
+                            <span className={`text-[10px] font-medium ${(curForm.solution?.trim().length || 0) >= 10 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              {curForm.solution?.trim().length || 0}/10 karakter
+                            </span>
+                          </div>
+                          <textarea
+                            rows="3"
+                            value={curForm.solution || ''}
+                            onChange={e => updateForm('solution', e.target.value)}
+                            placeholder={`Tulis tindakan teknis penanganan khusus tiket #${activeHt.hts_ticket_no}...`}
+                            className="w-full bg-white border border-blue-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none text-gray-800"
+                          ></textarea>
+                        </div>
+
+                        {/* Lampiran Bukti Penyelesaian */}
+                        <div className="space-y-2 pt-2 border-t border-blue-200">
+                          <label className="block text-[11px] font-semibold text-blue-800">
+                            Bukti Lampiran Selesai / Foto Tindakan #{activeHt.hts_ticket_no} (Opsional)
+                          </label>
+
+                          {/* 1. Opsi Galeri Foto dari Catatan Internal Teknisi Lapangan (L2) */}
+                          {messages.some(m => m.is_internal && m.attachment_url) && (
+                            <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
+                                  📸 Foto dari Catatan Internal Teknisi
+                                </span>
+                                {(curForm.selectedInternalUrls || []).length > 0 && (
+                                  <span className="text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded">
+                                    {curForm.selectedInternalUrls.length} Foto Terpilih
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-amber-700 leading-tight">
+                                Klik foto hasil perbaikan teknisi sebagai bukti penyelesaian tiket HTS ini:
+                              </p>
+                              <div className="flex gap-2 overflow-x-auto py-1">
+                                {messages.filter(m => m.is_internal && m.attachment_url).map(m => {
+                                  const fullUrl = m.attachment_url.startsWith('http') ? m.attachment_url : `${BASE_URL}${m.attachment_url}`;
+                                  const isSelected = (curForm.selectedInternalUrls || []).includes(m.attachment_url);
+                                  return (
+                                    <div
+                                      key={m.id}
+                                      onClick={() => {
+                                        const prevUrls = curForm.selectedInternalUrls || [];
+                                        const nextUrls = isSelected
+                                          ? prevUrls.filter(u => u !== m.attachment_url)
+                                          : [...prevUrls, m.attachment_url];
+                                        updateForm('selectedInternalUrls', nextUrls);
+                                      }}
+                                      className={`relative rounded-lg border-2 cursor-pointer transition p-0.5 shrink-0 ${
+                                        isSelected
+                                          ? 'border-amber-600 ring-2 ring-amber-300 shadow-xs'
+                                          : 'border-amber-200 hover:border-amber-400 bg-white'
+                                      }`}
+                                      title="Klik untuk memilih foto ini"
+                                    >
+                                      <img src={fullUrl} alt="Internal Media" className="w-14 h-14 object-cover rounded-md" />
+                                      {isSelected && (
+                                        <span className="absolute top-1 right-1 bg-amber-600 text-white rounded-full p-0.5 shadow-xs">
+                                          <Check className="w-3 h-3" />
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2. Opsi Foto dari Chat WhatsApp Pelapor */}
+                          {closeHtsChatImagePreview && (
+                            <label className={`flex items-center gap-2.5 p-2 bg-white border rounded-lg cursor-pointer transition ${
+                              curForm.useChatImage ? 'border-blue-400 bg-blue-50/50' : 'border-blue-200 hover:border-blue-300'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(curForm.useChatImage)}
+                                onChange={e => updateForm('useChatImage', e.target.checked)}
+                                className="w-4 h-4 text-blue-600 rounded"
+                              />
+                              <img src={closeHtsChatImagePreview} alt="Bukti WA" className="w-8 h-8 object-cover rounded border border-blue-300" />
+                              <div className="text-[11px] leading-tight">
+                                <span className="font-semibold text-blue-900 block">Gunakan foto dari chat WhatsApp</span>
+                                <span className="text-blue-700 text-[10px]">Foto kendala awal dari pelapor</span>
+                              </div>
+                            </label>
+                          )}
+
+                          {/* 3. Upload File Baru dari Komputer */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <label className="flex-1 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg p-2 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
                                 <input
-                                  type="checkbox"
-                                  className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    const strId = String(p.id);
-                                    if (e.target.checked) {
-                                      setCloseHtsPicIds([...closeHtsPicIds, strId]);
-                                    } else {
-                                      setCloseHtsPicIds(closeHtsPicIds.filter(id => id !== strId));
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={e => {
+                                    if (e.target.files && e.target.files.length > 0) {
+                                      const newFiles = Array.from(e.target.files);
+                                      updateForm('files', [...(curForm.files || []), ...newFiles]);
                                     }
                                   }}
                                 />
-                                <span className="truncate">{p.name}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                {isChecked && isInitialPic && (
-                                  <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.2 rounded font-bold ml-2">
-                                    PIC Penerima
+                                <Paperclip className="w-3.5 h-3.5 text-gray-500" />
+                                <span>Upload foto dari komputer (Bisa pilih multi-foto)</span>
+                              </label>
+                            </div>
+                            {(curForm.files || []).length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {curForm.files.map((file, idx) => (
+                                  <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px] border border-blue-200">
+                                    <span className="truncate max-w-[130px]">{file.name}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const nextFiles = curForm.files.filter((_, i) => i !== idx);
+                                        updateForm('files', nextFiles);
+                                      }}
+                                      className="text-blue-500 hover:text-red-500"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
                                   </span>
-                                )}
-                                {isChecked && !isInitialPic && (
-                                  <span className="text-[9px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded font-bold ml-2">
-                                    PIC Penanganan
-                                  </span>
-                                )}
+                                ))}
                               </div>
-                            </label>
-                          );
-                        })}
-                        {getSortedPics(htsMasterData.pics, closeHtsPicIds, closeHtsPicSearch).length === 0 && (
-                          <div className="p-2 text-center text-xs text-gray-400">
-                            Tidak ada teknisi PIC yang cocok
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Lampiran Bukti Penyelesaian */}
-                    <div className="space-y-2 pt-2 border-t border-blue-200">
-                      <label className="block text-[11px] font-semibold text-blue-800">
-                        Bukti Lampiran Selesai / Foto Tindakan (Opsional)
-                      </label>
-
-                      {/* 1. Opsi Galeri Foto dari Catatan Internal Teknisi Lapangan (L2) */}
-                      {messages.some(m => m.is_internal && m.attachment_url) && (
-                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
-                              📸 Foto dari Catatan Internal Teknisi
-                            </span>
-                            {closeHtsSelectedInternalUrls.length > 0 && (
-                              <span className="text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded">
-                                {closeHtsSelectedInternalUrls.length} Foto Terpilih
-                              </span>
                             )}
                           </div>
-                          <p className="text-[10px] text-amber-700 leading-tight">
-                            Klik foto untuk memilih 1 atau lebih foto hasil perbaikan teknisi sebagai bukti penyelesaian di portal HTS:
-                          </p>
-                          <div className="flex gap-2 overflow-x-auto py-1">
-                            {messages.filter(m => m.is_internal && m.attachment_url).map(m => {
-                              const fullUrl = m.attachment_url.startsWith('http') ? m.attachment_url : `${BASE_URL}${m.attachment_url}`;
-                              const isSelected = closeHtsSelectedInternalUrls.includes(m.attachment_url);
-                              return (
-                                <div
-                                  key={m.id}
-                                  onClick={() => {
-                                    if (isSelected) {
-                                      const updated = closeHtsSelectedInternalUrls.filter(u => u !== m.attachment_url);
-                                      setCloseHtsSelectedInternalUrls(updated);
-                                      setCloseHtsSelectedInternalUrl(updated[0] || null);
-                                    } else {
-                                      const updated = [...closeHtsSelectedInternalUrls, m.attachment_url];
-                                      setCloseHtsSelectedInternalUrls(updated);
-                                      setCloseHtsSelectedInternalUrl(updated[0] || null);
-                                      setCloseHtsUseChatImage(false);
-                                    }
-                                  }}
-                                  className={`relative rounded-lg border-2 cursor-pointer transition p-0.5 shrink-0 ${
-                                    isSelected 
-                                      ? 'border-amber-600 ring-2 ring-amber-300 shadow-xs' 
-                                      : 'border-amber-200 hover:border-amber-400 bg-white'
-                                  }`}
-                                  title="Klik untuk memilih foto ini"
-                                >
-                                  <img src={fullUrl} alt="Internal Media" className="w-14 h-14 object-cover rounded-md" />
-                                  {isSelected && (
-                                    <span className="absolute top-1 right-1 bg-amber-600 text-white rounded-full p-0.5 shadow-xs">
-                                      <Check className="w-3 h-3" />
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
                         </div>
-                      )}
-
-                      {/* 2. Opsi Foto dari Chat WhatsApp Pelapor */}
-                      {closeHtsChatImagePreview && (
-                        <label className={`flex items-center gap-2.5 p-2 bg-white border rounded-lg cursor-pointer transition ${
-                          closeHtsUseChatImage && !closeHtsFile && !closeHtsSelectedInternalUrl 
-                            ? 'border-blue-400 bg-blue-50/50' 
-                            : 'border-blue-200 hover:border-blue-300'
-                        }`}>
-                          <input
-                            type="checkbox"
-                            checked={closeHtsUseChatImage && !closeHtsFile && !closeHtsSelectedInternalUrl}
-                            disabled={!!closeHtsFile || !!closeHtsSelectedInternalUrl}
-                            onChange={e => {
-                              setCloseHtsUseChatImage(e.target.checked);
-                              if (e.target.checked) setCloseHtsSelectedInternalUrl(null);
-                            }}
-                            className="w-4 h-4 text-blue-600 rounded"
-                          />
-                          <img src={closeHtsChatImagePreview} alt="Bukti WA" className="w-8 h-8 object-cover rounded border border-blue-300" />
-                          <div className="text-[11px] leading-tight">
-                            <span className="font-semibold text-blue-900 block">Gunakan foto dari chat WhatsApp</span>
-                            <span className="text-blue-700 text-[10px]">Foto kendala awal dari pelapor</span>
-                          </div>
-                        </label>
-                      )}
-
-                      {/* 3. Upload File Baru dari Komputer */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <label className="flex-1 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg p-2 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              className="hidden"
-                              onChange={e => {
-                                if (e.target.files && e.target.files.length > 0) {
-                                  const newFiles = Array.from(e.target.files);
-                                  setCloseHtsFiles(prev => [...prev, ...newFiles]);
-                                  setCloseHtsFile(newFiles[0]);
-                                  setCloseHtsUseChatImage(false);
-                                }
-                              }}
-                            />
-                            <Paperclip className="w-3.5 h-3.5 text-gray-500" />
-                            <span>Upload foto dari komputer (Bisa pilih 2-3 foto)</span>
-                          </label>
-                        </div>
-                        {closeHtsFiles.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {closeHtsFiles.map((file, idx) => (
-                              <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px] border border-blue-200">
-                                <span className="truncate max-w-[130px]">{file.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = closeHtsFiles.filter((_, i) => i !== idx);
-                                    setCloseHtsFiles(updated);
-                                    setCloseHtsFile(updated[0] || null);
-                                  }}
-                                  className="text-blue-500 hover:text-red-500"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                    );
+                  })()}
+                </div>
+              );
+            })()}
 
             <div className="mb-4">
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Tag Kategori Tim</label>
@@ -5848,7 +6341,7 @@ Tetap tautkan tiket ini?`)) {
 
             <div className="mb-6">
               <div className="flex justify-between items-center mb-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Kesimpulan Penanganan (Min. 10 karakter)</label>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Kesimpulan Penanganan Chat Pelanggan (Min. 10 karakter) *</label>
                 {activeTicket?.categories?.some(tc => tc.solution) && (
                   <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium">
                     ✓ Catatan L2 Terisi Otomatis
@@ -5859,32 +6352,81 @@ Tetap tautkan tiket ini?`)) {
                 rows="4" 
                 value={summaryText}
                 onChange={e => {
-                  setSummaryText(e.target.value);
-                  if (closeHtsTicket) setCloseHtsSolution(e.target.value);
+                  const newVal = e.target.value;
+                  setSummaryText(newVal);
+                  // Sinkronisasi otomatis ke solusi tab HTS yang masih kosong
+                  const htsList = (activeTicket?.hts_tickets && activeTicket.hts_tickets.length > 0)
+                    ? activeTicket.hts_tickets
+                    : (activeTicket?.hts_ticket_no ? [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }] : []);
+                  const pendingHts = htsList.filter(h => h.hts_ticket_status !== 'SOLVED');
+                  if (pendingHts.length > 0) {
+                    setCloseHtsFormData(prev => {
+                      const updated = { ...prev };
+                      let changed = false;
+                      pendingHts.forEach(h => {
+                        if (!updated[h.id] || !updated[h.id].solution) {
+                          updated[h.id] = {
+                            ...(updated[h.id] || {}),
+                            solution: newVal
+                          };
+                          changed = true;
+                        }
+                      });
+                      return changed ? updated : prev;
+                    });
+                  }
+                  if (closeHtsTicket) setCloseHtsSolution(newVal);
                 }}
-                placeholder="Rangkum hasil penyelesaian kendala di lapangan/lab..."
+                placeholder="Rangkum hasil penyelesaian kendala untuk diinformasikan ke pelanggan..."
                 className="w-full border border-gray-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               ></textarea>
             </div>
           </div>
 
-          <div className="p-3.5 px-5 border-t border-gray-100 flex justify-end space-x-2.5 bg-white sticky bottom-0 z-10 shadow-sm">
-              <button 
-                onClick={() => setShowCloseModal(false)} 
-                disabled={isClosingTicket}
-                className="px-4 py-2 text-xs text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors"
-              >
-                Batal
-              </button>
-              <button 
-                onClick={handleCloseTicket} 
-                disabled={summaryText.trim().length < 10 || isClosingTicket} 
-                className="px-5 py-2 text-xs bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold transition-colors shadow-sm flex items-center gap-1.5"
-              >
-                <Check className="w-4 h-4" />
-                {isClosingTicket ? 'Memproses...' : (activeTicket?.hts_ticket_no && closeHtsTicket ? 'Selesaikan & Tutup HTS' : 'Tutup Tiket')}
-              </button>
-            </div>
+          {/* Validasi & Submit Footer */}
+          {(() => {
+            const htsList = (activeTicket?.hts_tickets && activeTicket.hts_tickets.length > 0)
+              ? activeTicket.hts_tickets
+              : (activeTicket?.hts_ticket_no ? [{ id: 0, hts_ticket_no: activeTicket.hts_ticket_no, hts_ticket_status: activeTicket.hts_ticket_status }] : []);
+            const pendingHts = htsList.filter(h => h.hts_ticket_status !== 'SOLVED');
+            const isAnyPendingHtsIncomplete = pendingHts.some(ht => {
+              const form = closeHtsFormData[ht.id];
+              return !form || !form.solution || form.solution.trim().length < 10 || !form.picIds || form.picIds.length === 0;
+            });
+            const isSubmitDisabled = summaryText.trim().length < 10 || isClosingTicket || isAnyPendingHtsIncomplete;
+
+            return (
+              <div className="p-3.5 px-5 border-t border-gray-100 flex justify-between items-center bg-white sticky bottom-0 z-10 shadow-sm">
+                <div className="text-[11px]">
+                  {isAnyPendingHtsIncomplete && (
+                    <span className="text-amber-600 font-semibold flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      Lengkapi seluruh tab tiket HTS yang PENDING
+                    </span>
+                  )}
+                </div>
+                <div className="flex space-x-2.5">
+                  <button 
+                    onClick={() => setShowCloseModal(false)} 
+                    disabled={isClosingTicket}
+                    className="px-4 py-2 text-xs text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={handleCloseTicket} 
+                    disabled={isSubmitDisabled} 
+                    className="px-5 py-2 text-xs bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold transition-colors shadow-sm flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    {isClosingTicket 
+                      ? 'Memproses...' 
+                      : (pendingHts.length > 0 ? 'Selesaikan Semua HTS & Tutup Tiket' : 'Tutup Tiket Selesai')}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
           </div>
         </div>
       )}

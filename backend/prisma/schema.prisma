@@ -116,6 +116,7 @@ model TicketHts {
   hts_detil         String?      @db.Text
   hts_pic_ids       String?      // JSON array ID PIC penerima & penanganan
   solution          String?      @db.Text // Teks solusi penanganan teknis HTS
+  attachment_urls   String?      @db.Text // JSON array URL bukti foto penanganan (V4.3)
   created_at        DateTime     @default(now())
   solved_at         DateTime?
 

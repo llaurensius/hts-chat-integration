@@ -1,14 +1,14 @@
 # 📘 Panduan Operasional (SOP) & Deployment
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** Workflow V4.2 Produksi  
-**Audiens Dokumen:** Developer, System Administrator & Operator Helpdesk  
+**Versi:** Workflow V4.2.1 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
+**Audiens Dokumen:** DevOps Engineer, System Administrator & Operator Helpdesk  
 **Terakhir Diperbarui:** 03 Oktober 2026  
 
 ---
 
 # BAGIAN A — PANDUAN DEPLOYMENT (3 TRACK STRATEGY)
 
-Dokumen ini membagi instruksi instalasi ke dalam 3 jalur terstandarisasi sesuai kebutuhan lingkungan:
+Dokumen ini membagi instruksi instalasi dan penerapan sistem ke dalam 3 jalur terstandarisasi:
 1. **Track 1:** Lingkungan Pengembangan Lokal (Local Development)
 2. **Track 2:** Pengelolaan Gateway & Basis Data Kontainer (Docker Stack)
 3. **Track 3:** Penerapan Server Produksi VPS Node.js Mandiri (Ubuntu 22.04 LTS via PM2 & Nginx)
@@ -18,18 +18,29 @@ Dokumen ini membagi instruksi instalasi ke dalam 3 jalur terstandarisasi sesuai 
 ## TRACK 1: PENGEMBANGAN LOKAL (LOCAL DEVELOPMENT)
 
 ### 1.1 Prasyarat Sistem
-- **Sistem Operasi:** Windows 10/11 (WSL2 disarankan), macOS, atau Linux Ubuntu
-- **Node.js:** Versi v18, v20, atau v22 LTS (disertai `npm`)
-- **Docker & Docker Compose:** Docker Desktop aktif
+- **Sistem Operasi:** Windows 10/11 (WSL2 sangat disarankan), macOS, atau Linux Ubuntu.
+- **Node.js:** Versi LTS (v18, v20, atau v22) disertai package manager `npm`.
+- **Docker Desktop:** Berjalan aktif dengan dukungan Docker Compose.
 - **Git**
 
-### 1.2 Konfigurasi Lingkungan Backend
+### 1.2 Konfigurasi & Menjalankan Docker Stack (Database & WhatsApp Gateway)
+Dari direktori root repositori, nyalakan kontainer pendukung:
+```bash
+docker compose -f docker/docker-compose.yml up -d
+docker ps
+```
+Pastikan ketiga kontainer (`hts_postgres`, `hts_redis`, dan `hts_evolution_api`) berada dalam status **Up (healthy)**.
+
+> ⚠️ **PENTING — Jebakan Port PostgreSQL:**  
+> Berkas `docker-compose.yml` memetakan port `5433:5432` (host:container). Backend yang berjalan di host mesin pengembang **wajib memakai port `5433`** pada parameter `DATABASE_URL`. Jika menggunakan 5432, koneksi akan ditolak dengan kode Prisma `P1001`.
+
+### 1.3 Konfigurasi & Menjalankan Backend
 1. Masuk ke direktori `backend/`:
    ```bash
    cd backend
    npm install
    ```
-2. Buat berkas `.env` di dalam folder `backend/`:
+2. Buat atau sesuaikan berkas `.env` di dalam folder `backend/`:
    ```env
    PORT=3000
    DATABASE_URL="postgresql://helpdesk_user:SecretPassword123!@localhost:5433/wa_helpdesk?schema=public"
@@ -43,54 +54,52 @@ Dokumen ini membagi instruksi instalasi ke dalam 3 jalur terstandarisasi sesuai 
    # Shared Secret Autentikasi Webhook (SEC-01)
    WEBHOOK_SECRET="SecureTokenUntukBackend123"
 
-   # URL Frontend untuk CORS Socket.io
+   # URL Frontend untuk CORS Socket.io Lokal
    FRONTEND_URL="http://localhost:5200"
    ```
+3. Sinkronisasi skema basis data dan inisialisasi data awal (seeding):
+   ```bash
+   npx prisma generate
+   npx prisma db push
+   npm run prisma:seed
+   ```
+4. Jalankan backend dalam mode pengembangan:
+   ```bash
+   npm run dev
+   ```
 
-> ⚠️ **PENTING — Jebakan Port PostgreSQL:**  
-> Berkas `docker-compose.yml` memetakan port `5433:5432` (host:container). Backend yang berjalan di mesin host **wajib memakai port `5433`** pada parameter `DATABASE_URL`. Jika salah menggunakan 5432, koneksi akan ditolak dengan kode Prisma `P1001`.
-
-### 1.3 Menjalankan Docker Gateway & Database
-Dari direktori root repositori, nyalakan kontainer:
-```bash
-docker compose -f docker/docker-compose.yml up -d
-docker ps
-```
-Pastikan ketiga kontainer (`hts_postgres`, `hts_redis`, `hts_evolution_api`) berstatus **Up**.
-
-### 1.4 Migrasi & Inisialisasi Database
-Jalankan sinkronisasi skema Prisma dan data awal:
-```bash
-cd backend
-npx prisma generate
-npx prisma db push
-npm run prisma:seed
-```
-
-### 1.5 Pairing Nomor WhatsApp Helpdesk
-Jalankan skrip inisialisasi instance Evolution API:
+### 1.4 Pairing Nomor WhatsApp Helpdesk
+Jalankan skrip inisialisasi instance Evolution API dari terminal backend:
 ```bash
 npm run setup:evolution
 ```
 1. Buka berkas `backend/qr.html` pada browser Anda.
-2. Buka aplikasi WhatsApp pada ponsel Helpdesk, masuk ke menu **Perangkat Tertaut (Linked Devices)**, dan pindai QR Code.
-3. Konfirmasi status koneksi dengan membuka: `http://localhost:8080/instance/connectionState/helpdesk-wa` (harus berstatus `"state": "open"`).
+2. Buka aplikasi WhatsApp pada ponsel Helpdesk, masuk ke menu **Perangkat Tertaut (Linked Devices)**, dan pindai QR Code yang ditampilkan.
+3. Konfirmasi status koneksi dengan membuka URL: `http://localhost:8080/instance/connectionState/helpdesk-wa` (harus berstatus `"state": "open"`).
 
-### 1.6 Menjalankan Frontend Web
-Buka terminal baru, masuk ke direktori `frontend/`:
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Akses antarmuka dasbor pada browser: **`http://localhost:5200`**.
+### 1.5 Konfigurasi & Menjalankan Frontend Web
+1. Buka terminal baru, masuk ke direktori `frontend/`:
+   ```bash
+   cd frontend
+   npm install
+   ```
+2. Buat berkas `frontend/.env` jika belum ada:
+   ```env
+   VITE_API_URL=http://localhost:3000/api
+   VITE_SOCKET_URL=http://localhost:3000
+   ```
+3. Jalankan server pengembangan Vite:
+   ```bash
+   npm run dev
+   ```
+4. Buka browser pada alamat: **`http://localhost:5200`**.
 
 ---
 
 ## TRACK 2: DOCKER-BASED STACK & GATEWAY MANAGEMENT
 
 ### 2.1 Arsitektur Layanan Docker (`docker/docker-compose.yml`)
-Stack kontainer mencakup 3 service terisolasi dalam jaringan bridge `hts-net`:
+Stack kontainer mencakup 3 service terisolasi dalam bridge network `hts-net`:
 - **`hts_postgres` (postgres:15-alpine):**
   - Port Host: `5433` $\rightarrow$ Port Kontainer: `5432`
   - Inisialisasi basis data otomatis via `init.sql`: membuat database `evolution_db` dan memberikan wewenang ke `helpdesk_user`.
@@ -108,15 +117,15 @@ Evolution API mengirimkan webhook event ke backend Node.js. Alamat URL webhook d
 - **Pengembangan Lokal (Docker to Host):** Gunakan IP bridge gateway Docker `http://172.17.0.1:3000/api/webhook/whatsapp` (atau `http://host.docker.internal:3000/api/webhook/whatsapp` pada macOS/Windows).
 - **Produksi VPS:** Gunakan loopback host `http://127.0.0.1:3000/api/webhook/whatsapp` atau domain publik `https://helpdesk.diskominfo.jatengprov.go.id/api/webhook/whatsapp`.
 
-### 2.3 Perawatan Kontainer & Prosedur Cadangan (Backup)
+### 2.3 Perawatan Kontainer & Prosedur Cadangan (Backup Database)
 ```bash
 # Backup Basis Data wa_helpdesk ke file SQL lokal
 docker exec -t hts_postgres pg_dump -U helpdesk_user wa_helpdesk > backup_wa_helpdesk_$(date +%Y%m%d).sql
 
-# Memulihkan (Restore) Basis Data
+# Memulihkan (Restore) Basis Data dari file cadangan
 docker exec -i hts_postgres psql -U helpdesk_user -d wa_helpdesk < backup_wa_helpdesk_20261003.sql
 
-# Memantau Log Gateway WhatsApp
+# Memantau Log Gateway WhatsApp secara Real-time
 docker compose -f docker/docker-compose.yml logs -f evolution-api
 ```
 
@@ -127,8 +136,8 @@ docker compose -f docker/docker-compose.yml logs -f evolution-api
 Panduan ini ditujukan untuk implementasi di server VPS produksi Diskominfo Provinsi Jawa Tengah.
 
 ### 3.1 Kebutuhan Minimum VPS
-- **CPU:** 2 vCPU (Disarankan 4 vCPU)
-- **RAM:** 4 GB (Disarankan 8 GB untuk kenyamanan Docker + Node.js)
+- **CPU:** 2 vCPU (Disarankan 4 vCPU untuk performa optimal)
+- **RAM:** 4 GB (Disarankan 8 GB untuk Docker + Node.js + Nginx)
 - **Penyimpanan:** 40 GB SSD / NVMe
 - **OS:** Ubuntu 22.04 LTS x86_64
 - **Domain:** Terdaftar domain resmi (misal: `helpdesk.diskominfo.jatengprov.go.id`)
@@ -148,7 +157,7 @@ sudo npm install -g pm2
 
 ### 3.3 Menjalankan Docker Stack Database di VPS
 ```bash
-# Kloning repositori proyek
+# Kloning repositori proyek ke direktori /var/www
 cd /var/www
 sudo git clone https://github.com/llaurensius/hts-chat-integration.git
 sudo chown -R $USER:$USER /var/www/hts-chat-integration
@@ -164,7 +173,7 @@ docker compose -f docker/docker-compose.yml up -d
    cd /var/www/hts-chat-integration/backend
    nano .env
    ```
-   *Isi variabel lingkungan produksi dengan kredensial yang kuat (buat JWT_SECRET dan WEBHOOK_SECRET menggunakan `openssl rand -hex 32`).*
+   *Isi variabel lingkungan produksi dengan kredensial kuat (buat string acak JWT_SECRET dan WEBHOOK_SECRET menggunakan perintah `openssl rand -hex 32`).*
 
 2. Instalasi dependensi & migrasi database:
    ```bash
@@ -180,30 +189,42 @@ docker compose -f docker/docker-compose.yml up -d
    pm2 save
    pm2 startup
    ```
-   *(Jalankan perintah sudo env yang ditampilkan oleh `pm2 startup` agar service otomatis berjalan saat server reboot).*
+   *(Jalankan perintah sudo env yang ditampilkan oleh `pm2 startup` agar service otomatis berjalan kembali saat server reboot).*
 
-4. Pasang modul rotasi log PM2:
+4. Pasang modul rotasi log PM2 agar ruang harddisk tidak penuh:
    ```bash
    pm2 install pm2-logrotate
    pm2 set pm2-logrotate:max_size 20M
    pm2 set pm2-logrotate:retain 10
    ```
 
-### 3.5 Build Frontend Vite untuk Produksi
-```bash
-cd /var/www/hts-chat-integration/frontend
-npm install
-npm run build
-```
-Hasil build bundel HTML/JS/CSS akan tercipta di direktori `/var/www/hts-chat-integration/frontend/dist`.
+### 3.5 Build Frontend Vite untuk Produksi VPS
+1. Masuk ke direktori `frontend/`:
+   ```bash
+   cd /var/www/hts-chat-integration/frontend
+   ```
+2. Pastikan file `frontend/.env` telah terkonfigurasi. Pada lingkungan Nginx, URL relatif `/api` dan `/` bekerja secara bawaan:
+   ```env
+   VITE_API_URL=/api
+   VITE_SOCKET_URL=/
+   ```
+3. Lakukan instalasi dependensi dan build bundel produksi:
+   ```bash
+   npm install
+   npm run build
+   ```
+   > 💡 **Troubleshooting Arsitektur Linux x64:**  
+   > Jika proses build menemui galat Rollup native binding di server Linux, pasang dependensi opsional berikut:  
+   > `npm install --save-optional @rollup/rollup-linux-x64-gnu`
+4. Hasil kompilasi statis (HTML/JS/CSS) akan tersimpan di direktori `/var/www/hts-chat-integration/frontend/dist`.
 
-### 3.6 Konfigurasi Reverse Proxy Nginx & WebSocket
+### 3.6 Konfigurasi Reverse Proxy Nginx & Caching Teroptimasi
 Buat konfigurasi virtual host Nginx:
 ```bash
 sudo nano /etc/nginx/sites-available/hts-helpdesk.conf
 ```
 
-Tempelkan konfigurasi berikut:
+Tempelkan blok konfigurasi produksi berikut:
 ```nginx
 server {
     listen 80;
@@ -214,9 +235,18 @@ server {
         root /var/www/hts-chat-integration/frontend/dist;
         index index.html;
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
     }
 
-    # 2. REST API Backend Passthrough
+    # 2. Caching Aset Statis Vite (Immutable 1 Tahun)
+    location /assets/ {
+        root /var/www/hts-chat-integration/frontend/dist;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # 3. REST API Backend Passthrough
     location /api/ {
         proxy_pass http://127.0.0.1:3000/api/;
         proxy_http_version 1.1;
@@ -227,14 +257,14 @@ server {
         client_max_body_size 50M;
     }
 
-    # 3. Static Media Berkas Unggahan
+    # 4. Berkas Media Lampiran
     location /uploads/ {
         proxy_pass http://127.0.0.1:3000/uploads/;
         proxy_set_header Host $host;
         client_max_body_size 50M;
     }
 
-    # 4. WebSocket Real-time (Socket.io)
+    # 5. WebSocket Real-time (Socket.io Upgrade)
     location /socket.io/ {
         proxy_pass http://127.0.0.1:3000/socket.io/;
         proxy_http_version 1.1;
@@ -242,11 +272,13 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }
 ```
 
-Aktifkan konfigurasi dan restart Nginx:
+Aktifkan konfigurasi dan reload Nginx:
 ```bash
 sudo ln -s /etc/nginx/sites-available/hts-helpdesk.conf /etc/nginx/sites-enabled/
 sudo nginx -t
@@ -276,25 +308,26 @@ sudo ufw status
 ## 1. SOP DISPATCHER LEVEL 1 (L1)
 
 ### Tahap 1: Hubungkan Akun Portal Resmi HTS
-1. Buka antarmuka dasbor helpdesk. Pada panel samping kanan, periksa blok **"Portal HTS Diskominfo"**.
+1. Buka dasbor web. Pada panel kanan, periksa status **"Portal HTS Diskominfo"**.
 2. Jika berstatus **`Belum Terhubung`**, klik tombol **"Hubungkan Akun HTS"**.
-3. Gambar kode CAPTCHA visual akan dimuat secara live. Masukkan email resmi HTS Anda, kata sandi, dan 4 digit angka CAPTCHA (klik ikon 🔄 bila gambar kurang jelas).
-4. Klik **"Login ke Portal HTS"**. Panel kanan akan berubah menjadi hijau: **`Terhubung sebagai [Nama Petugas]`**. Sesi ini akan dijaga otomatis oleh worker keep-alive setiap 15 menit.
+3. Gambar kode CAPTCHA visual akan dimuat secara live. Masukkan email resmi HTS, kata sandi, dan 4 digit angka CAPTCHA (klik 🔄 jika kode visual buram).
+4. Klik **"Login ke Portal HTS"**. Panel kanan akan berubah hijau: **`Terhubung sebagai [Nama Petugas]`**. Sesi ini dirawat otomatis oleh background keep-alive setiap 15 menit.
 
 ### Tahap 2: Menerima Pesan & Verifikasi Identitas Pelapor
-1. Setiap pesan masuk dari WhatsApp pelapor akan membentuk baris obrolan baru berstatus `OPEN`.
+1. Setiap pesan masuk dari pelanggan otomatis membuka baris tiket baru berstatus `OPEN`.
 2. Klik nama pelapor pada kolom antrean kiri.
-3. Periksa identitas nama dan instansi (OPD). Jika pelapor belum tercatat di Master Data resmi, klik ikon pensil ✏️ di samping nama pelapor pada panel detail untuk menyematkan nama resmi dan SKPD.
+3. Periksa identitas nama dan instansi (OPD). Jika pelapor belum tercatat di Master Data resmi, klik ikon pensil ✏️ di panel kanan untuk menyematkan nama resmi dan SKPD pelapor.
 
-### Tahap 3: Pendelegasian Tugas ke Teknisi L2
+### Tahap 3: Pendelegasian Tugas ke Teknisi L2 & Auto-Open HTS
 1. Jika laporan merupakan kendala teknis lapangan, klik tombol **"Assign ke L2"** di header obrolan.
-2. Centang tim teknisi yang relevan (`Network`, `Server`, dan/atau `Mechanical & Electrical`). Anda dapat mencentang lebih dari satu tim sekaligus.
-3. Pilih jenis layanan (*Service Type*) $\rightarrow$ klik **"Simpan Penugasan"**.
-4. Sistem otomatis mempromosikan obrolan menjadi **Aduan Teknis Resmi** dan membroadcast notifikasi tugas ke grup/nomor WhatsApp teknisi terkait.
+2. Centang tim teknisi relevan (`Network`, `Server`, dan/atau `Mechanical & Electrical`).
+3. Pilih jenis layanan (*Service Type*).
+4. **Opsi Efisiensi:** Centang kotak `[✓] Langsung buka formulir Portal HTS setelah menyimpan penugasan` $\rightarrow$ klik **"Simpan Penugasan"**.
+5. Drawer formulir HTS akan terbuka otomatis secara mulus tanpa menghilangkan konteks tiket aktif.
 
 ### Tahap 4: Koordinasi Catatan Internal vs Balasan Pelanggan
-- Gunakan tab **💬 Balas Pelanggan (WhatsApp)** untuk mengirim balasan resmi ke nomor WhatsApp pelapor (gelembung chat biru). Anda juga dapat menggunakan pintasan keyboard `/` untuk memunculkan balasan cepat (*Quick Replies*).
-- Gunakan tab **🔒 Catatan Internal** untuk bertukar pesan instruksi atau melihat kiriman foto teknisi L2 (latar amber/kuning). Catatan internal **100% rahasia** dan tidak akan pernah terkirim ke WhatsApp pelanggan.
+- Gunakan tab **💬 Balas Pelanggan (WhatsApp)** untuk mengirim balasan resmi ke nomor WhatsApp pelapor. Gunakan pintasan keyboard `/` untuk memanggil balasan cepat (*Quick Replies*).
+- Gunakan tab **🔒 Catatan Internal** untuk bertukar pesan instruksi atau melihat kiriman foto teknisi L2 (latar amber). Catatan internal **100% rahasia** dan tidak pernah terkirim ke WhatsApp pelanggan.
 
 ### Tahap 5: Sinkronisasi Tiket ke Portal HTS
 1. Buka drawer melalui tombol **`[ 🌐 Sinkronkan ke Portal HTS ]`** di panel kanan:
@@ -314,7 +347,7 @@ sudo ufw status
 ## 2. SOP TEKNISI LAPANGAN LEVEL 2 (L2)
 
 1. **Menerima Tugas:** Teknisi menerima pesan notifikasi blast di WhatsApp/grup tim lapangan $\rightarrow$ Login ke dasbor web menggunakan akun pilar masing-masing (`l2_network`, `l2_server`, atau `l2_me`).
-2. **Analisis Laporan:** Buka tiket pada antrean kerja. Teknisi berada dalam mode **View-Only** terhadap percakapan WhatsApp pelapor (tidak dapat mengirim pesan langsung ke WhatsApp pelanggan).
+2. **Analisis Laporan:** Buka tiket pada antrean kerja. Teknisi berada dalam mode **View-Only** terhadap percakapan WhatsApp pelapor.
 3. **Koordinasi Lapangan:** Tulis progres pemeriksaan pada kolom **Catatan Internal**. Teknisi dapat mengunggah foto bukti kabel putus, switch error, atau hasil perbaikan lapangan via tombol ikon klip lampiran.
 4. **Tandai Selesai:** Setelah perbaikan tuntas, klik tombol **"Tandai Selesai"** $\rightarrow$ masukkan uraian solusi perbaikan teknis. Bagian tim Anda akan berubah menjadi hijau `✓ Selesai`.
 5. **Pelepasan Tugas (Salah Kamar):** Jika laporan kendala bukan wewenang pilar tim Anda, klik tombol **"Kembalikan / Lepas Penugasan"** disertai alasan objektif agar Dispatcher L1 dapat mengalihkan tiket ke tim yang tepat.
@@ -323,20 +356,20 @@ sudo ufw status
 
 ## 3. SOP ADMINISTRATOR SISTEM (ADMIN)
 
-1. **Manajemen Akun Staf (Menu Users):** Tambah akun baru, perbarui data profil/role staf, tentukan divisi pilar L2, atau lakukan reset kata sandi.
-2. **Pengelolaan Kontak Blast L2 (Ikon Sinyal 📡):** Daftarkan nomor telepon WhatsApp pribadi teknisi atau ID grup WhatsApp (`xxx@g.us`) tujuan notifikasi tugas per pilar.
+1. **Manajemen Akun Staf (Tab Users):** Tambah akun baru, perbarui data profil/role staf, tentukan divisi pilar L2, atau lakukan reset kata sandi.
+2. **Pengelolaan Kontak Blast L2 (Tab Teams):** Daftarkan nomor telepon WhatsApp pribadi teknisi atau ID grup WhatsApp (`xxx@g.us`) tujuan notifikasi tugas per pilar.
 3. **Pengelolaan Master Data Kontak Pelanggan:**
    - Masuk ke modal Chat Baru $\rightarrow$ klik **"Import Master Data Kontak"**.
    - Unggah berkas Excel (`.xlsx`), CSV, atau vCard (`.vcf`) daftar pejabat/PIC OPD Jawa Tengah.
    - Gunakan tombol **`[ 🗑 Hapus Semua Kontak ]`** jika ingin membersihkan seluruh data kontak pelanggan dan me-reset urutan ID kembali ke angka 1.
-4. **Pembersihan Data Testing (Menu Rekapitulasi):** Pilih tiket testing yang ingin dihapus, atau klik tombol **Hapus Semua Data** (dengan konfirmasi ketik `HAPUS`) untuk mengosongkan seluruh tiket, percakapan, dan me-reset sequence nomor tiket kembali ke ID #1.
+4. **Pembersihan Data Testing (Tab Report):** Pilih tiket testing yang ingin dihapus, atau klik tombol **Hapus Semua Data** (dengan konfirmasi ketik `HAPUS`) untuk mengosongkan seluruh tiket, percakapan, dan me-reset sequence nomor tiket kembali ke ID #1.
 
 ---
 
 ## 4. SOP SUPERVISOR (SPV)
 
 1. **Monitoring Antrean Real-time:** Memantau distribusi tiket aktif antara percakapan biasa dan aduan teknis resmi.
-2. **Evaluasi Indikator SLA (Menu Rekapitulasi):**
+2. **Evaluasi Indikator SLA (Tab Report):**
    - **First Response Time (FRT):** Memastikan kecepatan respons awal staf helpdesk L1 terhadap pesan masuk pelanggan.
    - **Mean Time to Resolve (MTTR):** Mengevaluasi durasi rata-rata penyelesaian kendala teknis lapangan oleh teknisi L2.
 3. **Ekspor Laporan:** Klik tombol **`[ 📥 Export to CSV ]`** untuk mengunduh rekapitulasi penanganan layanan berkala sebagai bahan laporan pimpinan Diskominfo.
