@@ -647,6 +647,80 @@ const parseCategoryIds = (input, fallbackSingle) => {
   return result;
 };
 
+// Helper URL dashboard dinamis untuk pesan notifikasi WhatsApp (otomatis localhost vs IP/Domain VPS)
+const getDynamicFrontendUrl = (req) => {
+  const origin = req?.get?.('origin') || req?.headers?.origin;
+  if (origin && !origin.includes(',')) return origin.trim();
+
+  const referer = req?.get?.('referer') || req?.headers?.referer;
+  if (referer) {
+    try {
+      const parsed = new URL(referer);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch (_) {}
+  }
+
+  const rawEnv = process.env.FRONTEND_URL || 'http://localhost:5200';
+  return rawEnv.split(',')[0].trim();
+};
+
+// Helper blast notifikasi tugas baru ke kontak tim L2 (WhatsApp)
+const sendL2NotificationBlast = async ({ ticket, category, req, serviceTypeDisplay, htsTicketNo }) => {
+  if (!category) return;
+  const axios = require('axios');
+  const evolutionApiUrl = EVOLUTION_API_URL;
+  const evolutionApiKey = EVOLUTION_API_TOKEN;
+  const instanceName = EVOLUTION_INSTANCE_NAME;
+  const dashboardUrl = getDynamicFrontendUrl(req);
+
+  const displayType = serviceTypeDisplay || (
+    ticket.service_type === 'REQUEST_LAYANAN' ? 'Request Layanan' :
+    ticket.service_type === 'MONITORING' ? 'Monitoring' : 'Troubleshooting'
+  );
+
+  let headerTitle = '🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨';
+  let htsLine = '';
+  if (htsTicketNo) {
+    htsLine = `\n*No Aduan HTS:* #${htsTicketNo}`;
+  }
+
+  const blastMessage = `${headerTitle}\n\n*Tim:* ${category.name}\n*Jenis Layanan:* ${displayType}${htsLine}\n*Pelapor:* ${ticket.customer?.name || '-'}\n*No WA:* ${ticket.customer?.wa_number || '-'}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
+
+  const targets = [];
+  if (category.contacts && category.contacts.length > 0) {
+    category.contacts.forEach(c => {
+      if (c.wa_target && !targets.includes(c.wa_target)) {
+        targets.push(c.wa_target);
+      }
+    });
+  }
+  if (targets.length === 0 && category.wa_target_number) {
+    targets.push(category.wa_target_number);
+  }
+
+  const sendPromises = targets.map(targetNumber => {
+    return axios.post(
+      `${evolutionApiUrl}/message/sendText/${instanceName}`,
+      { number: targetNumber, text: blastMessage },
+      {
+        headers: {
+          'apikey': evolutionApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 8000
+      }
+    ).then(() => {
+      console.log(`[Blast] Sent L2 notification to ${category.name} target: ${targetNumber}`);
+    }).catch(evoError => {
+      console.error(`[Evolution API] Failed to send blast to ${category.name} (${targetNumber}):`, evoError?.response?.data || evoError.message);
+    });
+  });
+
+  if (sendPromises.length > 0) {
+    await Promise.allSettled(sendPromises);
+  }
+};
+
 // Assign Tiket ke Satu atau Banyak L2 (Multi-Assign) & Kirim Blast Notifikasi
 const assignTicket = async (req, res) => {
   const { ticketId } = req.params;
@@ -885,54 +959,14 @@ const assignTicket = async (req, res) => {
 
     // Blast Notifikasi WA HANYA ke tim yang BARU ditugaskan (newCategories)
     // agar tim yang sudah ditugaskan sebelumnya tidak menerima spam notifikasi berulang
-    const evolutionApiUrl = EVOLUTION_API_URL;
-    const evolutionApiKey = EVOLUTION_API_TOKEN;
-    const instanceName = EVOLUTION_INSTANCE_NAME;
-    const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-
-    const axios = require('axios');
-    const blastPromises = [];
-
     for (const cat of newCategories) {
-      const blastMessage = `🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨\n\n*Tim:* ${cat.name}\n*Jenis Layanan:* ${typeDisplay}\n*Pelapor:* ${ticket.customer.name}\n*No WA:* ${ticket.customer.wa_number}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
-
-      // Ambil seluruh target WA dari CategoryContact (Multi-Kontak)
-      const targets = [];
-      if (cat.contacts && cat.contacts.length > 0) {
-        cat.contacts.forEach(c => {
-          if (c.wa_target && !targets.includes(c.wa_target)) {
-            targets.push(c.wa_target);
-          }
-        });
-      }
-      // Fallback ke wa_target_number legacy jika belum ada contacts
-      if (targets.length === 0 && cat.wa_target_number) {
-        targets.push(cat.wa_target_number);
-      }
-
-      for (const targetNumber of targets) {
-        const sendPromise = axios.post(
-          `${evolutionApiUrl}/message/sendText/${instanceName}`,
-          { number: targetNumber, text: blastMessage },
-          {
-            headers: {
-              'apikey': evolutionApiKey,
-              'Content-Type': 'application/json'
-            },
-            timeout: 5000
-          }
-        ).then(() => {
-          console.log(`[Blast] Sent L2 notification to ${cat.name} target: ${targetNumber}`);
-        }).catch((evoError) => {
-          console.error(`[Evolution API] Failed to send blast to ${cat.name} (${targetNumber}):`, evoError?.response?.data || evoError.message);
-        });
-
-        blastPromises.push(sendPromise);
-      }
-    }
-
-    if (blastPromises.length > 0) {
-      await Promise.allSettled(blastPromises);
+      await sendL2NotificationBlast({
+        ticket,
+        category: cat,
+        req,
+        serviceTypeDisplay: typeDisplay,
+        htsTicketNo: htsNoTrouble || ticket.hts_ticket_no
+      });
     }
 
     const updatedTicket = await prisma.ticket.findUnique({
@@ -1036,6 +1070,24 @@ const resolveTicket = async (req, res) => {
       noteText = `[SISTEM] Tim ${catName} telah menandai kendala di bagiannya selesai.`;
       if (solution && solution.trim()) {
         noteText += `\n📋 *Catatan Solusi / Penanganan Teknis:* ${solution.trim()}`;
+        // Simpan solusi teknis dari L2 sebagai draft rujukan pada tiket HTS tim ini yang belum SOLVED
+        try {
+          await prisma.ticketHts.updateMany({
+            where: {
+              ticket_id: ticket.id,
+              OR: [
+                { category_id: effectiveCategoryId },
+                { category_id: null }
+              ],
+              hts_ticket_status: { not: 'SOLVED' }
+            },
+            data: {
+              solution: solution.trim()
+            }
+          });
+        } catch (e) {
+          console.warn('[resolveTicket] Gagal update draft solution ke TicketHts:', e.message);
+        }
       }
 
       // Cek apakah SEMUA tim yang ditugaskan sudah is_resolved = true
@@ -1070,6 +1122,19 @@ const resolveTicket = async (req, res) => {
       noteText = `[SISTEM] Tiket ditandai selesai langsung oleh ${user?.name || 'Admin'}. Menunggu penutupan resmi oleh L1.`;
       if (solution && solution.trim()) {
         noteText += `\n📋 *Catatan Solusi:* ${solution.trim()}`;
+        try {
+          await prisma.ticketHts.updateMany({
+            where: {
+              ticket_id: ticket.id,
+              hts_ticket_status: { not: 'SOLVED' }
+            },
+            data: {
+              solution: solution.trim()
+            }
+          });
+        } catch (e) {
+          console.warn('[resolveTicket] Gagal update draft solution ke TicketHts:', e.message);
+        }
       }
     }
 
@@ -1871,7 +1936,7 @@ const createTicketHts = async (req, res) => {
     }
 
     const resolvedCategoryId = categoryId ? parseInt(categoryId) : (ticket.categories?.[0]?.category_id || null);
-    const targetCategory = resolvedCategoryId ? await prisma.category.findUnique({ where: { id: resolvedCategoryId } }) : null;
+    const targetCategory = resolvedCategoryId ? await prisma.category.findUnique({ where: { id: resolvedCategoryId }, include: { contacts: true } }) : null;
     const subKategori = hts_sub_kategori || (targetCategory?.name?.includes('Server') ? 'SERVER' : targetCategory?.name?.includes('M&E') ? 'MECHANICAL & ELECTRICAL' : 'DISTRIBUTION NETWORK');
 
     const chosenPicIds = parsePicIds(hts_pic_ids, hts_pic_id);
@@ -1926,11 +1991,51 @@ const createTicketHts = async (req, res) => {
       include: { category: true }
     });
 
+    // Otomatis Assign Tim Teknisi L2 jika category_id ditentukan atau ada kategori terkait
+    let newlyAssigned = false;
+    if (resolvedCategoryId) {
+      const isAlreadyAssigned = ticket.categories.some(tc => (tc.category_id || tc.category?.id) === resolvedCategoryId);
+      if (!isAlreadyAssigned) {
+        await prisma.ticketCategory.create({
+          data: {
+            ticket_id: ticket.id,
+            category_id: resolvedCategoryId,
+            is_resolved: false
+          }
+        });
+        newlyAssigned = true;
+      } else {
+        // Jika sudah ditugaskan sebelumnya tapi tiket HTS baru ini berstatus PENDING,
+        // buka kembali status penanganan tim (is_resolved = false) agar L2 bisa Tandai Selesai
+        await prisma.ticketCategory.update({
+          where: {
+            ticket_id_category_id: {
+              ticket_id: ticket.id,
+              category_id: resolvedCategoryId
+            }
+          },
+          data: { is_resolved: false }
+        });
+      }
+
+      // Kirim blast WhatsApp ke tim L2 mengenai tiket tugas baru ini
+      if (targetCategory) {
+        await sendL2NotificationBlast({
+          ticket,
+          category: targetCategory,
+          req,
+          htsTicketNo: htsResult.noTrouble
+        });
+      }
+    }
+
     // Otomatis promosikan tiket induk menjadi aduan resmi jika sebelumnya berstatus percakapan biasa
+    // dan reset status obrolan ke OPEN jika sebelumnya RESOLVED
     await prisma.ticket.update({
       where: { id: ticket.id },
       data: {
         is_aduan: true,
+        status: 'OPEN',
         service_type: ticket.service_type === 'GENERAL_CHAT' ? 'TROUBLESHOOTING' : (ticket.service_type || 'TROUBLESHOOTING'),
         hts_ticket_id: htsResult.idTrouble,
         hts_ticket_no: htsResult.noTrouble,
@@ -1953,6 +2058,9 @@ const createTicketHts = async (req, res) => {
     if (req.io) {
       req.io.emit('ticket_updated', { ticketId: ticket.id });
       req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
+      if (newlyAssigned) {
+        req.io.emit('ticket_assigned', { ticketId: ticket.id });
+      }
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -3186,6 +3294,8 @@ const linkHtsTicket = async (req, res) => {
 
     // 4. Otomatis Assign Tim Teknisi L2 jika category_id dipilih
     let assignedCategoryName = '';
+    let newlyAssigned = false;
+    let targetCatInfo = null;
     if (category_id) {
       const parsedCatId = parseInt(category_id);
       const isAlreadyAssigned = ticket.categories.some(tc => (tc.category_id || tc.category?.id) === parsedCatId);
@@ -3197,8 +3307,37 @@ const linkHtsTicket = async (req, res) => {
             is_resolved: htsData.status === 'SOLVED'
           }
         });
-        const catInfo = await prisma.category.findUnique({ where: { id: parsedCatId } });
-        if (catInfo) assignedCategoryName = catInfo.name;
+        newlyAssigned = true;
+      } else {
+        // Jika sudah ditugaskan tapi tiket HTS yang ditautkan belum SOLVED,
+        // buka kembali status is_resolved ke false agar L2 bisa Tandai Selesai
+        if (htsData.status !== 'SOLVED') {
+          await prisma.ticketCategory.update({
+            where: {
+              ticket_id_category_id: {
+                ticket_id: ticket.id,
+                category_id: parsedCatId
+              }
+            },
+            data: { is_resolved: false }
+          });
+        }
+      }
+      targetCatInfo = await prisma.category.findUnique({
+        where: { id: parsedCatId },
+        include: { contacts: true }
+      });
+      if (targetCatInfo) {
+        assignedCategoryName = targetCatInfo.name;
+        // Kirim blast WhatsApp ke tim L2 jika tiket HTS ini belum SOLVED
+        if (htsData.status !== 'SOLVED') {
+          await sendL2NotificationBlast({
+            ticket,
+            category: targetCatInfo,
+            req,
+            htsTicketNo: htsData.noTrouble
+          });
+        }
       }
     }
 
@@ -3206,6 +3345,10 @@ const linkHtsTicket = async (req, res) => {
     const updateTicketData = {
       is_aduan: true // Auto-promotion ke aduan teknis resmi
     };
+
+    if (htsData.status !== 'SOLVED' && ticket.status === 'RESOLVED') {
+      updateTicketData.status = 'OPEN';
+    }
 
     if (!ticket.hts_ticket_no) {
       updateTicketData.hts_ticket_id = String(htsData.idTrouble);

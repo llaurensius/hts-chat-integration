@@ -2589,7 +2589,19 @@ Tetap tautkan tiket ini?`)) {
                       tc.category?.name === currentUser.category ||
                       (typeof currentUser.category === 'object' && (tc.category_id === currentUser.category?.id || tc.category?.name === currentUser.category?.name))
                     );
-                    const isMyTeamResolved = myCatRelation?.is_resolved;
+                    const myCatId = myCatRelation?.category_id || currentUser.category_id || (typeof currentUser.category === 'object' ? currentUser.category?.id : null);
+                    const myCatName = myCatRelation?.category?.name || (typeof currentUser.category === 'object' ? currentUser.category?.name : (typeof currentUser.category === 'string' ? currentUser.category : null));
+
+                    // Periksa apakah ada tiket HTS milik tim ini yang masih berstatus PENDING (belum SOLVED)
+                    const pendingHtsForMyTeam = (activeTicket.hts_tickets || []).filter(ht => {
+                      const matchesCat = (myCatId && ht.category_id === myCatId) ||
+                                         (myCatName && ht.category?.name === myCatName) ||
+                                         (!ht.category_id && activeTicket.categories?.length === 1);
+                      return matchesCat && ht.hts_ticket_status !== 'SOLVED';
+                    });
+
+                    // Tim benar-benar selesai HANYA JIKA is_resolved = true DAN tidak ada tiket HTS pending lagi untuk timnya
+                    const isMyTeamReallyFinished = myCatRelation?.is_resolved && pendingHtsForMyTeam.length === 0;
 
                     return (
                       <div className="flex items-center space-x-2">
@@ -2598,7 +2610,7 @@ Tetap tautkan tiket ini?`)) {
                             <button onClick={handleReturnTicket} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm rounded-lg font-medium transition">
                               Kembalikan / Lepas
                             </button>
-                            {isMyTeamResolved ? (
+                            {isMyTeamReallyFinished ? (
                               <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 text-sm rounded-lg font-semibold flex items-center border border-emerald-200">
                                 <CheckCircle className="w-4 h-4 mr-1 text-emerald-600"/> Bagian Anda Selesai
                               </span>
@@ -3418,13 +3430,19 @@ Tetap tautkan tiket ini?`)) {
                                         {/* Tombol Aksi Mandiri */}
                                         <div className="flex items-center justify-between gap-1.5 pt-0.5">
                                           {!isSolved ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleOpenSolveSingleHts(ht)}
-                                              className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[10.5px] rounded-md transition shadow-2xs flex items-center justify-center gap-1"
-                                            >
-                                              <Check className="w-3 h-3" /> Selesaikan HTS
-                                            </button>
+                                            (isL1 || isAdmin) ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenSolveSingleHts(ht)}
+                                                className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[10.5px] rounded-md transition shadow-2xs flex items-center justify-center gap-1"
+                                              >
+                                                <Check className="w-3 h-3" /> Selesaikan HTS
+                                              </button>
+                                            ) : (
+                                              <span className="flex-1 py-1 px-2 bg-amber-50 text-amber-700 border border-amber-200 font-medium text-[10px] rounded-md flex items-center justify-center gap-1">
+                                                <Clock className="w-3 h-3 text-amber-500" /> Penutupan oleh L1
+                                              </span>
+                                            )
                                           ) : (
                                             <button
                                               type="button"
@@ -6478,6 +6496,34 @@ Tetap tautkan tiket ini?`)) {
             </div>
 
             <form onSubmit={handleConfirmResolve}>
+              {activeTicket && (() => {
+                const myCatId = currentUser.category_id || (typeof currentUser.category === 'object' ? currentUser.category?.id : null);
+                const myCatName = typeof currentUser.category === 'object' ? currentUser.category?.name : (typeof currentUser.category === 'string' ? currentUser.category : null);
+                const pendingHts = (activeTicket.hts_tickets || []).filter(ht => {
+                  const matchesCat = (myCatId && ht.category_id === myCatId) || 
+                                     (myCatName && ht.category?.name === myCatName) ||
+                                     (!ht.category_id && activeTicket.categories?.length === 1);
+                  return matchesCat && ht.hts_ticket_status !== 'SOLVED';
+                });
+                if (pendingHts.length === 0) return null;
+                return (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900 mb-1 flex-wrap">
+                      <Globe className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Tiket HTS Terkait:</span>
+                      {pendingHts.map(h => (
+                        <span key={h.id || h.hts_ticket_no} className="font-mono bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[11px]">
+                          #{h.hts_ticket_no}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-blue-700 leading-tight">
+                      Solusi yang Anda tuliskan akan otomatis dijadikan rujukan solusi pada tiket HTS tersebut untuk ditutup resmi oleh L1 di portal HTS.
+                    </p>
+                  </div>
+                );
+              })()}
+
               <div className="mb-4">
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
                   Catatan Solusi / Rincian Penanganan Teknis <span className="text-red-500">*</span>
