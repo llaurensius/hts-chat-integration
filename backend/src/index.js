@@ -12,17 +12,23 @@ const app = express();
 const server = http.createServer(app);
 
 // Setup Socket.io dengan origin kontrol dan handshake auth (SEC-05)
-const FRONTEND_ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
+const envOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(url => url.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 const ALLOWED_ORIGINS = [
-  FRONTEND_ORIGIN,
+  ...envOrigins,
+  'http://localhost:5200',
   'http://localhost:5173',
+  'http://127.0.0.1:5200',
   'http://127.0.0.1:5173'
-].filter(Boolean);
+];
 
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      if (!origin || ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes(origin.replace(/\/+$/, ''))) {
         return callback(null, true);
       }
       return callback(new Error('Origin tidak diizinkan oleh CORS policy Socket.IO'), false);
@@ -57,10 +63,10 @@ const rateLimit = require('express-rate-limit');
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes(origin.replace(/\/+$/, ''))) {
       return callback(null, true);
     }
-    return callback(new Error('Origin tidak diizinkan oleh CORS policy REST API'), false);
+    return callback(null, false);
   },
   credentials: true
 }));
