@@ -45,14 +45,6 @@ const getTickets = async (req, res) => {
       },
       orderBy: { created_at: 'desc' }
     });
-
-    // Urutkan tiket berdasarkan aktivitas terbaru (waktu pesan terakhir atau waktu pembuatan tiket)
-    tickets.sort((a, b) => {
-      const timeA = new Date(a.messages?.[0]?.created_at || a.created_at).getTime();
-      const timeB = new Date(b.messages?.[0]?.created_at || b.created_at).getTime();
-      return timeB - timeA;
-    });
-
     res.json(tickets);
   } catch (error) {
     console.error('[Chat API] Error fetching tickets:', error);
@@ -2501,9 +2493,36 @@ const getQuickReplies = async (req, res) => {
     }
 
     if (!replies || replies.length === 0) {
-      return res.json(DEFAULT_QUICK_REPLIES);
+      // Auto-seed default templates ke database agar memiliki ID permanen di database
+      try {
+        for (const t of DEFAULT_QUICK_REPLIES) {
+          if (prisma.quickReply) {
+            await prisma.quickReply.upsert({
+              where: { shortcut: t.shortcut },
+              update: {},
+              create: {
+                shortcut: t.shortcut,
+                title: t.title,
+                content: t.content
+              }
+            });
+          } else {
+            await prisma.$executeRawUnsafe(`
+              INSERT INTO "QuickReply" ("shortcut", "title", "content", "updated_at")
+              VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+              ON CONFLICT ("shortcut") DO NOTHING;
+            `, t.shortcut, t.title, t.content);
+          }
+        }
+        if (prisma.quickReply) {
+          replies = await prisma.quickReply.findMany({ orderBy: { shortcut: 'asc' } });
+        }
+      } catch (seedErr) {
+        console.warn('[QuickReply API] Auto-seed fallback:', seedErr.message);
+        return res.json(DEFAULT_QUICK_REPLIES);
+      }
     }
-    res.json(replies);
+    res.json(replies && replies.length > 0 ? replies : DEFAULT_QUICK_REPLIES);
   } catch (error) {
     console.warn('[QuickReply API] Using fallback default templates:', error.message);
     res.json(DEFAULT_QUICK_REPLIES);
@@ -2555,36 +2574,72 @@ const updateQuickReply = async (req, res) => {
     const { shortcut, title, content } = req.body;
 
     const numId = parseInt(id);
+    if (isNaN(numId)) {
+      return res.status(400).json({ error: 'ID template tidak valid' });
+    }
+
     const cleanShortcut = shortcut ? shortcut.replace(/^\/+/, '').toLowerCase().trim() : undefined;
 
-    let updated;
+    // Cek apakah template ada di database
+    let existing = null;
     if (prisma.quickReply) {
-      updated = await prisma.quickReply.update({
-        where: { id: numId },
-        data: {
-          ...(cleanShortcut && { shortcut: cleanShortcut }),
-          ...(title && { title: title.trim() }),
-          ...(content && { content: content.trim() })
-        }
-      });
+      existing = await prisma.quickReply.findUnique({ where: { id: numId } });
     } else {
-      const rows = await prisma.$queryRawUnsafe(`
-        UPDATE "QuickReply"
-        SET 
-          shortcut = COALESCE($1, shortcut),
-          title = COALESCE($2, title),
-          content = COALESCE($3, content),
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
-        RETURNING *;
-      `, cleanShortcut || null, title ? title.trim() : null, content ? content.trim() : null, numId);
-      updated = rows[0];
+      const rows = await prisma.$queryRawUnsafe(`SELECT * FROM "QuickReply" WHERE id = $1`, numId);
+      existing = rows[0];
+    }
+
+    let updated;
+    if (!existing) {
+      // Jika template dengan ID tersebut belum ada di database, lakukan insert/create
+      if (prisma.quickReply) {
+        updated = await prisma.quickReply.create({
+          data: {
+            shortcut: cleanShortcut || `template_${Date.now()}`,
+            title: title ? title.trim() : 'Template Balasan',
+            content: content ? content.trim() : ''
+          }
+        });
+      } else {
+        const rows = await prisma.$queryRawUnsafe(`
+          INSERT INTO "QuickReply" ("shortcut", "title", "content", "updated_at")
+          VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+          RETURNING *;
+        `, cleanShortcut || `template_${Date.now()}`, title ? title.trim() : 'Template Balasan', content ? content.trim() : '');
+        updated = rows[0];
+      }
+    } else {
+      if (prisma.quickReply) {
+        updated = await prisma.quickReply.update({
+          where: { id: numId },
+          data: {
+            ...(cleanShortcut && { shortcut: cleanShortcut }),
+            ...(title && { title: title.trim() }),
+            ...(content && { content: content.trim() })
+          }
+        });
+      } else {
+        const rows = await prisma.$queryRawUnsafe(`
+          UPDATE "QuickReply"
+          SET 
+            shortcut = COALESCE($1, shortcut),
+            title = COALESCE($2, title),
+            content = COALESCE($3, content),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4
+          RETURNING *;
+        `, cleanShortcut || null, title ? title.trim() : null, content ? content.trim() : null, numId);
+        updated = rows[0];
+      }
     }
 
     res.json({ success: true, data: updated });
   } catch (error) {
     console.error('[QuickReply API] Error updating template:', error);
-    res.status(500).json({ error: 'Gagal memperbarui template balasan cepat' });
+    if (error.code === 'P2002' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+      return res.status(400).json({ error: 'Shortcut tersebut sudah digunakan oleh template lain' });
+    }
+    res.status(500).json({ error: 'Gagal memperbarui template balasan cepat: ' + (error.message || 'Terjadi kesalahan server') });
   }
 };
 

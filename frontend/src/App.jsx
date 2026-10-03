@@ -3,7 +3,24 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles, Link as LinkIcon, Eye, Copy } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
+
+const formatChatTimestamp = (timestamp) => {
+  if (!timestamp) return '';
+  try {
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    if (isToday(d)) {
+      return format(d, 'HH:mm');
+    }
+    if (isYesterday(d)) {
+      return 'Kemarin';
+    }
+    return format(d, 'dd/MM/yy');
+  } catch {
+    return '';
+  }
+};
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
 const API_URL = `${BASE_URL}/api`;
@@ -2338,7 +2355,6 @@ Tetap tautkan tiket ini?`)) {
                 })
                 .map(ticket => {
                   const lastMsg = ticket.messages?.[0];
-                  const displayTime = lastMsg?.created_at || ticket.created_at;
                   return (
                     <div 
                       key={ticket.id} 
@@ -2357,7 +2373,7 @@ Tetap tautkan tiket ini?`)) {
                           )}
                         </h3>
                         <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-                          {displayTime ? format(new Date(displayTime), 'HH:mm') : ''}
+                          {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-xs mb-1.5">
