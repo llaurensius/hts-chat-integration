@@ -107,18 +107,202 @@ Berikut adalah matriks hasil perbaikan teknis utama yang disepakati dan diimplem
 
 ---
 
-## 5. Action Items & Pending Tasks
+## 5. Panduan Tindak Lanjut & Tutorial Eksekusi (Step-by-Step Action Guide)
 
-Meskipun seluruh kerentanan dan masalah integritas kode telah ditangani pada level aplikasi dan basis data, langkah operasional berikut disarankan untuk fase penerapan ke lingkungan pengujian/produksi:
+Bagian ini menyediakan tutorial teknis praktis langkah demi langkah untuk menerapkan pembaruan, mengeksekusi migrasi basis data, mengonfigurasi variabel lingkungan, serta menjalankan pengujian regresi menyeluruh pada lingkungan *staging* atau *production*.
 
-### Rekomendasi Tindak Lanjut Teknis:
-1. **Eksekusi Migrasi Basis Data:**
-   - Menjalankan berkas migrasi SQL yang telah disiapkan pada basis data PostgreSQL target:
-     - [`20261003_add_unique_wa_message_id/migration.sql`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/prisma/migrations/20261003_add_unique_wa_message_id/migration.sql)
-     - [`20261003_add_performance_compound_indexes/migration.sql`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/prisma/migrations/20261003_add_performance_compound_indexes/migration.sql)
-2. **Penyelarasan Variabel Lingkungan (`.env`):**
-   - Memastikan server produksi telah memiliki variabel lingkungan: `DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_TOKEN`, `EVOLUTION_API_URL`, `EVOLUTION_INSTANCE_NAME`, dan `WEBHOOK_SECRET`.
-3. **Pengujian Integrasi Menyeluruh (*End-to-End Regression Test*):**
-   - Memverifikasi pengiriman webhook nyata dari Evolution API dengan menyertakan header otentikasi.
-   - Menguji skenario simulasi dual-close penutupan tiket HTS ketika jaringan portal berkecepatan rendah (*slow connection*).
-   - Memastikan koneksi WebSocket di browser terhubung dengan token JWT aktif dan terputus ketika sesi login dihapus.
+---
+
+### 5.1. Tutorial Eksekusi Migrasi Basis Data PostgreSQL
+
+Terdapat dua berkas migrasi SQL idempotent yang telah disiapkan di repositori:
+1. `backend/prisma/migrations/20261003_add_unique_wa_message_id/migration.sql` (Pembersihan duplikat & indeks `@unique` pada `wa_message_id`).
+2. `backend/prisma/migrations/20261003_add_performance_compound_indexes/migration.sql` (Indeks gabungan performa antrean tiket dan pencarian kontak).
+
+Pilih salah satu metode eksekusi berikut sesuai dengan alur kerja operasional server Anda:
+
+#### Metode A: Menggunakan PostgreSQL CLI (`psql`) — Direkomendasikan untuk Server / Terminal
+Jalankan perintah berikut melalui terminal peladen (pastikan akun memiliki hak akses DDL pada database target):
+
+```bash
+# 1. Masuk ke direktori backend repositori
+cd /path/to/hts-chat-integration/backend
+
+# 2. Jalankan migrasi deduplikasi & Unique Index wa_message_id
+psql "$DATABASE_URL" -f prisma/migrations/20261003_add_unique_wa_message_id/migration.sql
+
+# 3. Jalankan migrasi penambahan Compound Performance Indexes
+psql "$DATABASE_URL" -f prisma/migrations/20261003_add_performance_compound_indexes/migration.sql
+```
+
+#### Metode B: Menggunakan Database GUI (DBeaver, pgAdmin, atau Navicat)
+1. Buka aplikasi DBeaver atau pgAdmin, lalu hubungkan ke database PostgreSQL aplikasi.
+2. Buka *SQL Editor* / *Query Tool*.
+3. Salin dan jalankan seluruh instruksi SQL gabungan berikut:
+
+```sql
+-- ================================================================
+-- TAHAP 1: DEDUPLIKASI DAN INDEKS UNIK WA_MESSAGE_ID (DATA-02)
+-- ================================================================
+
+-- Bersihkan data duplikat historis (mempertahankan baris dengan ID terendah)
+DELETE FROM "Message"
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY wa_message_id ORDER BY id ASC) as row_num
+    FROM "Message"
+    WHERE wa_message_id IS NOT NULL AND wa_message_id != ''
+  ) t
+  WHERE t.row_num > 1
+);
+
+-- Terapkan indeks unik pada wa_message_id
+CREATE UNIQUE INDEX IF NOT EXISTS "Message_wa_message_id_key" ON "Message"("wa_message_id");
+
+
+-- ================================================================
+-- TAHAP 2: OPTIMASI INDEKS GABUNGAN PERFORMA (DATA-04)
+-- ================================================================
+
+-- Indeks gabungan status tiket dan riwayat per pelanggan
+CREATE INDEX IF NOT EXISTS "Ticket_customer_id_status_idx" ON "Ticket"("customer_id", "status");
+
+-- Indeks gabungan filter antrean tiket aktif & sorting kronologis
+CREATE INDEX IF NOT EXISTS "Ticket_status_is_aduan_created_at_idx" ON "Ticket"("status", "is_aduan", "created_at" DESC);
+
+-- Indeks pencarian teks nama dan OPD pelanggan
+CREATE INDEX IF NOT EXISTS "Customer_name_idx" ON "Customer"("name");
+CREATE INDEX IF NOT EXISTS "Customer_skpd_name_idx" ON "Customer"("skpd_name");
+```
+
+#### Metode C: Verifikasi Hasil Migrasi
+Untuk memastikan seluruh indeks telah terpasang dengan benar di PostgreSQL, jalankan kueri verifikasi:
+
+```sql
+SELECT indexname, tablename, indexdef 
+FROM pg_indexes 
+WHERE tablename IN ('Message', 'Ticket', 'Customer')
+ORDER BY tablename, indexname;
+```
+*Hasil yang diharapkan: Terdapat `Message_wa_message_id_key` (UNIQUE), `Ticket_status_is_aduan_created_at_idx`, `Ticket_customer_id_status_idx`, `Customer_name_idx`, dan `Customer_skpd_name_idx`.*
+
+---
+
+### 5.2. Tutorial Penyelarasan Variabel Lingkungan (`.env`)
+
+Sistem kini menerapkan *fail-fast secret validation* (`config/env.js`). Peladen akan otomatis menolak untuk menyala jika parameter kunci tidak terdefinisi.
+
+#### Langkah 1: Buat Nilai Rahasia yang Aman (*Cryptographically Secure*)
+Jalankan perintah Node.js berikut pada terminal untuk menghasilkan string acak aman untuk `JWT_SECRET` dan `WEBHOOK_SECRET`:
+
+```bash
+# Menghasilkan token acak 32-byte hexa
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+#### Langkah 2: Konfigurasi Berkas `.env` Backend
+Buka atau buat berkas `backend/.env`, lalu pastikan seluruh variabel berikut terisi:
+
+```env
+# Port aplikasi backend
+PORT=3000
+
+# URL Koneksi PostgreSQL
+DATABASE_URL="postgresql://postgres:password_db_anda@localhost:5432/hts_chat_db?schema=public"
+
+# Kunci Rahasia JWT (Wajib diisi, minimal 16 karakter acak)
+JWT_SECRET="masukkan_string_acak_hasil_langkah_1_disini"
+
+# Kredensial dan Endpoint Evolution API v2 (WhatsApp Engine)
+EVOLUTION_API_URL="http://localhost:8080"
+EVOLUTION_API_TOKEN="token_api_evolution_anda"
+EVOLUTION_INSTANCE_NAME="helpdesk-diskominfo"
+
+# Shared Secret untuk Autentikasi Webhook Masuk (SEC-01)
+# Nilai ini harus sama dengan header apikey yang dikonfigurasi pada Webhook Evolution API
+WEBHOOK_SECRET="masukkan_string_acak_webhook_secret_disini"
+
+# URL Asal Frontend (untuk pengamanan CORS Socket.io)
+FRONTEND_URL="http://localhost:5173"
+```
+
+#### Langkah 3: Konfigurasi Webhook pada Evolution API
+Pastikan pengaturan webhook pada dashboard Evolution API Anda menyertakan header keamanan berikut:
+- **Webhook URL:** `http://IP_ATAU_DOMAIN_BACKEND:3000/api/webhook`
+- **Headers:**
+  - `apikey`: `<ISI_DENGAN_NILAI_WEBHOOK_SECRET>`
+- **Events:** Centang `MESSAGES_UPSERT`.
+
+---
+
+### 5.3. Tutorial Pengujian Regresi Menyeluruh (End-to-End Testing)
+
+Setelah backend dan basis data diperbarui, jalankan pengujian regresi berikut untuk memastikan seluruh sistem proteksi bekerja sesuai spesifikasi:
+
+#### Uji 1: Validasi Proteksi Webhook Masuk (SEC-01)
+Uji apakah peladen menolak request webhook tiruan yang tidak memiliki header otentikasi.
+
+```bash
+# Skenario A: Kirim request tanpa header apikey (Ekspektasi: HTTP 401 Unauthorized)
+curl -i -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event":"messages.upsert"}'
+
+# Skenario B: Kirim request dengan header apikey yang SALAH (Ekspektasi: HTTP 401 Unauthorized)
+curl -i -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -H "apikey: token_palsu_123" \
+  -d '{"event":"messages.upsert"}'
+
+# Skenario C: Kirim request dengan header apikey yang BENAR (Ekspektasi: HTTP 200 OK)
+curl -i -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -H "apikey: MASUKKAN_NILAI_WEBHOOK_SECRET" \
+  -d '{"event":"messages.upsert","data":{}}'
+```
+
+#### Uji 2: Pengujian Anti-Race Lock & Deduplikasi Pesan (DATA-01 & DATA-02)
+Jalankan pengujian konkurensi dengan mengirimkan dua payload webhook identik (`wa_message_id` sama) dalam milidetik yang sama.
+- **Hasil yang Diharapkan:**
+  - Pesan pertama diproses dengan sukses.
+  - Pesan kedua dicegat oleh `perNumberLock` dan `prisma.message.create` menangkap kode `P2002` tanpa memunculkan crash/error pada log peladen.
+  - Tidak terjadi duplikasi tiket ataupun pesan ganda di tabel `Message`.
+
+#### Uji 3: Pengujian Handshake Autentikasi Socket.io (SEC-05)
+Uji ketahanan peladen WebSocket terhadap akses tanpa izin menggunakan Node.js CLI:
+
+```bash
+# Pengujian Koneksi Socket Anonim (Ekspektasi: Error 'unauthorized')
+node -e "
+const io = require('socket.io-client');
+const socket = io('http://localhost:3000', { autoConnect: true });
+socket.on('connect_error', (err) => {
+  console.log('✅ Uji Berhasil: Koneksi anonim ditolak ->', err.message);
+  process.exit(0);
+});
+socket.on('connect', () => {
+  console.error('❌ Gagal: Klien anonim berhasil terhubung tanpa token!');
+  process.exit(1);
+});
+"
+```
+
+#### Uji 4: Pengujian State Machine & Pencegahan Double-Close (DATA-03)
+1. Buka dashboard tiket helpdesk via browser.
+2. Buka tiket dengan status `OPEN`.
+3. Klik tombol **Tutup Tiket** dengan cepat secara berulang (*double-click*), atau simulasikan dua request POST bersamaan ke `/api/chat/tickets/:id/close`.
+- **Hasil yang Diharapkan:**
+  - Request pertama berhasil menutup tiket (HTTP 200 OK).
+  - Request kedua langsung ditolak dengan pesan: `HTTP 409 Conflict: Tiket sudah dalam status CLOSED`.
+  - Catatan internal penutupan tiket hanya dibuat satu kali.
+
+#### Uji 5: Verifikasi Service Pembersihan Berkas Lampau (RES-03)
+Nyalakan backend dengan perintah `npm run dev` atau `node src/index.js`.
+Periksa log konsol startup untuk memverifikasi inisialisasi modul:
+```text
+[File Cleanup] Service diinisialisasi (Retensi: 90 hari, Interval cek: setiap 24 jam).
+[HTS Keep-Alive] Background Heartbeat diinisialisasi (setiap 15 menit).
+🚀 Server running on http://localhost:3000
+```
+Jika log di atas muncul, seluruh mekanisme pemeliharaan latar belakang telah berjalan optimal.
+
