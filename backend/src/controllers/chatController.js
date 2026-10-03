@@ -45,6 +45,14 @@ const getTickets = async (req, res) => {
       },
       orderBy: { created_at: 'desc' }
     });
+
+    // Urutkan tiket berdasarkan aktivitas terbaru (waktu pesan terakhir atau waktu pembuatan tiket)
+    tickets.sort((a, b) => {
+      const timeA = new Date(a.messages?.[0]?.created_at || a.created_at).getTime();
+      const timeB = new Date(b.messages?.[0]?.created_at || b.created_at).getTime();
+      return timeB - timeA;
+    });
+
     res.json(tickets);
   } catch (error) {
     console.error('[Chat API] Error fetching tickets:', error);

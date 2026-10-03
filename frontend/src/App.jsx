@@ -2331,8 +2331,14 @@ Tetap tautkan tiket ini?`)) {
                   if (ticketFilterTab === 'pending_hts') return ticket.is_aduan && !ticket.hts_ticket_no && ticket.status !== 'CLOSED';
                   return ticket.status !== 'CLOSED';
                 })
+                .sort((a, b) => {
+                  const timeA = new Date(a.messages?.[0]?.created_at || a.created_at).getTime();
+                  const timeB = new Date(b.messages?.[0]?.created_at || b.created_at).getTime();
+                  return timeB - timeA;
+                })
                 .map(ticket => {
                   const lastMsg = ticket.messages?.[0];
+                  const displayTime = lastMsg?.created_at || ticket.created_at;
                   return (
                     <div 
                       key={ticket.id} 
@@ -2351,7 +2357,7 @@ Tetap tautkan tiket ini?`)) {
                           )}
                         </h3>
                         <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-                          {ticket.created_at ? format(new Date(ticket.created_at), 'HH:mm') : ''}
+                          {displayTime ? format(new Date(displayTime), 'HH:mm') : ''}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-xs mb-1.5">
