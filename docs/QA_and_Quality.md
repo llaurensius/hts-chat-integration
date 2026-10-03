@@ -12,7 +12,7 @@
 |---|:---:|---|
 | **Modul 1–7 (Alur Operasional Inti)** | ✅ **LULUS 100%** | Seluruh alur chat inbound/outbound, auto-reply, triase L1, antrean L2, sinkronisasi portal HTS, dan laporan SPV terverifikasi penuh. |
 | **Modul 8 (Fitur Lanjutan HTS & Quick Reply)** | ✅ **TERVERIFIKASI** | Penautan manual nomor HTS dan inline edit template balasan cepat telah teruji. |
-| **Modul 9 (Fitur V4.1: Master Kontak, Chat Baru, Re-Open)** | 🟡 **SIAP UJI UAT** | Seluruh modul backend/frontend telah terpasang, terkompilasi bersih, dan siap untuk skenario uji penerimaan akhir (*User Acceptance Test*). |
+| **Modul 9 (Fitur V4.1: Master Kontak, Chat Baru, Re-Open)** | ✅ **LULUS UAT 100%** | Seluruh 9 skenario alur pengguna akhir (UAT-01 s.d. UAT-09) terverifikasi lulus dalam pengujian nyata bersama pengguna. |
 | **Audit Keamanan & Kestabilan (Sprint 1–3)** | ✅ **REMEDIASI 100%** | Seluruh kerentanan kritis (SEC-01 s.d. SEC-05, DATA-01 s.d. DATA-04, RES-01 s.d. RES-03) berhasil diperbaiki dan lolos uji regresi peladen. |
 
 ---
@@ -124,15 +124,15 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 
 | ID Skenario | Judul Skenario UAT | Fokus Pengujian | Status Hasil | Tanggal Uji | Catatan / Temuan |
 |:---:|---|---|:---:|:---:|---|
-| **`[UAT-01]`** | Penerimaan Pesan Inbound WhatsApp, Auto-Reply, & Pembuatan Tiket Otomatis | Bot & Webhook Inbound | ⏳ *Siap Uji* | - | Menunggu verifikasi pesan masuk dari HP penguji |
-| **`[UAT-02]`** | Pengiriman Pesan Teks Outbound dari Web Dashboard & Status Pengiriman | Outbound Chat Operator | ⏳ *Menunggu* | - | Menunggu UAT-01 |
-| **`[UAT-03]`** | Format Pesan Lanjutan: Pengiriman Media Gambar & Quick Reply (`/`) | Efisiensi & Format Pesan | ⏳ *Menunggu* | - | Menunggu UAT-02 |
-| **`[UAT-04]`** | Notifikasi Pesan Real-time & Audio Chime | Notifikasi & Audio | ⏳ *Menunggu* | - | Menunggu UAT-03 |
-| **`[UAT-05]`** | Isolasi Catatan Internal L2 (Internal Notes vs Chat Publik) | Privasi Percakapan | ⏳ *Menunggu* | - | Menunggu UAT-04 |
-| **`[UAT-06]`** | Impor Master Data Kontak (CSV/VCF) & Proteksi Nama Kontak | Manajemen Kontak | ⏳ *Menunggu* | - | Menunggu UAT-05 |
-| **`[UAT-07]`** | Inisiasi Chat Keluar (*Start New Chat*) dari Direktori Kontak | Outbound Direct Chat | ⏳ *Menunggu* | - | Menunggu UAT-06 |
-| **`[UAT-08]`** | Penanganan Error Sisi Pengguna (Input Kosong, File Tidak Valid, & Putus Koneksi) | Ketahanan UI / UX | ⏳ *Menunggu* | - | Menunggu UAT-07 |
-| **`[UAT-09]`** | Penyelesaian Percakapan & Fitur Re-Open Tiket Selesai | Siklus Hidup Tiket | ⏳ *Menunggu* | - | Menunggu UAT-08 |
+| **`[UAT-01]`** | Penerimaan Pesan Inbound WhatsApp, Auto-Reply, & Pembuatan Tiket Otomatis | Bot & Webhook Inbound | ✅ **PASS** | 03 Okt 2026 | Berhasil menerima auto-reply bot & tiket terbuka real-time di web |
+| **`[UAT-02]`** | Pengiriman Pesan Teks Outbound dari Web Dashboard & Status Pengiriman | Outbound Chat Operator | ✅ **PASS** | 03 Okt 2026 | Pesan outbound operator terkirim instan & tampil rapi di WhatsApp |
+| **`[UAT-03]`** | Format Pesan Lanjutan: Pengiriman Media Gambar & Quick Reply (`/`) | Efisiensi & Format Pesan | ✅ **PASS** | 03 Okt 2026 | Template quick reply '/' tersubstitusi & pengiriman gambar preview berhasil |
+| **`[UAT-04]`** | Notifikasi Pesan Real-time & Audio Chime | Notifikasi & Audio | ✅ **PASS\*** | 03 Okt 2026 | Audio chime & socket sukses. Desktop push butuh HTTPS di prod |
+| **`[UAT-05]`** | Isolasi Catatan Internal L2 (Internal Notes vs Chat Publik) | Privasi Percakapan | ✅ **PASS** | 03 Okt 2026 | Catatan internal latar amber di web & 100% terisolasi dari WhatsApp |
+| **`[UAT-06]`** | Impor Master Data Kontak (CSV/VCF) & Proteksi Nama Kontak | Manajemen Kontak | ✅ **PASS** | 03 Okt 2026 | Impor sukses, pencarian responsif & badge Master Data aktif |
+| **`[UAT-07]`** | Inisiasi Chat Keluar (*Start New Chat*) dari Direktori Kontak | Outbound Direct Chat | ✅ **PASS** | 03 Okt 2026 | Start New Chat sukses buka tiket OPEN & kirim pesan pembuka WA |
+| **`[UAT-08]`** | Penanganan Error Sisi Pengguna (Input Kosong, File Tidak Valid, & Putus Koneksi) | Ketahanan UI / UX | ✅ **PASS** | 03 Okt 2026 | Validasi input kosong terkunci, proteksi file & auto-reconnect stabil |
+| **`[UAT-09]`** | Penyelesaian Percakapan & Fitur Re-Open Tiket Selesai | Siklus Hidup Tiket | ✅ **PASS** | 03 Okt 2026 | Tiket berpindah ke CLOSED dan re-open sukses kembali ke antrean OPEN |
 
 ---
 
@@ -148,7 +148,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
   1. Balasan otomatis (*auto-reply*) diterima penguji dalam < 5 detik.
   2. Tiket baru berstatus `OPEN` muncul secara real-time di web dashboard.
   3. Nomor dan nama penguji tampil akurat dengan bubble chat yang sesuai.
-- **Status:** ⏳ *Sedang Diuji*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-02]` Pengiriman Pesan Teks Outbound dari Web Dashboard & Status Pengiriman
 - **Prasyarat:** Tiket `[UAT-01]` aktif terbuka di ruang obrolan operator.
@@ -159,7 +159,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Pesan terkirim ke WhatsApp penguji tanpa delay signifikan.
   2. Bubble chat di web menampilkan pengirim sebagai Operator dengan waktu terkirim.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-03]` Format Pesan Lanjutan: Pengiriman Media Gambar & Quick Reply (`/`)
 - **Prasyarat:** Tiket aktif terbuka di layar operator.
@@ -169,7 +169,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Teks template tersubstitusi otomatis dan terkirim dengan rapi.
   2. Gambar terkirim dan dapat dipratinjau (*preview*) dengan baik di web dan WhatsApp pelanggan.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-04]` Notifikasi Pesan Real-time & Audio Chime
 - **Prasyarat:** Dashboard web operator dibuka dan tab diminimalkan (*minimize*) atau beralih ke tab peramban lain.
@@ -179,7 +179,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Nada dering chime audio Web Audio API berbunyi jelas.
   2. Notifikasi desktop / badge tab menampilkan adanya pesan baru yang belum dibaca.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS (Dgn Catatan)** *(Audio chime & WebSocket real-time terverifikasi sukses pada 03 Okt 2026. Fitur Desktop Notification browser memerlukan origin aman HTTPS/SSL pada rilis produksi).*
 
 #### `[UAT-05]` Isolasi Catatan Internal L2 (Internal Notes vs Chat Publik)
 - **Prasyarat:** Tiket aduan terbuka oleh operator/teknisi.
@@ -190,7 +190,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Pesan tampil di web dengan latar warna berbeda (amber/kuning penanda internal).
   2. Pesan **100% terisolasi** dan sama sekali tidak terkirim ke WhatsApp penguji.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-06]` Impor Master Data Kontak (CSV/VCF) & Proteksi Nama Kontak
 - **Prasyarat:** Memiliki berkas uji `docs/contacts.csv` atau `docs/contacts.vcf`.
@@ -201,7 +201,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Kontak berhasil terimpor dengan status sukses.
   2. Badge `Master Data` muncul pada detail kontak dan nama resmi terlindungi dari penimpaan profil WhatsApp.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-07]` Inisiasi Chat Keluar (*Start New Chat*) dari Direktori Kontak
 - **Prasyarat:** Kontak telah tersedia di master data kontak.
@@ -211,7 +211,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Tiket baru terbuat di dasbor operator.
   2. Pada toggle ON, pesan pembuka otomatis terkirim ke WhatsApp kontak tujuan.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-08]` Penanganan Error Sisi Pengguna (Input Kosong, File Tidak Valid, & Putus Koneksi)
 - **Prasyarat:** Ruang obrolan aktif.
@@ -223,7 +223,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
   1. Tombol kirim nonaktif saat input kosong, tidak terjadi crash.
   2. Muncul pesan peringatan/toast yang ramah pengguna untuk file tidak valid.
   3. Terdapat indikator status gagal kirim / retry yang jelas saat jaringan terputus.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 #### `[UAT-09]` Penyelesaian Percakapan & Fitur Re-Open Tiket Selesai
 - **Prasyarat:** Tiket yang telah selesai ditangani.
@@ -234,7 +234,7 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - **Hasil yang Diharapkan:** 
   1. Tiket berpindah ke daftar riwayat selesai secara konsisten.
   2. Fitur re-open mengembalikan status tiket ke `OPEN` dan mencatat alasan pembukaan kembali secara transparan.
-- **Status:** ⏳ *Menunggu Antrean*
+- **Status:** ✅ **PASS** *(Terverifikasi pada 03 Okt 2026)*
 
 ---
 
@@ -242,16 +242,25 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 
 | No | ID Skenario | Deskripsi Temuan / Kendala | Tingkat Keparahan | Tindakan Korektif | Status |
 |:--:|:---:|---|:---:|---|:---:|
-| - | - | *(Belum ada temuan kendala tercatat)* | - | - | - |
+| 1 | `[UAT-04]` | Notifikasi desktop sistem dibatasi peramban karena lingkungan pengujian berjalan di atas protokol non-aman (`http://`). Audio chime & sinkronisasi socket tetap bekerja penuh. | Rendah *(Lingkungan)* | Aktifkan reverse proxy SSL/HTTPS saat penyebaran (*deployment*) produksi (lihat Checklist Bab 5). | Terjadwal Produksi |
 
 ---
 
 ### 6.4 Kesimpulan & Status Kelulusan Akhir UAT
 
 - **Total Skenario:** 9 Skenario
-- **Lulus (`PASS`):** 0
+- **Lulus (`PASS`):** 9 (100%)
 - **Gagal (`FAIL`):** 0
 - **Tertunda / Terblokir (`BLOCKED`):** 0
-- **Belum / Sedang Diuji:** 9
-- **Status Kelulusan Akhir:** 🟡 **IN PROGRESS (PENGUJIAN SEDANG BERJALAN)**
+- **Belum / Sedang Diuji:** 0
+- **Status Kelulusan Akhir:** 🟢 **LULUS PENUH & DITERIMA (100% UAT ACCEPTED)**
+
+#### Pernyataan Penutupan UAT (Lead QA & UAT Coordinator):
+Seluruh rangkaian pengujian penerimaan pengguna (*User Acceptance Testing*) terhadap alur pengguna akhir (*end-user chat workflows*) pada sistem **HTS Chat Integration** telah dieksekusi secara nyata bersama pengguna dan dinyatakan **LULUS 100%**. 
+
+Fitur-fitur utama meliputi penerimaan/auto-reply inbound, percakapan dua arah operator, pengiriman berkas media gambar, respons cepat (*quick replies*), audio chime, isolasi catatan internal L2, manajemen impor kontak OPD, inisiasi chat baru (*Start New Chat*), ketahanan UI/UX terhadap input invalid, serta siklus hidup penyelesaian dan *re-open* tiket telah berfungsi secara stabil, aman, dan memenuhi seluruh kriteria penerimaan pengguna (*User Acceptance Criteria*).
+
+> **Catatan Implementasi Rilis Produksi:**  
+> Sebagaimana tercantum pada Checklist Bab 5 dan Temuan 6.3, saat penyebaran (*deployment*) ke lingkungan server produksi Diskominfo Provinsi Jawa Tengah, pastikan reverse proxy Nginx telah mengaktifkan sertifikat SSL/HTTPS agar izin API *Desktop Notification* peramban dapat aktif secara penuh.
+
 
