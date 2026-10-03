@@ -1758,7 +1758,8 @@ const createTicketHts = async (req, res) => {
       if (clean && !attachmentUrls.includes(clean)) {
         attachmentUrls.push(clean);
       }
-    } else if (useChatImage === true || useChatImage === 'true') {
+    }
+    if (useChatImage === true || useChatImage === 'true') {
       const imageMsg = await prisma.message.findFirst({
         where: { ticket_id: ticket.id, attachment_url: { not: null } },
         orderBy: { created_at: 'desc' }
@@ -1781,9 +1782,11 @@ const createTicketHts = async (req, res) => {
       });
     }
 
-    const chosenPicIds = parsePicIds(hts_pic_ids, hts_pic_id);
-    const targetCategory = categoryId ? await prisma.category.findUnique({ where: { id: parseInt(categoryId) } }) : null;
+    const resolvedCategoryId = categoryId ? parseInt(categoryId) : (ticket.categories?.[0]?.category_id || null);
+    const targetCategory = resolvedCategoryId ? await prisma.category.findUnique({ where: { id: resolvedCategoryId } }) : null;
     const subKategori = hts_sub_kategori || (targetCategory?.name?.includes('Server') ? 'SERVER' : targetCategory?.name?.includes('M&E') ? 'MECHANICAL & ELECTRICAL' : 'DISTRIBUTION NETWORK');
+
+    const chosenPicIds = parsePicIds(hts_pic_ids, hts_pic_id);
 
     // Pipeline submit 3-tahap HTS
     const htsResult = await htsClientService.createTicketPipeline(req.user.id, {
@@ -1823,7 +1826,7 @@ const createTicketHts = async (req, res) => {
     const newTicketHts = await prisma.ticketHts.create({
       data: {
         ticket_id: ticket.id,
-        category_id: categoryId ? parseInt(categoryId) : null,
+        category_id: resolvedCategoryId,
         hts_ticket_id: htsResult.idTrouble || '',
         hts_ticket_no: htsResult.noTrouble,
         hts_ticket_status: htsResult.status || 'PENDING',
