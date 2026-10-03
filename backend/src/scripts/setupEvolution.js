@@ -1,17 +1,22 @@
 const axios = require('axios');
-require('dotenv').config();
+const { 
+  EVOLUTION_API_URL: EVO_URL, 
+  EVOLUTION_API_TOKEN: EVO_KEY, 
+  EVOLUTION_INSTANCE_NAME: INSTANCE_NAME,
+  WEBHOOK_SECRET
+} = require('../config/env');
 
-const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-const INSTANCE_NAME = 'helpdesk-wa';
-const WEBHOOK_URL = 'http://172.17.0.1:3000/api/webhook/whatsapp'; // Menggunakan IP Host Docker Default
+const secretToken = WEBHOOK_SECRET || EVO_KEY;
+const BACKEND_HOST = process.env.BACKEND_INTERNAL_URL || (process.platform === 'win32' ? 'http://host.docker.internal:3000' : 'http://172.17.0.1:3000');
+const WEBHOOK_URL = `${BACKEND_HOST}/api/webhook/whatsapp`;
 
 const api = axios.create({
   baseURL: EVO_URL,
   headers: {
     'apikey': EVO_KEY,
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 10000
 });
 
 async function setup() {
@@ -36,12 +41,15 @@ async function setup() {
       }
     }
 
-    // 2. Setup Webhook (Fase 3: Mengaktifkan base64 untuk Media Gambar)
+    // 2. Setup Webhook (Fase 3: Mengaktifkan base64 untuk Media Gambar & Autentikasi Webhook)
     console.log(`[Evolution] Mengatur Webhook ke: ${WEBHOOK_URL}`);
     await api.post(`/webhook/set/${INSTANCE_NAME}`, {
       webhook: {
         enabled: true,
         url: WEBHOOK_URL,
+        headers: {
+          apikey: secretToken
+        },
         byEvents: false,
         base64: true, // <-- DIUBAH KE TRUE UNTUK MEDIA SUPPORT
         events: [

@@ -1,75 +1,65 @@
 # 💬 HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)
 
-Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk pengelolaan keluhan pelanggan/instansi (PIC) secara *real-time* dengan dukungan **Role-Based Access Control (RBAC)** antara Dispatcher (L1), 3 Tim Teknisi Lapangan (L2: Network, Server, M&E), Administrator, dan Supervisor.
+Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk pengelolaan keluhan pelanggan/instansi (PIC) secara *real-time* dengan dukungan **Role-Based Access Control (RBAC)** antara Dispatcher (L1), 3 Tim Teknisi Lapangan (L2: Network, Server, M&E), Administrator, dan Supervisor, serta terintegrasi langsung dengan portal resmi **Helpdesk Ticketing System (HTS) Diskominfo Provinsi Jawa Tengah**.
 
 ---
 
-## 🌟 Fitur Utama (Workflow V2.2)
+## 🌟 Fitur Utama (Workflow V4.2 Produksi)
 
-- **🔄 Integrasi WhatsApp Dua Arah (Evolution API v2):**
+- **🔄 Integrasi WhatsApp Dua Arah & HP Fisik (Evolution API v2):**
   - Pesan masuk otomatis membuat profil pelanggan (*Customer*) dan tiket baru berstatus `OPEN`.
   - Pesan susulan dari pelanggan otomatis tersambung ke tiket aktif yang sama (baik berstatus `OPEN` maupun `RESOLVED`).
-  - Pengiriman pesan keluar langsung ke WhatsApp pelanggan dari dasbor web.
-- **🤖 Sakelar & Kustomisasi Auto-Reply Bot (Khusus L1):**
-  - Toggle sakelar bot ON/OFF langsung di antrean chat L1.
-  - Modal editor template pesan sambutan otomatis yang tersimpan di database `Setting`.
-- **🖼️ Dukungan Media Gambar Lengkap (Bi-directional Images):**
-  - Pelanggan dapat mengirim foto kendala via WhatsApp yang langsung diunduh dan tampil di antrean chat web (didukung hingga kapasitas 50MB).
-  - Agen Helpdesk dapat mengunggah gambar lampiran penjelasan kembali ke WhatsApp pelanggan.
-- **🛡️ Akses Berbasis Peran (Role-Based Access Control - RBAC):**
-  - **L1 (Dispatcher):** Berkomunikasi langsung dengan pelanggan via WhatsApp, dua mode chat (balas WhatsApp vs catatan internal ke L2), sakelar bot, dan menutup tiket resmi.
-  - **L2 (Teknisi):** Mode *View-Only* obrolan pelanggan, kolom *Catatan Internal* (hanya dibaca tim), tombol *Tandai Selesai*, dan *Kembalikan / Lepas*.
-  - **ADMIN:** Akses penuh gabungan (L1 + L2), **Manajemen Pengguna (CRUD Penuh & Reset Password)**, **Kontak Tim L2**, dan **Pembersihan Rekap Aduan**.
-  - **SPV:** Monitoring antrean dan akses laporan rekapitulasi.
-- **👥 Manajemen Akun Pengguna Lengkap (Full CRUD - Admin Only):**
-  - Administrator dapat mendaftarkan akun baru, mengedit data akun staf (Nama, Email, Peran/Role, dan Kategori tim L2), serta menghapus akun yang sudah nonaktif.
-  - Reset password bersifat fleksibel (*opsional*): dikosongkan jika tidak ingin mengubah password lama. Sesi profil langsung ter-update secara otomatis jika admin mengedit akunnya sendiri.
-- **💬 Dual-Mode Chat L1 (Balas WhatsApp Pelanggan vs Catatan Internal ke L2):**
-  - Mengadopsi standar Zendesk: L1 dapat berpindah tab antara mengirim balasan resmi ke nomor WhatsApp pelanggan (💬) atau mengirim instruksi/tanggapan rahasia ke teknisi L2 (🔒).
-  - Catatan internal L1 100% aman (tidak terkirim ke WhatsApp) dan disiarkan secara real-time ke layar seluruh teknisi.
-- **👥 Pendelegasian Smart Multi-Assign (Satu atau Banyak Tim Sekaligus):**
-  - L1 dapat mencentang lebih dari satu tim teknisi sekaligus (`Network`, `Server`, dan/atau `Mechanical & Electrical (M&E)`).
-  - **Smart Assign Diffing:** Menambah/mengubah tim tidak mereset tim yang sudah aktif bertugas atau yang telah selesai.
-- **📢 WhatsApp Multi-Contact Blast Notifikasi Tugas ke L2:**
-  - Saat Dispatcher menugaskan tiket, sistem membroadcast pesan notifikasi WA ke seluruh nomor/grup yang terdaftar pada tim terkait.
-  - Administrator dapat mengelola daftar kontak (tambah, inline edit, hapus) di tab **Kontak Tim L2**.
-- **🏷️ Identitas Tim Otomatis pada Catatan Internal:**
-  - Setiap catatan internal teknisi L2 otomatis diberi badge identitas tim (misal `[Tim Network]`), baik untuk pesan manual, notifikasi *Tandai Selesai*, maupun *Pengembalian Tiket*.
-- **✅ Penyelesaian Mandiri Per-Tim (*Per-Team Resolution*):**
-  - Setiap tim menandai selesai tugas bagiannya sendiri (`is_resolved`).
-  - Tiket utama otomatis berubah menjadi `RESOLVED` hanya ketika **seluruh tim yang ditugaskan telah menyatakan selesai**.
-- **🔄 Pelepasan Penugasan Mandiri (*Self-Unassign Return*):**
-  - Teknisi dapat melepas penugasan timnya jika bukan kewenangannya dengan menyertakan alasan. Tiket tetap berjalan di tim lain yang masih bertugas.
-- **🎯 Auto Pre-Fill Kategori Masalah Saat Tiket Ditutup:**
-  - Saat L1 menyelesaikan tiket, modal penutupan secara otomatis mencentang kategori masalah sesuai tim L2 yang ditugaskan di awal tiket.
-- **🗑️ Pembersihan Rekap Aduan & Reset Penomoran ID (Admin Only):**
-  - Administrator dapat menghapus tiket selesai terpilih atau menghapus seluruh riwayat data testing.
-  - Saat hapus semua, urutan penomoran auto-increment PostgreSQL otomatis di-reset (`ALTER SEQUENCE tickets_id_seq RESTART WITH 1`) sehingga tiket baru berikutnya kembali bernomor ID #1.
-- **👤 Resolusi Identitas Pelapor Hybrid & Instansi/SKPD (L1 & Admin):**
-  - **Prioritas Cerdas:** Web Custom Edit > Buku Kontak HP (via Evolution API) > WhatsApp Push Name > Nomor WA.
-  - Dispatcher L1 dan Admin dapat mengubah nama pelapor dan menyematkan nama instansi/SKPD langsung dari header chat atau panel detail tiket.
-  - Nama tersimpan permanen di database dan otomatis terintegrasi pada Laporan Rekapitulasi & Export CSV.
-- **🏷️ Klasifikasi Jenis Layanan (*Service Type*):**
-  - Mendukung klasifikasi: `Troubleshooting (Gangguan)`, `Request Layanan`, atau `Monitoring`.
-- **⚡ Komunikasi Real-time (Socket.io):**
-  - Pembaruan gelembung obrolan, status tiket, dan notifikasi seketika tanpa perlu me-refresh halaman.
-- **📊 Laporan & Rekapitulasi:**
-  - Riwayat penanganan tiket lengkap dengan jenis layanan, tim terkait, durasi penanganan, dan kesimpulan akhir (*mandatory summary*).
-  - Fitur **Export to CSV** untuk pelaporan berkala.
-- **🌐 Akses Jaringan Lokal (LAN / Wi-Fi Kantor):**
-  - Seluruh komputer atau ponsel di jaringan yang sama dapat langsung mengakses aplikasi melalui IP lokal host (port `5173`).
+  - **Sinkronisasi Dua Arah Penuh:** Pesan balasan dari dasbor web maupun dari **HP WhatsApp fisik helpdesk** (`fromMe=true`) otomatis tercatat sebagai `AGENT` secara instan.
+  - **WhatsApp LID Addressing:** Mendukung addressing mode baru WhatsApp (`@lid`) melalui resolusi otomatis `remoteJidAlt`.
+  - **Anti-Race Condition:** Serialisasi pesan per-nomor via `perNumberLock` dan deduplikasi atomik via constraint basis data `@unique wa_message_id`.
+- **🌐 Integrasi Portal Resmi HTS Diskomdigi Jawa Tengah:**
+  - **Arsitektur Multi-HTS (One-to-Many):** 1 percakapan WhatsApp dapat menerbitkan banyak nomor tiket aduan resmi HTS ke divisi berbeda sekaligus.
+  - **Live CAPTCHA Streaming & Otentikasi Sesi:** Login langsung ke portal HTS dengan bypass CAPTCHA visual dan manajemen sesi cookie PHP `ci_session`.
+  - **Background Keep-Alive Heartbeat:** Pemeliharaan sesi login HTS otomatis setiap 15 menit agar petugas tidak ter-logout.
+  - **Dual-Close Berintegritas:** Penutupan tiket lokal memvalidasi status penyelesaian seluruh tiket HTS terkait; jika gagal di HTS, penutupan lokal dibatalkan demi integritas data.
+  - **Manual Link & Disaster Recovery:** Tautkan nomor tiket HTS yang sudah ada, lengkapi penugasan PIC status `INPUT_PIC` menjadi `PENDING`, atau lepas tautan (*unlink*) secara mandiri.
+- **💬 Klasifikasi Obrolan: Percakapan Biasa vs Aduan Teknis:**
+  - **Percakapan Biasa (`GENERAL_CHAT`):** Untuk sapaan, konsultasi umum, atau salah sambung. Dapat diselesaikan seketika (`[ ✅ Selesaikan Percakapan ]`), tidak membebani antrean teknisi L2, dan **100% dikecualikan dari metrik SLA MTTR**.
+  - **Aduan Teknis Resmi (`is_aduan=true`):** Untuk kendala teknis riil yang memerlukan penugasan L2 atau penerbitan tiket HTS. Mendukung promosi otomatis (*auto-promotion*).
+- **🛡️ RBAC & Keamanan Tingkat Enterprise (Sprint 1–3 Hardening):**
+  - **RBAC Sisi Server:** Seluruh rute dilindungi middleware `verifyToken` dan `requireRole` di peladen (bukan sekadar di antarmuka UI).
+  - **Socket.io Handshake Auth:** Otentikasi token JWT wajib saat koneksi WebSocket awal, serta isolasi siaran data ke *rooms* terpartisi (`user_{id}`, `role_{role}`, `category_{id}`).
+  - **Webhook Shared Secret:** Endpoint webhook dilindungi validasi rahasia `WEBHOOK_SECRET` dengan perbandingan *constant-time* tahan serangan *timing attack*.
+  - **Fail-Fast Environment:** Pengecekan otomatis variabel lingkungan rahasia saat startup (`config/env.js`); server menolak menyala jika kredensial kosong.
+  - **Anti Path-Traversal:** Sanitasi kanonikal berkas lampiran berbasis `safePath.js` di folder `/uploads`.
+- **👥 Smart Multi-Assign & WhatsApp Blast ke Tim L2:**
+  - L1 dapat mendelegasikan tiket ke satu atau banyak tim teknisi sekaligus (`Network`, `Server`, dan `Mechanical & Electrical (M&E)`).
+  - **Smart Assign Diffing:** Menambah tim baru tidak mereset progres tim yang sedang bertugas atau sudah selesai.
+  - **WhatsApp Multi-Contact Blast:** Notifikasi penugasan terkirim otomatis hanya kepada kontak/grup tim yang baru ditugaskan.
+- **🔒 Catatan Internal Multimedia Dua Arah (L1 ↔ L2):**
+  - Teknisi L2 berkoordinasi via Catatan Internal (teks & foto) yang **100% rahasia** dan tidak pernah bocor ke WhatsApp pelanggan.
+  - Foto bukti penanganan lapangan dari L2 dapat langsung dilampirkan sebagai berkas bukti saat L1 menutup tiket di portal HTS.
+- **📖 Master Data Kontak, Start New Chat & Re-Open Tiket:**
+  - **Import Master Data Kontak (Admin):** Unggah ribuan kontak resmi OPD via file Excel (`.xlsx`), CSV, atau vCard (`.vcf`). Nama dari master data menjadi **identitas prioritas utama** yang tidak tertimpa profil WhatsApp.
+  - **Start New Chat (Outbound):** Memulai percakapan keluar ke nomor baru melalui direktori kontak berpangkal paginasi, dengan opsi pesan pembuka otomatis.
+  - **Re-Open Tiket:** Mengaktifkan kembali percakapan yang sudah `CLOSED` secara transaksional dengan pencatatan alasan di catatan internal.
+- **⚡ Balasan Cepat (Quick Replies) & Efisiensi Dispatcher:**
+  - Suggester template pesan instan dengan memanggil tombol keyboard `/` (misal `/salam`, `/aduan`, `/selesai`).
+  - Notifikasi suara merdu (chime audio Web Audio API) dan notifikasi desktop browser saat pesan masuk.
+- **📊 Rekapitulasi SLA & Ekspor CSV:**
+  - Kalkulasi akurat *First Response Time* (FRT) dan *Mean Time to Resolve* (MTTR aduan teknis murni).
+  - Fitur **Export to CSV** untuk pelaporan berkala pimpinan.
+- **🧹 Worker Pembersihan File Otomatis (Storage Lifecycle):**
+  - Background service terjadwal setiap 24 jam membersihkan berkas media tiket `CLOSED` yang melewati retensi 90 hari.
 
 ---
 
 ## 🏗️ Tumpukan Teknologi (Tech Stack)
 
-| Bagian | Teknologi |
-|---|---|
-| **WhatsApp Gateway** | [Evolution API v2](https://github.com/EvolutionAPI/evolution-api) (Dockerized) |
-| **Backend** | Node.js, Express.js, Socket.io v4 |
-| **Database & ORM** | PostgreSQL 15, Prisma ORM v5 |
-| **Frontend** | React 18, Vite, React Router DOM, Tailwind CSS, Lucide Icons |
-| **Autentikasi & Keamanan** | JWT (12 jam), bcryptjs, Helmet (CSP & CORP), Express Rate Limit |
+| Komponen | Teknologi | Versi |
+|---|---|:---:|
+| **WhatsApp Gateway** | [Evolution API v2](https://github.com/EvolutionAPI/evolution-api) (Dockerized Baileys) | `v2.3+` |
+| **Backend Core** | Node.js, Express.js | `v18+/v20/v22` |
+| **Realtime Gateway** | Socket.io (Handshake Auth & Room Partitions) | `v4.8+` |
+| **Database & ORM** | PostgreSQL 15, Prisma ORM | `v5.22` |
+| **Session Cache** | Redis (Alpine) | Latest |
+| **Frontend** | React 18, Vite 5, React Router DOM v7, Tailwind CSS, Lucide Icons | `v18.3+` |
+| **Keamanan & Utilitas** | JWT (12 jam), bcryptjs, Helmet (CSP/CORP), Express Rate Limit, Multer | - |
 
 ---
 
@@ -77,17 +67,18 @@ Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk
 
 ```mermaid
 flowchart TD
-    PIC[Pelanggan / PIC WhatsApp] <-->|WhatsApp Protocol| EVO[Evolution API Gateway :8080]
+    PIC[Pelanggan / PIC WhatsApp] <-->|Protokol WhatsApp| EVO[Evolution API Gateway :8080]
     EVO <-->|Webhook & REST API| BE[Backend Node.js & Socket.io :3000]
-    BE <-->|Prisma ORM| DB[(PostgreSQL Database :5432)]
-    BE <-->|WebSockets & JWT REST| FE[React Web Dashboard :5173]
+    BE <-->|Prisma ORM| DB[(PostgreSQL Database :5433)]
+    BE <-->|WebSockets & JWT REST| FE[React Web Dashboard :5200]
+    BE <-->|Cookie ci_session + CSRF| HTS[Portal HTS Diskomdigi Jateng]
     
     subgraph Dashboard Web [Peran Dasbor Web]
         L1[Dispatcher L1]
         L2_NET[Teknisi Network L2]
         L2_SRV[Teknisi Server L2]
         L2_ME[Teknisi M&E L2]
-        ADM[Admin]
+        ADM[Administrator]
         SPV[Supervisor]
     end
     
@@ -101,39 +92,48 @@ flowchart TD
 
 ---
 
-## 🚀 Panduan Memulai (Getting Started)
+## 🚀 Panduan Memulai Cepat (Getting Started)
 
-### 1. Prasyarat (*Prerequisites*)
+### 1. Prasyarat Sistem
 - Docker & Docker Compose
-- Node.js v18+ & npm
+- Node.js v18 / v20 / v22 LTS & npm
 - Git
 
 ### 2. Menjalankan Layanan Database & Gateway (Docker)
-Pastikan Docker Compose berjalan untuk PostgreSQL, Redis, dan Evolution API:
+Pindahkan terminal ke direktori root repositori dan jalankan kontainer:
 ```bash
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
-> Layanan Evolution API akan aktif di `http://localhost:8080` dan PostgreSQL di port `5432`.
+> ⚠️ **Catatan Port:** PostgreSQL pada docker-compose dipetakan ke port host **`5433`** (format `5433:5432`). Backend di mesin host wajib terhubung ke port **5433**.
 
-### 3. Menjalankan Backend
+### 3. Konfigurasi & Menjalankan Backend
 Pindah ke direktori `backend/`:
 ```bash
 cd backend
 npm install
 ```
 
-Sesuaikan berkas konfigurasi `.env`:
+Salin atau buat berkas `.env` di dalam folder `backend/`:
 ```env
 PORT=3000
-DATABASE_URL="postgresql://helpdesk_user:SecretPassword123!@localhost:5432/wa_helpdesk?schema=public"
-JWT_SECRET="supersecret_jwt_key_123"
+DATABASE_URL="postgresql://helpdesk_user:SecretPassword123!@localhost:5433/wa_helpdesk?schema=public"
+JWT_SECRET="masukkan_string_acak_jwt_secret_minimal_32_karakter"
+
+# Evolution API (WhatsApp Gateway)
 EVOLUTION_API_URL="http://localhost:8080"
 EVOLUTION_API_TOKEN="SecureTokenUntukBackend123"
 EVOLUTION_INSTANCE_NAME="helpdesk-wa"
+
+# Shared Secret untuk Autentikasi Webhook (SEC-01)
+WEBHOOK_SECRET="SecureTokenUntukBackend123"
+
+# URL Frontend (untuk kontrol CORS Socket.io)
+FRONTEND_URL="http://localhost:5200"
 ```
 
 Sinkronisasi Database dan Seeding data awal:
 ```bash
+npx prisma generate
 npx prisma db push
 npm run prisma:seed
 ```
@@ -143,49 +143,52 @@ Jalankan server backend:
 npm run dev
 ```
 
-### 4. Menjalankan Frontend
-Di terminal terpisah, masuk ke folder `frontend/`:
+### 4. Menghubungkan Nomor WhatsApp (Pairing)
+Pada terminal backend, jalankan skrip pairing:
+```bash
+npm run setup:evolution
+```
+Buka berkas `backend/qr.html` pada browser Anda, lalu pindai QR Code menggunakan aplikasi WhatsApp di ponsel Helpdesk (*Perangkat Tertaut / Linked Devices*).
+
+### 5. Menjalankan Frontend
+Buka terminal terpisah, lalu masuk ke folder `frontend/`:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Buka browser pada alamat: **`http://localhost:5173`** (atau via IP LAN: `http://<IP_KOMPUTER>:5173`)
+Buka browser pada alamat: **`http://localhost:5200`** (atau via IP LAN: `http://<IP_KOMPUTER>:5200`).
 
 ---
 
 ## 👥 Akun Bawaan untuk Pengujian (Default Credentials)
 
-Semua akun terdaftar menggunakan **Password:** `password123`
+Semua akun benih terdaftar menggunakan **Password:** `password123`
 
 | Role | Email | Nama Pengguna | Kategori / Hak Akses Utama |
 |---|---|---|---|
-| **ADMIN** | `admin@helpdesk.go.id` | Administrator | Akses Penuh (Chat, Tiket, Users, Kontak L2, Hapus Rekap) |
-| **L1** | `l1@helpdesk.go.id` | Dispatcher L1 | Chat Pelapor, Bot Toggle, Multi-Assign L2, Selesaikan Tiket |
-| **L2** | `l2_network@helpdesk.go.id` | Teknisi Network L2 | Catatan Internal, Tandai Selesai Bagian Network, Return |
-| **L2** | `l2_server@helpdesk.go.id` | Teknisi Server L2 | Catatan Internal, Tandai Selesai Bagian Server, Return |
-| **L2** | `l2_me@helpdesk.go.id` | Teknisi M&E L2 | Catatan Internal, Tandai Selesai Bagian M&E, Return |
-| **SPV** | `spv@helpdesk.go.id` | Supervisor | Monitoring Antrean Tiket & Akses Rekap Laporan CSV |
+| **ADMIN** | `admin@helpdesk.go.id` | Administrator | Akses Penuh (Chat, Tiket, Users, Master Data Kontak, Hapus Rekap) |
+| **L1** | `l1@helpdesk.go.id` | Dispatcher L1 | Chat Pelapor, Bot Toggle, Multi-Assign L2, Integrasi HTS, Selesaikan Tiket |
+| **L2** | `l2_network@helpdesk.go.id` | Teknisi Network L2 | View-only Chat, Catatan Internal, Tandai Selesai Bagian Network, Return |
+| **L2** | `l2_server@helpdesk.go.id` | Teknisi Server L2 | View-only Chat, Catatan Internal, Tandai Selesai Bagian Server, Return |
+| **L2** | `l2_me@helpdesk.go.id` | Teknisi M&E L2 | View-only Chat, Catatan Internal, Tandai Selesai Bagian M&E, Return |
+| **SPV** | `spv@helpdesk.go.id` | Supervisor | Monitoring Antrean Tiket & Akses Rekap Laporan SLA / CSV |
 
 ---
 
 ## 📂 Indeks Dokumentasi Teknis di Folder `/docs`
 
-Seluruh dokumentasi teknis mendalam tersedia di direktori [`docs/`](./docs/):
+Seluruh dokumentasi teknis mendalam dan standar operasional tersedia di direktori [`docs/`](./docs/):
 
-1. **[Product Requirements Document (PRD)](docs/PRD_WhatsApp_Helpdesk.md)** - Kebutuhan bisnis, persona pengguna, dan fitur F01 s/d F17.
-2. **[Database Schema / ERD](docs/Database_Schema.md)** - Skema relasional PostgreSQL, rincian tabel, tipe data, enum, dan reset sequence.
-3. **[Spesifikasi API Endpoints](docs/API_Endpoints_Spec.md)** - Kontrak REST API, Webhook, Bot Setting, Multi-Contact L2, dan Socket.io.
-4. **[Spesifikasi Keamanan](docs/Security_Specification.md)** - Standar enkripsi JWT, RBAC matrix lengkap, Helmet CSP/CORP, dan Rate Limiter.
-5. **[Diagram Alur Sistem (Flowcharts)](docs/System_Flowcharts.md)** - Diagram alur proses sistem Mermaid (Inbound, Smart Assign, Resolve, Return, Close, Reset).
-6. **[Arsitektur & Tech Stack](docs/Tech_Stack_Architecture.md)** - Topologi infrastruktur, daftar pustaka, dan dependensi sistem.
-7. **[Panduan Deployment](docs/Deployment_Guide.md)** - Panduan Docker Compose, konfigurasi LAN, dan Nginx reverse proxy.
-8. **[Panduan Operasional (SOP)](docs/Operational_Guide.md)** - Panduan operasional harian untuk Dispatcher L1, Teknisi L2, Admin, dan SPV.
-9. **[Rangkuman Lengkap Proyek](docs/Summary.md)** - Rekapitulasi komprehensif implementasi Workflow V1 hingga V2.2.
-10. **[Kredensial Pengguna & RBAC](docs/User.md)** - Daftar akun pengujian default sistem dan matriks hak akses.
-11. **[Rencana Implementasi V2](docs/Implementation_Plan_V2.md)** - Catatan historis tahapan pengembangan Fase 1 hingga Fase 4.
+1. **[Gambaran Umum Proyek (Project Overview)](docs/Project_Overview.md)** — Ringkasan eksekutif, persona pengguna, matriks RBAC mutakhir, dan riwayat evolusi sistem.
+2. **[Arsitektur, Diagram Alur & Keamanan (Architecture)](docs/Architecture.md)** — Tech stack, topologi container, diagram alur Mermaid (inbound, outbound, multi-HTS, background workers), dan spesifikasi hardening keamanan.
+3. **[Skema Database & Kontrak API (Database_and_API)](docs/Database_and_API.md)** — Skema ERD PostgreSQL, kamus data tabel & indeks komposit, kontrak lengkap REST API, dan event Socket.io.
+4. **[Fitur & Kemampuan Sistem (Features_and_Capabilities)](docs/Features_and_Capabilities.md)** — Katalog komprehensif seluruh kapabilitas fungsional yang aktif di kode sumber.
+5. **[Panduan Operasional & Deployment (Operations_and_Deployment)](docs/Operations_and_Deployment.md)** — Panduan deployment 3 track (Lokal, Docker, dan VPS Node.js produksi via PM2 & Nginx) serta SOP operasional per peran.
+6. **[Pengujian QA & Audit Kualitas (QA_and_Quality)](docs/QA_and_Quality.md)** — Skenario pengujian Modul 1–9, audit keamanan terverifikasi, dan mitigasi risiko teknis.
+7. **[Laporan Eksekutif & Ringkasan Kerja (summary)](docs/summary.md)** — Laporan eksekutif berkala, status penyelesaian sprint remedi, dan roadmap operasional.
 
 ---
 
 ## 📄 Lisensi
-Hak Cipta © 2026 Tim Pengembang HTS Chat Integration. Seluruh hak cipta dilindungi.
+Hak Cipta © 2026 Tim Pengembang HTS Chat Integration — Diskominfo Provinsi Jawa Tengah. Seluruh hak cipta dilindungi.

@@ -1,0 +1,504 @@
+{
+  "kategori": [
+    {
+      "id": "troubleshoot",
+      "name": "Troubleshoot"
+    },
+    {
+      "id": "request",
+      "name": "Request Layanan"
+    },
+    {
+      "id": "monitoring",
+      "name": "Monitoring"
+    }
+  ],
+  "subKategori": [
+    {
+      "id": "DISTRIBUTION NETWORK",
+      "name": "DISTRIBUTION NETWORK",
+      "team": "Network"
+    },
+    {
+      "id": "CORE NETWORK",
+      "name": "CORE NETWORK",
+      "team": "Network"
+    },
+    {
+      "id": "SERVER",
+      "name": "SERVER",
+      "team": "Server"
+    },
+    {
+      "id": "MECHANICAL & ELECTRICAL",
+      "name": "MECHANICAL & ELECTRICAL",
+      "team": "M&E"
+    },
+    {
+      "id": "EMAIL",
+      "name": "EMAIL",
+      "team": "Server"
+    },
+    {
+      "id": "INTERNET DESA",
+      "name": "INTERNET DESA",
+      "team": "Network"
+    }
+  ],
+  "indukOpd": [
+    {
+      "id": "2",
+      "name": "Badan Kepegawaian Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "3",
+      "name": "Badan Kesatuan Bangsa dan Politik Provinsi Jawa Tengah"
+    },
+    {
+      "id": "4",
+      "name": "Badan Penanggulangan Bencana Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "5",
+      "name": "Badan Pengelola Keuangan dan Aset Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "6",
+      "name": "Badan Pengelola Pendapatan Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "7",
+      "name": "Badan Pengembangan Sumber Daya Manusia Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "8",
+      "name": "Badan Penghubung Provinsi Jawa Tengah"
+    },
+    {
+      "id": "9",
+      "name": "Badan Perencanaan Pembangunan Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "87",
+      "name": "Badan Riset dan Inovasi Daerah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "97",
+      "name": "BANK JATENG"
+    },
+    {
+      "id": "10",
+      "name": "Biro Administrasi Pembangunan Daerah Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "11",
+      "name": "Biro Administrasi Pengadaan Barang dan Jasa Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "100",
+      "name": "Biro BUMD dan BLUD"
+    },
+    {
+      "id": "12",
+      "name": "Biro Hukum Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "13",
+      "name": "Biro Infrastruktur dan SDA Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "14",
+      "name": "Biro Kesejahteraan Rakyat Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "15",
+      "name": "Biro Organisasi Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "16",
+      "name": "Biro Pemerintahan,  Otonomi Daerah dan Kerjasama Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "86",
+      "name": "Biro Perekonomian Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "18",
+      "name": "Biro Umum Setda Provinsi Jawa Tengah"
+    },
+    {
+      "id": "95",
+      "name": "BMKG PROV JATENG"
+    },
+    {
+      "id": "99",
+      "name": "BSSN"
+    },
+    {
+      "id": "19",
+      "name": "Dinas Energi dan Sumber Daya Mineral Provinsi Jawa Tengah"
+    },
+    {
+      "id": "20",
+      "name": "Dinas Kearsipan dan Perpustakaan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "101",
+      "name": "Dinas Kebudayaan, Pariwisata dan Ekonomi Kreatif"
+    },
+    {
+      "id": "21",
+      "name": "Dinas Kelautan dan Perikanan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "22",
+      "name": "Dinas Kepemudaan dan Olahraga"
+    },
+    {
+      "id": "23",
+      "name": "Dinas Kesehatan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "24",
+      "name": "Dinas Ketahanan Pangan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "25",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Banjarnegara"
+    },
+    {
+      "id": "26",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Banyumas"
+    },
+    {
+      "id": "27",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Batang"
+    },
+    {
+      "id": "28",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Blora"
+    },
+    {
+      "id": "29",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Boyolali"
+    },
+    {
+      "id": "30",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Brebes"
+    },
+    {
+      "id": "31",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Cilacap"
+    },
+    {
+      "id": "32",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Demak"
+    },
+    {
+      "id": "33",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Grobogan"
+    },
+    {
+      "id": "34",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Jepara"
+    },
+    {
+      "id": "35",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Karanganyar"
+    },
+    {
+      "id": "36",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Kebumen"
+    },
+    {
+      "id": "37",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Kendal"
+    },
+    {
+      "id": "38",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Klaten"
+    },
+    {
+      "id": "39",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Kudus"
+    },
+    {
+      "id": "40",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Magelang"
+    },
+    {
+      "id": "41",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Pati"
+    },
+    {
+      "id": "42",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Pekalongan"
+    },
+    {
+      "id": "43",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Pemalang"
+    },
+    {
+      "id": "44",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Purbalingga"
+    },
+    {
+      "id": "45",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Rembang"
+    },
+    {
+      "id": "46",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Semarang"
+    },
+    {
+      "id": "47",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Sragen"
+    },
+    {
+      "id": "48",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Sukoharjo"
+    },
+    {
+      "id": "49",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Tegal"
+    },
+    {
+      "id": "50",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Temanggung"
+    },
+    {
+      "id": "51",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Wonogiri"
+    },
+    {
+      "id": "52",
+      "name": "Dinas Komunikasi dan Informatika Kabupaten Wonosobo"
+    },
+    {
+      "id": "53",
+      "name": "Dinas Komunikasi dan Informatika Kota Pekalongan"
+    },
+    {
+      "id": "54",
+      "name": "Dinas Komunikasi dan Informatika Kota Salatiga"
+    },
+    {
+      "id": "55",
+      "name": "Dinas Komunikasi dan Informatika Kota Semarang"
+    },
+    {
+      "id": "56",
+      "name": "Dinas Komunikasi dan Informatika Kota Tegal"
+    },
+    {
+      "id": "57",
+      "name": "Dinas Komunikasi dan Informatika Provinsi Jawa Tengah"
+    },
+    {
+      "id": "59",
+      "name": "Dinas Komunikasi Informatika Statistik dan Persandian Kota Surakarta"
+    },
+    {
+      "id": "92",
+      "name": "Dinas Komunikasi, Informatika dan Digital Provinsi Jawa Tengah"
+    },
+    {
+      "id": "60",
+      "name": "Dinas Komunikasi, Informatika dan Statistik Kota Magelang"
+    },
+    {
+      "id": "61",
+      "name": "Dinas Komunikasi, Informatika, Statistik dan Persandian Kabupaten Purworejo"
+    },
+    {
+      "id": "62",
+      "name": "Dinas Koperasi, Usaha Kecil dan Menengah Provinsi Jawa Tengah"
+    },
+    {
+      "id": "63",
+      "name": "Dinas Lingkungan Hidup dan Kehutanan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "64",
+      "name": "Dinas Pekerjaan Umum dan Penataan Ruang"
+    },
+    {
+      "id": "65",
+      "name": "Dinas Pekerjaan Umum Sumber Daya Air dan Penataan Ruang Provinsi Jawa Tengah"
+    },
+    {
+      "id": "66",
+      "name": "Dinas Pemberdayaan Masyarakat, Desa, Kependudukan dan Pencatatan Sipil Provinsi Jawa Tengah"
+    },
+    {
+      "id": "67",
+      "name": "Dinas Pemberdayaan Perempuan,  Perlindungan Anak, Pengendalian Penduduk dan Keluarga Berencana Provinsi Jawa Tengah"
+    },
+    {
+      "id": "90",
+      "name": "Dinas Pemberdayaan Perempuan, Perlindungan Anak, Pengendalian Penduduk dan Keluarga Berencana Provinsi Jawa Tengah"
+    },
+    {
+      "id": "68",
+      "name": "Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Provinsi Jawa Tengah"
+    },
+    {
+      "id": "69",
+      "name": "Dinas Pendidikan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "70",
+      "name": "Dinas Perhubungan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "71",
+      "name": "Dinas Perindustrian dan Perdagangan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "72",
+      "name": "Dinas Pertanian dan Perkebunan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "73",
+      "name": "Dinas Perumahan Rakyat dan Kawasan Permukiman Provinsi Jawa Tengah"
+    },
+    {
+      "id": "74",
+      "name": "Dinas Peternakan dan Kesehatan Hewan Provinsi Jawa Tengah"
+    },
+    {
+      "id": "75",
+      "name": "Dinas Sosial Provinsi Jawa Tengah"
+    },
+    {
+      "id": "76",
+      "name": "Dinas Tenaga Kerja dan Transmigrasi Provinsi Jawa Tengah"
+    },
+    {
+      "id": "77",
+      "name": "Inspektorat Provinsi Jawa Tengah"
+    },
+    {
+      "id": "98",
+      "name": "Instansi Lain"
+    },
+    {
+      "id": "94",
+      "name": "KEMENAG PROV JATENG"
+    },
+    {
+      "id": "96",
+      "name": "KONI JTG"
+    },
+    {
+      "id": "93",
+      "name": "KWARDA JATENG"
+    },
+    {
+      "id": "78",
+      "name": "RSJD dr. Amino Gondohutomo"
+    },
+    {
+      "id": "80",
+      "name": "RSJD dr. Arif Zainudin Surakarta"
+    },
+    {
+      "id": "79",
+      "name": "RSJD dr. RM. Soejarwadi"
+    },
+    {
+      "id": "81",
+      "name": "RSUD dr. Adhyatma"
+    },
+    {
+      "id": "82",
+      "name": "RSUD dr. Rehatta"
+    },
+    {
+      "id": "83",
+      "name": "RSUD Moewardi"
+    },
+    {
+      "id": "84",
+      "name": "RSUD Prof. Dr. Margono Soekarjo"
+    },
+    {
+      "id": "85",
+      "name": "Satpol PP Provinsi Jawa Tengah"
+    },
+    {
+      "id": "1",
+      "name": "Sekretariat DPRD Provinsi Jawa Tengah"
+    }
+  ],
+  "pics": [
+    {
+      "id": "8",
+      "name": "Achmad Julianto, S.Kom"
+    },
+    {
+      "id": "3",
+      "name": "Adi Kurniawan, S.Kom"
+    },
+    {
+      "id": "1",
+      "name": "Ahmad Arif Pamuji, S.Kom"
+    },
+    {
+      "id": "6",
+      "name": "Chandra Wahyu Wiratama, A.md"
+    },
+    {
+      "id": "12",
+      "name": "Debby Raharjo, S.Kom"
+    },
+    {
+      "id": "11",
+      "name": "Diaz Aulia Fahmi, S.Kom"
+    },
+    {
+      "id": "10",
+      "name": "Fajar Andi D, S.Kom"
+    },
+    {
+      "id": "13",
+      "name": "Fathurohim Muhammad Ahsin Sidqi, ST"
+    },
+    {
+      "id": "9",
+      "name": "Hari Tri Murdiatmoko, S.Kom"
+    },
+    {
+      "id": "14",
+      "name": "Helpdesk - Ori"
+    },
+    {
+      "id": "17",
+      "name": "Helpdesk - Radit"
+    },
+    {
+      "id": "16",
+      "name": "Helpdesk - Toriq"
+    },
+    {
+      "id": "15",
+      "name": "Helpdesk - Valen"
+    },
+    {
+      "id": "4",
+      "name": "Machrifal Fidha H, S.Kom"
+    },
+    {
+      "id": "2",
+      "name": "Muhammad Hasnan, ST"
+    },
+    {
+      "id": "7",
+      "name": "Ocky Prima Hermawan, S. Kom"
+    },
+    {
+      "id": "5",
+      "name": "Seto Aji Nugroho, S.Kom"
+    }
+  ]
+}

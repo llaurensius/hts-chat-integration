@@ -239,7 +239,200 @@ const updateCategoryContact = async (req, res) => {
   }
 };
 
+
+
+const xlsx = require('xlsx');
+
+// Menghapus SEMUA data kontak pelanggan / master data (Khusus ADMIN)
+const clearAllCustomerContacts = async (req, res) => {
+  try {
+    // 1. Cek apakah ada tiket yang sedang aktif
+    const activeTicketsCount = await prisma.ticket.count({
+      where: { status: { in: ['OPEN', 'RESOLVED'] } }
+    });
+    const totalTicketsCount = await prisma.ticket.count();
+
+    if (totalTicketsCount > 0 && !req.body.force) {
+      return res.status(400).json({
+        requires_force: true,
+        error: `Terdapat ${totalTicketsCount} data riwayat tiket (${activeTicketsCount} aktif). Anda harus menggunakan opsi Hapus Paksa (Force Delete) untuk membersihkan seluruh data pelanggan beserta tiket terkait.`
+      });
+    }
+
+    // 2. Hapus seluruh data Customer (dan tiket/pesan terkait jika force)
+    await prisma.$transaction(async (tx) => {
+      if (req.body.force) {
+        await tx.ticketHts.deleteMany();
+        await tx.message.deleteMany();
+        await tx.ticketCategory.deleteMany();
+        await tx.ticket.deleteMany();
+        await tx.$executeRawUnsafe('ALTER SEQUENCE "Ticket_id_seq" RESTART WITH 1');
+        await tx.$executeRawUnsafe('ALTER SEQUENCE "Message_id_seq" RESTART WITH 1');
+      }
+      await tx.customer.deleteMany();
+      await tx.$executeRawUnsafe('ALTER SEQUENCE "Customer_id_seq" RESTART WITH 1');
+    });
+
+    if (req.io) {
+      req.io.emit('customer_updated', { customerId: 'all' });
+      req.io.emit('ticket_closed', { ticketId: 'all' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Seluruh data master kontak pelanggan berhasil dihapus bersih dan ID di-reset ke 1.'
+    });
+  } catch (error) {
+    console.error('[Admin API] Error clearing customer contacts:', error);
+    res.status(500).json({ error: error.message || 'Gagal menghapus data kontak pelanggan' });
+  }
+};
+
+// Parser sederhana vCard (.vcf) - tanpa library tambahan
+const parseVcfToRows = (text) => {
+  const cards = String(text).split(/BEGIN:VCARD/i).slice(1);
+  const rows = [];
+  for (const card of cards) {
+    const block = card.split(/END:VCARD/i)[0] || '';
+    const lines = block.split(/\r?\n/);
+    let name = '', org = '';
+    const nums = [];
+    for (const line of lines) {
+      const idx = line.indexOf(':');
+      if (idx < 1) continue;
+      const key = line.slice(0, idx).split(';')[0].trim().toUpperCase();
+      let val = line.slice(idx + 1).trim();
+      if (key === 'FN' && val && !name) name = val;
+      else if (key === 'N' && !name && val) name = val.split(';').filter(Boolean).slice(0, 3).reverse().join(' ').trim();
+      else if (key === 'ORG' && val && !org) org = val.split(';').filter(Boolean).join(' - ');
+      else if (key === 'TEL' && val) nums.push(val);
+    }
+    // Satu kontak bisa punya beberapa TEL -> buat 1 baris per nomor
+    const phoneList = nums.length ? nums : [''];
+    for (const tel of phoneList) rows.push({ 'Name': name, 'Phone 1 - Value': tel, 'Organization Name': org });
+  }
+  return rows;
+};
+
+// Import Master Data Kontak Pelanggan / OPD (Khusus ADMIN - Prioritas Utama)
+const importCustomerContacts = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'File Excel (.xlsx/.xls), CSV, atau VCF wajib diunggah' });
+  }
+
+  try {
+    const originalName = (req.file.originalname || '').toLowerCase();
+    const buffer = req.file.buffer;
+    const isVcf = originalName.endsWith('.vcf') || originalName.endsWith('.vcard') ||
+      (buffer && buffer.slice(0, 40).toString('utf8').trimStart().toUpperCase().startsWith('BEGIN:VCARD'));
+
+    let rows;
+    if (isVcf) {
+      rows = parseVcfToRows(buffer ? buffer.toString('utf8') : '');
+    } else {
+      const workbook = xlsx.read(buffer || req.file.path, { type: buffer ? 'buffer' : 'file' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: 'File tidak memuat data kontak' });
+    }
+
+    let importedCount = 0;
+    let updatedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      // Dukungan Fleksibel: Format Standar, Excel Kustom, dan Format Resmi Google Contacts CSV
+      // 1. Nama: Prioritaskan Name, lalu Given Name + Family Name (Google Contacts)
+      let rawName = row['nama'] || row['Nama'] || row['NAME'] || row['name'] || row['kontak'] || row['Kontak'] || row['Name'] || '';
+      if (!rawName && (row['Given Name'] || row['Family Name'])) {
+        rawName = `${row['Given Name'] || ''} ${row['Family Name'] || ''}`.trim();
+      }
+      if (!rawName && (row['First Name'] || row['Middle Name'] || row['Last Name'])) {
+        rawName = `${row['First Name'] || ''} ${row['Middle Name'] || ''} ${row['Last Name'] || ''}`.trim();
+      }
+
+      // 2. Nomor WhatsApp: Prioritaskan Phone 1 - Value (Google Contacts), nomor_wa, phone, dll.
+      let rawNumber = row['Phone 1 - Value'] || row['Phone 2 - Value'] || row['Phone 1'] || 
+                        row['nomor_wa'] || row['nomor'] || row['wa'] || row['no_hp'] || 
+                        row['phone'] || row['Phone'] || row['WA'] || row['No WA'] || row['Mobile'] || '';
+
+      // 3. Instansi / OPD: Prioritaskan Organization 1 - Name (Google Contacts), instansi, opd, skpd
+      let rawSkpd = row['Organization 1 - Name'] || row['Organization Name'] || row['Department'] || row['Organization 1 - Department'] ||
+                    row['Organization Department'] || row['Organization Title'] ||
+                    row['instansi'] || row['Instansi'] || row['opd'] || row['OPD'] || row['skpd'] || row['SKPD'] || '';
+
+      if (!rawNumber) {
+        errors.push(`Baris ${i + 2}: Nomor WhatsApp kosong`);
+        continue;
+      }
+
+      // Bersihkan nomor WhatsApp (ganti 08xxx -> 628xxx)
+      let cleanNum = String(rawNumber).replace(/\D/g, '');
+      if (cleanNum.startsWith('0')) {
+        cleanNum = '62' + cleanNum.substring(1);
+      } else if (cleanNum.startsWith('8')) {
+        cleanNum = '62' + cleanNum;
+      }
+
+      if (cleanNum.length < 10) {
+        errors.push(`Baris ${i + 2}: Format nomor WA '${rawNumber}' tidak valid`);
+        continue;
+      }
+
+      const officialName = rawName ? String(rawName).trim() : cleanNum;
+      const officialSkpd = rawSkpd ? String(rawSkpd).trim() : null;
+
+      // Upsert ke Customer dengan flag is_imported_contact = true
+      const existing = await prisma.customer.findUnique({ where: { wa_number: cleanNum } });
+      if (existing) {
+        await prisma.customer.update({
+          where: { id: existing.id },
+          data: {
+            name: officialName,
+            skpd_name: officialSkpd || existing.skpd_name,
+            is_imported_contact: true, // Prioritas Utama
+            is_custom_name: true
+          }
+        });
+        updatedCount++;
+      } else {
+        await prisma.customer.create({
+          data: {
+            wa_number: cleanNum,
+            name: officialName,
+            skpd_name: officialSkpd,
+            is_imported_contact: true, // Prioritas Utama
+            is_custom_name: true
+          }
+        });
+        importedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Berhasil mengimpor kontak master data: ${importedCount} kontak baru, ${updatedCount} kontak diperbarui.`,
+      stats: {
+        totalRows: rows.length,
+        importedCount,
+        updatedCount,
+        errorCount: errors.length,
+        errors: errors.slice(0, 10)
+      }
+    });
+  } catch (error) {
+    console.error('[Admin API] Error importing contacts:', error);
+    res.status(500).json({ error: error.message || 'Gagal memproses file import kontak' });
+  }
+};
+
+
 module.exports = {
+
   getUsers,
   createUser,
   deleteUser,
@@ -247,6 +440,7 @@ module.exports = {
   getCategoryContacts,
   addCategoryContact,
   deleteCategoryContact,
-  updateCategoryContact
+  updateCategoryContact,
+  importCustomerContacts,
+  clearAllCustomerContacts
 };
-

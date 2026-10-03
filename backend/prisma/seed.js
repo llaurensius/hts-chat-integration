@@ -43,7 +43,8 @@ async function main() {
   console.log('[Category Contacts Created]');
 
   // 2. Hash default password
-  const hashedPassword = await bcrypt.hash('password123', 10);
+  const seedPassword = process.env.SEED_DEFAULT_PASSWORD || 'password123';
+  const hashedPassword = await bcrypt.hash(seedPassword, 10);
 
   // 3. Seed Users (Admin, L1 Dispatcher & L2 Technicians)
   const users = [

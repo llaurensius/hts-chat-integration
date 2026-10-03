@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "prisma:seed": "node prisma/seed.js"
+    "setup:evolution": "node src/scripts/setupEvolution.js",
+    "prisma:seed": "node prisma/seed.js",
+    "migrate:v4": "node src/scripts/migrateV4.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -26,7 +28,8 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "pg": "^8.23.0",
-    "socket.io": "^4.8.4"
+    "socket.io": "^4.8.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14",
