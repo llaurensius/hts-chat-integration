@@ -17,9 +17,11 @@ const safeCompare = (a, b) => {
  * Harus cocok dengan WEBHOOK_SECRET atau EVOLUTION_API_TOKEN.
  */
 const verifyWebhookAuth = (req, res, next) => {
-  const secret = process.env.WEBHOOK_SECRET || process.env.EVOLUTION_API_TOKEN;
+  const validSecrets = [process.env.WEBHOOK_SECRET, process.env.EVOLUTION_API_TOKEN]
+    .filter(Boolean)
+    .map(s => String(s).trim());
 
-  if (!secret) {
+  if (validSecrets.length === 0) {
     console.error('[Webhook Security] Neither WEBHOOK_SECRET nor EVOLUTION_API_TOKEN is set in environment!');
     return res.status(500).json({ error: 'Server misconfiguration: Webhook secret not configured.' });
   }
@@ -33,7 +35,9 @@ const verifyWebhookAuth = (req, res, next) => {
     bearerToken || 
     req.query?.token;
 
-  if (!candidateKey || !safeCompare(String(candidateKey).trim(), String(secret).trim())) {
+  const isValid = candidateKey && validSecrets.some(sec => safeCompare(String(candidateKey).trim(), sec));
+
+  if (!isValid) {
     console.warn(`[Webhook Security] Unauthorized webhook attempt rejected from IP ${req.ip}`);
     return res.status(401).json({ error: 'Akses webhook ditolak: Token autentikasi tidak valid atau tidak disertakan.' });
   }
