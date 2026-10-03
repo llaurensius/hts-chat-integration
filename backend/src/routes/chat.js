@@ -39,52 +39,53 @@ const {
   reopenTicket
 } = require('../controllers/chatController');
 const { upload } = require('../utils/imageStorage'); // Gunakan imageStorage yang sudah benar
+const { requireRole } = require('../middlewares/authMiddleware');
 
 // Endpoint untuk Dashboard
-router.get('/tickets', getTickets);
-router.get('/tickets/:ticketId/messages', getMessages);
-router.post('/send', sendReply);
-router.post('/sendMedia', upload.single('media'), sendMedia);
-router.get('/categories', getCategorys);
-router.post('/tickets/:ticketId/close', upload.array('attachment', 5), closeTicket);
-router.post('/tickets/:ticketId/assign', upload.array('attachment', 5), assignTicket);
-router.post('/tickets/:ticketId/resolve', resolveTicket);
-router.post('/tickets/:ticketId/return', returnTicket);
-router.post('/tickets/:ticketId/internal-note', addInternalNote);
-router.put('/customers/:customerId', updateCustomer);
-router.post('/tickets/:ticketId/sync-hts', upload.array('attachment', 5), syncTicketToHts);
-router.post('/tickets/:ticketId/sync-solve-hts', syncSolveHts);
+router.get('/tickets', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), getTickets);
+router.get('/tickets/:ticketId/messages', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), getMessages);
+router.post('/send', requireRole(['ADMIN', 'SPV', 'L1']), sendReply);
+router.post('/sendMedia', requireRole(['ADMIN', 'SPV', 'L1']), upload.single('media'), sendMedia);
+router.get('/categories', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), getCategorys);
+router.post('/tickets/:ticketId/close', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), closeTicket);
+router.post('/tickets/:ticketId/assign', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), assignTicket);
+router.post('/tickets/:ticketId/resolve', requireRole(['ADMIN', 'SPV', 'L2']), resolveTicket);
+router.post('/tickets/:ticketId/return', requireRole(['ADMIN', 'SPV', 'L2']), returnTicket);
+router.post('/tickets/:ticketId/internal-note', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), addInternalNote);
+router.put('/customers/:customerId', requireRole(['ADMIN', 'SPV', 'L1']), updateCustomer);
+router.post('/tickets/:ticketId/sync-hts', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), syncTicketToHts);
+router.post('/tickets/:ticketId/sync-solve-hts', requireRole(['ADMIN', 'SPV', 'L1']), syncSolveHts);
 
 // Rute V4: Multi-HTS & Percakapan Biasa
-router.get('/tickets/:ticketId/hts', getTicketHtsList);
-router.post('/tickets/:ticketId/hts', upload.array('attachment', 5), createTicketHts);
-router.post('/tickets/:ticketId/hts/:htsId/solve', upload.array('attachment', 5), solveTicketHtsSingle);
-router.patch('/tickets/:ticketId/toggle-aduan', toggleAduan);
-router.post('/tickets/:ticketId/close-general', closeGeneralChat);
+router.get('/tickets/:ticketId/hts', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), getTicketHtsList);
+router.post('/tickets/:ticketId/hts', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), createTicketHts);
+router.post('/tickets/:ticketId/hts/:htsId/solve', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), solveTicketHtsSingle);
+router.patch('/tickets/:ticketId/toggle-aduan', requireRole(['ADMIN', 'SPV', 'L1']), toggleAduan);
+router.post('/tickets/:ticketId/close-general', requireRole(['ADMIN', 'SPV', 'L1']), closeGeneralChat);
 
 // Rute V4 Fase 2: Catatan Internal Multimedia Dua Arah (L1 <-> L2)
-router.post('/tickets/:ticketId/internal-media', upload.single('media'), sendInternalMedia);
-router.get('/tickets/:ticketId/internal-media', getInternalMediaList);
+router.post('/tickets/:ticketId/internal-media', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), upload.single('media'), sendInternalMedia);
+router.get('/tickets/:ticketId/internal-media', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), getInternalMediaList);
 
 // Rute V4 Fase 3: Timeline Divider Riwayat Lampau & Penarikan WA Lama
-router.get('/customers/:customerId/history-messages', getCustomerHistoryMessages);
-router.post('/customers/:customerId/fetch-wa-history', fetchWaHistory);
+router.get('/customers/:customerId/history-messages', requireRole(['ADMIN', 'SPV', 'L1']), getCustomerHistoryMessages);
+router.post('/customers/:customerId/fetch-wa-history', requireRole(['ADMIN', 'SPV', 'L1']), fetchWaHistory);
 
 // Rute V4 Fase 5: Balasan Cepat (Quick Replies / Canned Responses)
-router.get('/quick-replies', getQuickReplies);
-router.post('/quick-replies', createQuickReply);
-router.put('/quick-replies/:id', updateQuickReply);
-router.delete('/quick-replies/:id', deleteQuickReply);
+router.get('/quick-replies', requireRole(['ADMIN', 'SPV', 'L1']), getQuickReplies);
+router.post('/quick-replies', requireRole(['ADMIN', 'SPV', 'L1']), createQuickReply);
+router.put('/quick-replies/:id', requireRole(['ADMIN', 'SPV', 'L1']), updateQuickReply);
+router.delete('/quick-replies/:id', requireRole(['ADMIN', 'SPV', 'L1']), deleteQuickReply);
 
 // Rute V4 Fase 7: Penautan Manual & Pemulihan Tiket HTS (Manual Link & Disaster Recovery)
-router.post('/tickets/:ticketId/link-hts', linkHtsTicket);
-router.post('/tickets/:ticketId/hts/:htsTicketId/complete-pic', completeHtsPic);
-router.delete('/tickets/:ticketId/hts/:htsTicketId/unlink', unlinkHtsTicket);
+router.post('/tickets/:ticketId/link-hts', requireRole(['ADMIN', 'SPV', 'L1']), linkHtsTicket);
+router.post('/tickets/:ticketId/hts/:htsTicketId/complete-pic', requireRole(['ADMIN', 'SPV', 'L1']), completeHtsPic);
+router.delete('/tickets/:ticketId/hts/:htsTicketId/unlink', requireRole(['ADMIN', 'SPV', 'L1']), unlinkHtsTicket);
 
 // Rute Fitur Buku Kontak HP & Mulai Chat Baru (Outbound)
-router.get('/contacts/search', searchPhoneContacts);
-router.post('/start-new-chat', startNewChat);
-router.post('/tickets/:ticketId/reopen', reopenTicket);
+router.get('/contacts/search', requireRole(['ADMIN', 'SPV', 'L1']), searchPhoneContacts);
+router.post('/start-new-chat', requireRole(['ADMIN', 'SPV', 'L1']), startNewChat);
+router.post('/tickets/:ticketId/reopen', requireRole(['ADMIN', 'SPV', 'L1']), reopenTicket);
 
 module.exports = router;
 

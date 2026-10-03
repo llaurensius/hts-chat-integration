@@ -9,7 +9,12 @@ const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.rep
 const API_URL = `${BASE_URL}/api`;
 const SOCKET_URL = BASE_URL;
 
-const socket = io(SOCKET_URL);
+const socket = io(SOCKET_URL, {
+  auth: (cb) => {
+    cb({ token: localStorage.getItem('token') || '' });
+  },
+  autoConnect: Boolean(localStorage.getItem('token'))
+});
 
 // --- Konfigurasi Axios Global ---
 axios.interceptors.request.use((config) => {
@@ -35,6 +40,12 @@ function Login() {
       const res = await axios.post(`${API_URL}/auth/login`, { email, password });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
+      socket.auth = { token: res.data.token };
+      if (!socket.connected) {
+        socket.connect();
+      } else {
+        socket.disconnect().connect();
+      }
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.error || 'Login gagal. Periksa kembali email & password.');
@@ -632,16 +643,17 @@ Tetap tautkan tiket ini?`)) {
   const [editingContactId, setEditingContactId] = useState(null);
   const [editContactData, setEditContactData] = useState({ name: '', wa_target: '' });
 
-  // State Edit Identitas Pelapor (Nama & Instansi/SKPD) (Rekomendasi C)
+  // State Edit Identitas Pelapor (Nama, Instansi/SKPD, & Nomor WA) (FIX-05)
   const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
-  const [editCustomerData, setEditCustomerData] = useState({ name: '', skpd_name: '' });
+  const [editCustomerData, setEditCustomerData] = useState({ name: '', skpd_name: '', wa_number: '' });
   const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
   const handleOpenEditCustomerModal = () => {
     if (!activeTicket?.customer) return;
     setEditCustomerData({
       name: activeTicket.customer.name || '',
-      skpd_name: activeTicket.customer.skpd_name || ''
+      skpd_name: activeTicket.customer.skpd_name || '',
+      wa_number: activeTicket.customer.wa_number || ''
     });
     setShowEditCustomerModal(true);
   };
@@ -655,7 +667,8 @@ Tetap tautkan tiket ini?`)) {
     try {
       const res = await axios.put(`${API_URL}/chat/customers/${activeTicket.customer.id}`, {
         name: editCustomerData.name.trim(),
-        skpd_name: editCustomerData.skpd_name.trim()
+        skpd_name: editCustomerData.skpd_name.trim(),
+        wa_number: editCustomerData.wa_number.trim()
       });
       const updatedCustomer = res.data.customer;
       
@@ -762,6 +775,7 @@ Tetap tautkan tiket ini?`)) {
   const [editingQuickReplyId, setEditingQuickReplyId] = useState(null);
   const [editingQuickReply, setEditingQuickReply] = useState({ shortcut: '', title: '', content: '' });
   const [syncHtsCust, setSyncHtsCust] = useState('');
+  const [syncHtsWa, setSyncHtsWa] = useState('');
   const [syncHtsOpd, setSyncHtsOpd] = useState('');
   const [syncIndukOpdId, setSyncIndukOpdId] = useState('');
   const [syncHtsTanggal, setSyncHtsTanggal] = useState(getTodayDate());
@@ -1110,6 +1124,7 @@ Tetap tautkan tiket ini?`)) {
     ) : null;
     setSyncIndukOpdId(matchedOpd ? matchedOpd.id : '');
     setSyncHtsCust(activeTicket.customer?.name || '');
+    setSyncHtsWa(activeTicket.customer?.wa_number || '');
     setSyncHtsOpd(activeTicket.customer?.skpd_name || 'Dinas Komunikasi dan Informatika Provinsi Jawa Tengah');
     setSyncHtsTanggal(getTodayDate());
     setSyncHtsJam(getCurrentTime());
@@ -1163,6 +1178,7 @@ Tetap tautkan tiket ini?`)) {
     try {
       const formData = new FormData();
       formData.append('hts_cust', syncHtsCust);
+      formData.append('hts_wa', syncHtsWa);
       formData.append('hts_opd', syncHtsOpd);
       formData.append('induk_opd_id', syncIndukOpdId);
       formData.append('hts_tgltshoot', syncHtsTanggal);
@@ -1189,6 +1205,9 @@ Tetap tautkan tiket ini?`)) {
       alert(res.data?.message || 'Tiket berhasil disinkronkan ke portal HTS!');
       setShowSyncHtsModal(false);
       loadTickets();
+      if (res.data?.ticket) {
+        setActiveTicket(res.data.ticket);
+      }
       loadMessages(activeTicket.id);
     } catch (err) {
       setSyncHtsError(err.response?.data?.error || 'Gagal menyinkronkan tiket ke portal HTS');
@@ -1652,6 +1671,7 @@ Tetap tautkan tiket ini?`)) {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    socket.disconnect();
     navigate('/login');
   };
 
@@ -3118,132 +3138,117 @@ Tetap tautkan tiket ini?`)) {
                     ) : (
                       /* KONDISI 2: ADUAN TEKNIS (STATUS HTS & TIM L2) */
                       <>
-                        {/* Status Portal HTS Diskomdigi (Multi-HTS Support V4) */}
-                        <div className="p-3 rounded-xl border bg-gray-50/70 border-gray-200 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
-                              <Globe className="w-3.5 h-3.5 text-blue-600" />
-                              <span>Portal HTS Diskomdigi</span>
-                              {(activeTicket.hts_tickets?.length > 1) && (
-                                <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded-full font-bold">
-                                  {activeTicket.hts_tickets.length} Tiket
-                                </span>
-                              )}
-                            </div>
-                            {(!activeTicket.hts_ticket_no && (!activeTicket.hts_tickets || activeTicket.hts_tickets.length === 0)) && (
-                              <span className="text-[10px] font-medium px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
-                                Belum Terhubung
-                              </span>
-                            )}
-                          </div>
+                        {/* Status Portal HTS Diskomdigi (Multi-HTS Support V4.2 SSOT) */}
+                        {(() => {
+                          const displayedHtsTickets = (activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0)
+                            ? activeTicket.hts_tickets
+                            : (activeTicket.hts_ticket_no ? [{
+                                id: activeTicket.hts_ticket_id || 'legacy',
+                                hts_ticket_no: activeTicket.hts_ticket_no,
+                                hts_ticket_status: activeTicket.hts_ticket_status || 'PENDING',
+                                is_legacy: true
+                              }] : []);
 
-                          {/* Jika ada daftar Tiket HTS (Multi-HTS) */}
-                          {activeTicket.hts_tickets && activeTicket.hts_tickets.length > 0 ? (
-                            <div className="space-y-2">
-                              {activeTicket.hts_tickets.map((ht) => (
-                                <div key={ht.id} className="p-2.5 bg-white rounded-lg border border-gray-200 shadow-2xs space-y-1.5">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-mono font-bold text-xs text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                        #{ht.hts_ticket_no}
-                                      </span>
-                                      {ht.category?.name && (
-                                        <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.2 rounded">
-                                          {ht.category.name}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                                        ht.hts_ticket_status === 'SOLVED'
-                                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                          : 'bg-amber-100 text-amber-800 border-amber-300'
-                                      }`}>
-                                        {ht.hts_ticket_status || 'PENDING'}
-                                      </span>
-                                      {isL1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleUnlinkHtsTicket(ht.id, ht.hts_ticket_no)}
-                                          className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                                          title="Lepas tautan nomor HTS ini"
-                                        >
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
+                          return (
+                            <div className="p-3 rounded-xl border bg-gray-50/70 border-gray-200 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+                                  <Globe className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Portal HTS Diskomdigi</span>
+                                  {displayedHtsTickets.length > 1 && (
+                                    <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded-full font-bold">
+                                      {displayedHtsTickets.length} Tiket
+                                    </span>
+                                  )}
                                 </div>
-                              ))}
-
-                              {/* Tombol Tambah Tautan / Tiket HTS Lain */}
-                              {isL1 && (
-                                <button
-                                  type="button"
-                                  onClick={handleOpenSyncHtsModal}
-                                  className="w-full mt-1.5 py-1.5 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg border border-dashed border-blue-300 font-medium transition flex items-center justify-center gap-1"
-                                >
-                                  <Plus className="w-3.5 h-3.5" /> Tautkan / Terbitkan Tiket HTS Lain
-                                </button>
-                              )}
-                            </div>
-                          ) : activeTicket.hts_ticket_no ? (
-                            /* Fallback jika ada hts_ticket_no tapi belum ada di hts_tickets (tiket legacy) */
-                            <div className="space-y-1 mt-2 text-xs">
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-500 text-[11px]">No. Aduan:</span>
-                                <span className="font-mono font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                                  #{activeTicket.hts_ticket_no}
-                                </span>
-                              </div>
-                              <div className="flex justify-between items-center pt-1">
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                  activeTicket.hts_ticket_status === 'SOLVED' 
-                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                                    : 'bg-amber-100 text-amber-800 border-amber-300'
-                                }`}>
-                                  Status: {activeTicket.hts_ticket_status || 'PROSES'}
-                                </span>
-                                {isL1 && (
-                                  <button
-                                    type="button"
-                                    onClick={handleOpenSyncHtsModal}
-                                    className="text-[11px] text-blue-600 hover:underline"
-                                  >
-                                    + Tambah Lain
-                                  </button>
+                                {displayedHtsTickets.length === 0 && (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
+                                    Belum Terhubung
+                                  </span>
                                 )}
                               </div>
-                            </div>
-                          ) : (
-                            /* Belum ada tiket HTS sama sekali */
-                            <div className="mt-2">
-                              <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">
-                                Tiket ini belum diterbitkan atau ditautkan ke portal resmi HTS Diskomdigi.
-                              </p>
-                              {isL1 && (
-                                <button
-                                  type="button"
-                                  onClick={handleOpenSyncHtsModal}
-                                  className="w-full text-xs py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5"
+
+                              {/* Daftar Tiket HTS (SSOT Unifikasi V4.2) */}
+                              {displayedHtsTickets.length > 0 ? (
+                                <div className="space-y-2">
+                                  {displayedHtsTickets.map((ht) => (
+                                    <div key={ht.id || ht.hts_ticket_no} className="p-2.5 bg-white rounded-lg border border-gray-200 shadow-2xs space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-mono font-bold text-xs text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                            #{ht.hts_ticket_no}
+                                          </span>
+                                          {ht.category?.name && (
+                                            <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.2 rounded">
+                                              {ht.category.name}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                            ht.hts_ticket_status === 'SOLVED'
+                                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                              : 'bg-amber-100 text-amber-800 border-amber-300'
+                                          }`}>
+                                            {ht.hts_ticket_status || 'PENDING'}
+                                          </span>
+                                          {isL1 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleUnlinkHtsTicket(ht.id || ht.hts_ticket_id, ht.hts_ticket_no)}
+                                              className="p-1 text-gray-400 hover:text-red-600 hover:bg-rose-50 rounded transition"
+                                              title="Lepas tautan tiket HTS dari percakapan ini"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+
+                                  {/* Tombol Tambah Tautan / Tiket HTS Lain */}
+                                  {isL1 && (
+                                    <button
+                                      type="button"
+                                      onClick={handleOpenSyncHtsModal}
+                                      className="w-full mt-1.5 py-1.5 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg border border-dashed border-blue-300 font-medium transition flex items-center justify-center gap-1"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" /> Tautkan / Terbitkan Tiket HTS Lain
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                /* Belum ada tiket HTS sama sekali */
+                                <div className="mt-2">
+                                  <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">
+                                    Tiket ini belum diterbitkan atau ditautkan ke portal resmi HTS Diskomdigi.
+                                  </p>
+                                  {isL1 && (
+                                    <button
+                                      type="button"
+                                      onClick={handleOpenSyncHtsModal}
+                                      className="w-full text-xs py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-sm transition flex items-center justify-center gap-1.5"
+                                    >
+                                      <Globe className="w-3.5 h-3.5" /> Sinkronkan / Tautkan ke Portal HTS
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {activeTicket.hts_ticket_no && (
+                                <a
+                                  href="https://hts.diskomdigi.jatengprov.go.id/tshoot"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="pt-1 text-[11px] text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 font-medium hover:underline border-t border-gray-100"
                                 >
-                                  <Globe className="w-3.5 h-3.5" /> Sinkronkan / Tautkan ke Portal HTS
-                                </button>
+                                  Buka Portal HTS <ExternalLink className="w-3 h-3" />
+                                </a>
                               )}
                             </div>
-                          )}
-
-                          {activeTicket.hts_ticket_no && (
-                            <a
-                              href="https://hts.diskomdigi.jatengprov.go.id/tshoot"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="pt-1 text-[11px] text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 font-medium hover:underline border-t border-gray-100"
-                            >
-                              Buka Portal HTS <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
+                          );
+                        })()}
 
                         {/* Status Tim Penanganan L2 */}
                         {activeTicket.categories && activeTicket.categories.length > 0 && (
@@ -5151,6 +5156,25 @@ Tetap tautkan tiket ini?`)) {
                 />
               </div>
 
+              {/* 1b. Nomor WhatsApp Pemohon (FIX-05) */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                  <Phone className="w-3.5 h-3.5 text-gray-500" />
+                  Nomor WhatsApp Pemohon *
+                </label>
+                <input 
+                  type="text" 
+                  value={syncHtsWa}
+                  onChange={(e) => setSyncHtsWa(e.target.value)}
+                  placeholder="Contoh: 08123456789 atau 628123456789"
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono"
+                  required
+                />
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  Dapat disesuaikan jika pelapor menggunakan nomor perantara atau salah sambung.
+                </p>
+              </div>
+
               {/* 2. Instansi Pelapor & OPD Induk */}
               <div className="space-y-2">
                 <div>
@@ -5390,40 +5414,46 @@ Tetap tautkan tiket ini?`)) {
                     <label className="flex-1 border border-dashed border-gray-300 hover:border-blue-400 rounded-lg p-2 text-center cursor-pointer bg-white transition flex items-center justify-center gap-2 text-xs text-gray-600">
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/*,.pdf"
                         multiple
                         className="hidden"
                         onChange={e => {
                           if (e.target.files && e.target.files.length > 0) {
                             const newFiles = Array.from(e.target.files);
-                            setSyncHtsFiles(prev => [...prev, ...newFiles]);
+                            setSyncHtsFiles(prev => [...prev, ...newFiles].slice(0, 5));
                             setSyncHtsFile(newFiles[0]);
                             setSyncHtsUseChatImage(false);
                           }
                         }}
                       />
                       <Paperclip className="w-3.5 h-3.5 text-gray-500" />
-                      <span>Upload foto dari komputer (Bisa pilih 2-3 foto)</span>
+                      <span>Upload foto/berkas dari komputer (Maksimal 5 berkas: Gambar / PDF)</span>
                     </label>
                   </div>
                   {syncHtsFiles.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {syncHtsFiles.map((file, idx) => (
-                        <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px] border border-blue-200">
-                          <span className="truncate max-w-[130px]">{file.name}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated = syncHtsFiles.filter((_, i) => i !== idx);
-                              setSyncHtsFiles(updated);
-                              setSyncHtsFile(updated[0] || null);
-                            }}
-                            className="text-blue-500 hover:text-red-500"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
+                    <div className="space-y-1 pt-1">
+                      <div className="text-[10px] text-gray-500 font-medium">
+                        Berkas terpilih ({syncHtsFiles.length}/5):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {syncHtsFiles.map((file, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px] border border-blue-200">
+                            <span className="truncate max-w-[140px]">{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = syncHtsFiles.filter((_, i) => i !== idx);
+                                setSyncHtsFiles(updated);
+                                setSyncHtsFile(updated[0] || null);
+                              }}
+                              className="text-blue-500 hover:text-red-500 p-0.5"
+                              title="Hapus berkas"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -5972,8 +6002,21 @@ Tetap tautkan tiket ini?`)) {
                   placeholder="Contoh: Diskominfo / Bagian Umum"
                   className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Nomor WhatsApp Pelapor
+                </label>
+                <input
+                  type="text"
+                  value={editCustomerData.wa_number}
+                  onChange={e => setEditCustomerData({ ...editCustomerData, wa_number: e.target.value })}
+                  placeholder="Contoh: 628123456789 atau 08123456789"
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition font-mono"
+                />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Nama ini akan tersimpan permanen di database dan muncul pada rekap laporan CSV.
+                  Format otomatis dinormalisasi ke standar internasional (628...).
                 </p>
               </div>
 

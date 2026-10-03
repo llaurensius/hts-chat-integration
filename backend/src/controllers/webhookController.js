@@ -2,6 +2,7 @@ const prisma = require('../config/db');
 const evolutionService = require('../services/evolutionService');
 const fs = require('fs');
 const path = require('path');
+const { withLock } = require('../utils/perNumberLock');
 
 const handleIncomingMessage = async (req, res) => {
   // Selalu balas 200 OK ke Evolution API dengan cepat agar webhook tidak timeout
@@ -25,15 +26,25 @@ const handleIncomingMessage = async (req, res) => {
 
     if (!remoteJid || remoteJid.includes('@g.us')) return;
 
-    // 2. Cegah duplikasi jika waMessageId sudah ada di database (pesan terkirim via Web Dashboard)
-    if (waMessageId) {
-      const existingMsg = await prisma.message.findFirst({
-        where: { wa_message_id: waMessageId }
-      });
-      if (existingMsg) {
-        return;
-      }
+    // Nomor WA target / lawan bicara (prioritas: remoteJidAlt jika remoteJid adalah LID)
+    let targetJid = remoteJid;
+    if (remoteJid.includes('@lid') && remoteJidAlt && remoteJidAlt.includes('@s.whatsapp.net')) {
+      targetJid = remoteJidAlt;
     }
+    const waNumber = targetJid.split('@')[0];
+    if (!waNumber) return;
+
+    // DATA-01: Serialisasi pemrosesan per nomor WA dengan lock untuk mencegah race-condition tiket aktif ganda
+    await withLock(`wa:${waNumber}`, async () => {
+      // 2. Cegah duplikasi jika waMessageId sudah ada di database (pesan terkirim via Web Dashboard)
+      if (waMessageId) {
+        const existingMsg = await prisma.message.findFirst({
+          where: { wa_message_id: waMessageId }
+        });
+        if (existingMsg) {
+          return;
+        }
+      }
 
     // Ekstrak teks pesan
     let conversation = 
@@ -60,15 +71,16 @@ const handleIncomingMessage = async (req, res) => {
       if (!base64Data) {
         try {
           const axios = require('axios');
-          const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-          const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-          const INSTANCE = 'helpdesk-wa';
+          const { EVOLUTION_API_URL: EVO_URL, EVOLUTION_API_TOKEN: EVO_KEY, EVOLUTION_INSTANCE_NAME: INSTANCE } = require('../config/env');
           
           console.log('[Webhook] Fetching media base64 from Evolution API...');
           const mediaRes = await axios.post(
             `${EVO_URL}/chat/getBase64FromMediaMessage/${INSTANCE}`,
             { message: messageData },
-            { headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' } }
+            { 
+              headers: { apikey: EVO_KEY, 'Content-Type': 'application/json' },
+              timeout: 15000
+            }
           );
           
           base64Data = mediaRes.data?.base64 || mediaRes.data?.message?.base64;
@@ -99,13 +111,6 @@ const handleIncomingMessage = async (req, res) => {
     }
 
     if (!conversation) conversation = '[Pesan Media/Sistem]';
-
-    // Nomor WA target / lawan bicara (prioritas: remoteJidAlt jika remoteJid adalah LID)
-    let targetJid = remoteJid;
-    if (remoteJid.includes('@lid') && remoteJidAlt && remoteJidAlt.includes('@s.whatsapp.net')) {
-      targetJid = remoteJidAlt;
-    }
-    const waNumber = targetJid.split('@')[0];
 
     // Resolusi nama pelapor (Rekomendasi C - Hybrid: Web Custom > Kontak HP > WA pushName > waNumber)
     let resolvedName = (!fromMe && messageData.pushName) ? messageData.pushName : waNumber;
@@ -219,17 +224,26 @@ const handleIncomingMessage = async (req, res) => {
       }
     }
 
-    // 4. Simpan pesan ke database (AGENT jika dari HP helpdesk, CUSTOMER jika dari pelapor)
+    // 4. Simpan pesan ke database secara atomik (DATA-02: tangkap P2002 jika terjadi bentrok duplikat)
     const senderType = fromMe ? 'AGENT' : 'CUSTOMER';
-    const savedMessage = await prisma.message.create({
-      data: {
-        ticket_id: ticketId,
-        sender_type: senderType,
-        message_text: conversation,
-        attachment_url: attachmentUrl, // Fase 3: Simpan URL Attachment
-        wa_message_id: waMessageId
+    let savedMessage;
+    try {
+      savedMessage = await prisma.message.create({
+        data: {
+          ticket_id: ticketId,
+          sender_type: senderType,
+          message_text: conversation,
+          attachment_url: attachmentUrl, // Fase 3: Simpan URL Attachment
+          wa_message_id: waMessageId
+        }
+      });
+    } catch (createErr) {
+      if (createErr.code === 'P2002' && (createErr.meta?.target?.includes('wa_message_id') || createErr.message?.includes('wa_message_id'))) {
+        console.log(`[Webhook] Duplikasi pesan wa_message_id ${waMessageId} dicegah secara atomik oleh constraint DB (P2002).`);
+        return;
       }
-    });
+      throw createErr;
+    }
 
     // 5. Broadcast notifikasi ke Socket.io
     if (req.io) {
@@ -243,6 +257,7 @@ const handleIncomingMessage = async (req, res) => {
         senderType: senderType
       });
     }
+    }); // Akhir dari withLock (`wa:${waNumber}`)
 
   } catch (error) {
     console.error('[Webhook] Error processing incoming message:', error);

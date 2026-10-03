@@ -1,6 +1,8 @@
 const prisma = require('../config/db');
 const evolutionService = require('../services/evolutionService');
 const htsClientService = require('../services/htsClientService');
+const { EVOLUTION_API_URL, EVOLUTION_API_TOKEN, EVOLUTION_INSTANCE_NAME } = require('../config/env');
+const { sanitizeAttachmentUrl } = require('../utils/safePath');
 
 // Mengambil semua tiket aktif beserta pesan terakhirnya
 const getTickets = async (req, res) => {
@@ -12,7 +14,11 @@ const getTickets = async (req, res) => {
     // Pemisahan tab aktif vs selesai dilakukan di frontend (App.jsx:2146-2150).
     let whereClause = {};
 
-    if (req.user && req.user.role === 'L2' && req.user.category_id) {
+    if (req.user && req.user.role === 'L2') {
+      if (!req.user.category_id) {
+        // L2 tanpa penugasan category_id tidak boleh melihat tiket apa pun (AUTH-01)
+        return res.json([]);
+      }
       whereClause.is_aduan = true; // Isolasi percakapan biasa dari antrean L2 (Fase 1 - V4)
       whereClause.categories = {
         some: {
@@ -49,9 +55,35 @@ const getTickets = async (req, res) => {
 // Mengambil riwayat percakapan untuk satu tiket spesifik
 const getMessages = async (req, res) => {
   const { ticketId } = req.params;
+  const parsedTicketId = parseInt(ticketId);
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
+
   try {
+    // Validasi hak akses untuk L2: hanya boleh melihat pesan pada tiket aduan yang ditugaskan ke timnya (AUTH-01)
+    if (req.user && req.user.role === 'L2') {
+      if (!req.user.category_id) {
+        return res.status(403).json({ error: 'Akses ditolak: Akun teknisi belum terhubung ke kategori tim' });
+      }
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: parsedTicketId },
+        select: {
+          id: true,
+          is_aduan: true,
+          categories: { select: { category_id: true } }
+        }
+      });
+      if (!ticket) {
+        return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+      }
+      if (!ticket.is_aduan || !ticket.categories.some(c => c.category_id === req.user.category_id)) {
+        return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke percakapan tiket ini' });
+      }
+    }
+
     const messages = await prisma.message.findMany({
-      where: { ticket_id: parseInt(ticketId) },
+      where: { ticket_id: parsedTicketId },
       include: {
         sender: {
           select: {
@@ -175,6 +207,11 @@ const closeTicket = async (req, res) => {
   const { ticketId } = req.params;
   const { summary, categoryIds, closeHtsTicket, htsPicId, htsPicIds, htsSolution, htsTglTeknis, htsJamTeknis, useChatImage } = req.body;
 
+  // Hak akses ketat: Hanya L1, ADMIN, atau SPV yang berwenang menutup tiket (SEC-02)
+  if (req.user && !['L1', 'ADMIN', 'SPV'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Akses ditolak: Hanya L1 atau Admin/SPV yang dapat menutup tiket' });
+  }
+
   if (!summary || summary.trim().length < 10) {
     return res.status(400).json({ error: 'Kesimpulan wajib diisi minimal 10 karakter' });
   }
@@ -187,6 +224,10 @@ const closeTicket = async (req, res) => {
 
     if (!existingTicket) {
       return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+    }
+
+    if (existingTicket.status === 'CLOSED') {
+      return res.status(409).json({ error: 'Tiket sudah dalam status CLOSED' });
     }
 
     // FASE 3: Dual-Close ke Portal HTS Diskomdigi (/submit_teknis)
@@ -221,9 +262,13 @@ const closeTicket = async (req, res) => {
           const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
             ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
             : req.body.selectedAttachmentUrls;
-          parsedUrls.forEach(u => { if (u && !attachmentUrls.includes(u)) attachmentUrls.push(u); });
+          parsedUrls.forEach(u => {
+            const clean = sanitizeAttachmentUrl(u);
+            if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
+          });
         } else if (req.body.selectedAttachmentUrl) {
-          if (!attachmentUrls.includes(req.body.selectedAttachmentUrl)) attachmentUrls.push(req.body.selectedAttachmentUrl);
+          const clean = sanitizeAttachmentUrl(req.body.selectedAttachmentUrl);
+          if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
         } else if (useChatImage === true || useChatImage === 'true') {
           const imageMsg = await prisma.message.findFirst({
             where: { ticket_id: existingTicket.id, attachment_url: { not: null } },
@@ -270,8 +315,26 @@ const closeTicket = async (req, res) => {
             }
             solvedNos.push(target.hts_ticket_no);
           } catch (itemErr) {
-            failedItems.push(`#${target.hts_ticket_no}: ${itemErr.message}`);
-            console.error(`[Chat API] Gagal solve HTS #${target.hts_ticket_no}:`, itemErr.message);
+            let reconciled = false;
+            try {
+              const realStatus = await htsClientService.lookupTicketByNumber(req.user.id, target.hts_ticket_no);
+              if (realStatus && (realStatus.status === 'SOLVED' || realStatus.status === 'CLOSED')) {
+                if (target.id) {
+                  await prisma.ticketHts.update({
+                    where: { id: target.id },
+                    data: { hts_ticket_status: 'SOLVED', solved_at: new Date() }
+                  });
+                }
+                solvedNos.push(target.hts_ticket_no);
+                reconciled = true;
+                console.log(`[Chat API] Rekonsiliasi berhasil: HTS #${target.hts_ticket_no} sudah SOLVED di portal.`);
+              }
+            } catch (_) {}
+
+            if (!reconciled) {
+              failedItems.push(`#${target.hts_ticket_no}: ${itemErr.message}`);
+              console.error(`[Chat API] Gagal solve HTS #${target.hts_ticket_no}:`, itemErr.message);
+            }
           }
         }
 
@@ -298,7 +361,7 @@ const closeTicket = async (req, res) => {
       }
     }
 
-    // Update tiket lokal
+    // Update tiket lokal secara atomic dengan guard state machine
     const updateData = {
       status: 'CLOSED',
       summary: summary.trim(),
@@ -311,54 +374,67 @@ const closeTicket = async (req, res) => {
       }
     }
 
-    const updatedTicket = await prisma.ticket.update({
-      where: { id: parseInt(ticketId) },
-      data: updateData
-    });
-
-    // Handle Multi-Tagging (F3) ke tabel TicketCategory
     const parsedCatIds = parseCategoryIds(categoryIds);
-    if (parsedCatIds.length > 0) {
-      
-      // Hapus kategori yang tidak ada dalam seleksi akhir L1
-      await prisma.ticketCategory.deleteMany({
-        where: {
-          ticket_id: updatedTicket.id,
-          category_id: { notIn: parsedCatIds }
-        }
-      });
+    const targetTicketId = parseInt(ticketId);
 
-      // Tambahkan kategori baru jika ada yang baru dipilih saat close
-      if (parsedCatIds.length > 0) {
-        await prisma.ticketCategory.createMany({
+    const txOperations = [
+      prisma.ticket.updateMany({
+        where: { id: targetTicketId, status: { not: 'CLOSED' } },
+        data: updateData
+      })
+    ];
+
+    if (parsedCatIds.length > 0) {
+      txOperations.push(
+        prisma.ticketCategory.deleteMany({
+          where: {
+            ticket_id: targetTicketId,
+            category_id: { notIn: parsedCatIds }
+          }
+        }),
+        prisma.ticketCategory.createMany({
           data: parsedCatIds.map(catId => ({
-            ticket_id: updatedTicket.id,
+            ticket_id: targetTicketId,
             category_id: catId,
             is_resolved: true
           })),
           skipDuplicates: true
-        });
-
-        // Tandai seluruh kategori tiket ini selesai (is_resolved = true)
-        await prisma.ticketCategory.updateMany({
-          where: { ticket_id: updatedTicket.id },
+        }),
+        prisma.ticketCategory.updateMany({
+          where: { ticket_id: targetTicketId },
           data: { is_resolved: true, resolved_at: new Date() }
-        });
-      }
+        })
+      );
     }
 
-    // Catat internal note jika ada status HTS
     if (htsCloseMessage) {
-      await prisma.message.create({
-        data: {
-          ticket_id: updatedTicket.id,
-          sender_type: 'AGENT',
-          sender_id: req.user ? req.user.id : 1,
-          message_text: htsCloseMessage,
-          is_internal: true
-        }
-      });
+      txOperations.push(
+        prisma.message.create({
+          data: {
+            ticket_id: targetTicketId,
+            sender_type: 'AGENT',
+            sender_id: req.user ? req.user.id : 1,
+            message_text: htsCloseMessage,
+            is_internal: true
+          }
+        })
+      );
     }
+
+    const [updateResult] = await prisma.$transaction(txOperations);
+
+    if (updateResult.count === 0) {
+      return res.status(409).json({ error: 'Tiket sudah ditutup oleh proses lain' });
+    }
+
+    const updatedTicket = await prisma.ticket.findUnique({
+      where: { id: targetTicketId },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
 
     // Blast Notifikasi via Socket.io (F4) - Kasih tahu semua klien bahwa tiket diclose/diupdate
     if (req.io) {
@@ -413,9 +489,9 @@ const sendMedia = async (req, res) => {
     const waNumber = ticket.customer.wa_number;
 
     // FASE 3: Integrasi API Evolution untuk Kirim Media
-    const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-    const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-    const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
+    const evolutionApiUrl = EVOLUTION_API_URL;
+    const evolutionApiKey = EVOLUTION_API_TOKEN;
+    const instanceName = EVOLUTION_INSTANCE_NAME;
 
     // Konversi file ke base64
     const fs = require('fs');
@@ -439,7 +515,8 @@ const sendMedia = async (req, res) => {
         headers: {
           'apikey': evolutionApiKey,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 15000
       });
       waMessageId = evoMediaRes.data?.key?.id || null;
     } catch (evoError) {
@@ -513,6 +590,11 @@ const parseCategoryIds = (input, fallbackSingle) => {
 const assignTicket = async (req, res) => {
   const { ticketId } = req.params;
   const { categoryIds, categoryId, serviceType } = req.body;
+
+  // Hak akses ketat: Hanya L1, ADMIN, atau SPV yang berwenang menugaskan tiket (SEC-02)
+  if (req.user && !['L1', 'ADMIN', 'SPV'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Akses ditolak: Hanya L1 atau Admin/SPV yang dapat menugaskan tiket' });
+  }
 
   const targetIds = parseCategoryIds(categoryIds, categoryId);
 
@@ -742,13 +824,15 @@ const assignTicket = async (req, res) => {
 
     // Blast Notifikasi WA HANYA ke tim yang BARU ditugaskan (newCategories)
     // agar tim yang sudah ditugaskan sebelumnya tidak menerima spam notifikasi berulang
-    const evolutionApiUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-    const evolutionApiKey = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-    const instanceName = process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa';
+    const evolutionApiUrl = EVOLUTION_API_URL;
+    const evolutionApiKey = EVOLUTION_API_TOKEN;
+    const instanceName = EVOLUTION_INSTANCE_NAME;
     const hostHeader = req.headers.host || 'localhost:5173';
     const dashboardUrl = hostHeader.includes(':') ? `http://${hostHeader.split(':')[0]}:5173` : `http://${hostHeader}:5173`;
 
     const axios = require('axios');
+    const blastPromises = [];
+
     for (const cat of newCategories) {
       const blastMessage = `🚨 *TUGAS BARU DARI HELPDESK (L2)* 🚨\n\n*Tim:* ${cat.name}\n*Jenis Layanan:* ${typeDisplay}\n*Pelapor:* ${ticket.customer.name}\n*No WA:* ${ticket.customer.wa_number}\n\nSilakan cek detail percakapan dan berikan catatan internal melalui dashboard:\n${dashboardUrl}`;
 
@@ -767,21 +851,28 @@ const assignTicket = async (req, res) => {
       }
 
       for (const targetNumber of targets) {
-        try {
-          await axios.post(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
-            number: targetNumber,
-            text: blastMessage
-          }, {
+        const sendPromise = axios.post(
+          `${evolutionApiUrl}/message/sendText/${instanceName}`,
+          { number: targetNumber, text: blastMessage },
+          {
             headers: {
               'apikey': evolutionApiKey,
               'Content-Type': 'application/json'
-            }
-          });
+            },
+            timeout: 5000
+          }
+        ).then(() => {
           console.log(`[Blast] Sent L2 notification to ${cat.name} target: ${targetNumber}`);
-        } catch (evoError) {
+        }).catch((evoError) => {
           console.error(`[Evolution API] Failed to send blast to ${cat.name} (${targetNumber}):`, evoError?.response?.data || evoError.message);
-        }
+        });
+
+        blastPromises.push(sendPromise);
       }
+    }
+
+    if (blastPromises.length > 0) {
+      await Promise.allSettled(blastPromises);
     }
 
     if (req.io) {
@@ -825,6 +916,11 @@ const resolveTicket = async (req, res) => {
     });
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    // Hak akses ketat: Hanya L2, ADMIN, atau SPV yang dapat menandai solusi teknis selesai (SEC-02)
+    if (user && user.role === 'L1') {
+      return res.status(403).json({ error: 'Akses ditolak: Petugas L1 tidak berwenang menandai solusi teknis selesai' });
+    }
 
     let noteText = '';
     let isFullyResolved = false;
@@ -957,6 +1053,15 @@ const returnTicket = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
+    // Hak akses ketat: Hanya L2, ADMIN, atau SPV yang dapat mengembalikan penugasan tim L2 (SEC-02)
+    if (user && user.role === 'L1') {
+      return res.status(403).json({ error: 'Akses ditolak: Petugas L1 tidak berwenang mengembalikan penugasan tim L2' });
+    }
+
+    if (user && user.role === 'L2' && !user.category_id) {
+      return res.status(403).json({ error: 'Akun teknisi Anda belum terhubung ke kategori manapun' });
+    }
+
     let noteText = '';
     const returnReason = reason && reason.trim() ? reason.trim() : 'Tidak ada kendala pada tim ini / Salah penugasan';
 
@@ -1047,13 +1152,33 @@ const returnTicket = async (req, res) => {
 const addInternalNote = async (req, res) => {
   const { ticketId } = req.params;
   const { text } = req.body;
+  const parsedTicketId = parseInt(ticketId);
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
   
   if (!text || !text.trim()) return res.status(400).json({ error: 'Catatan tidak boleh kosong' });
 
   try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parsedTicketId },
+      include: { categories: true }
+    });
+    if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    if (req.user && req.user.role === 'L2') {
+      if (!req.user.category_id || !ticket.is_aduan) {
+        return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke tiket ini' });
+      }
+      const isAssigned = ticket.categories.some(c => c.category_id === req.user.category_id);
+      if (!isAssigned) {
+        return res.status(403).json({ error: 'Akses ditolak: Tiket tidak ditugaskan ke tim Anda' });
+      }
+    }
+
     const savedMessage = await prisma.message.create({
       data: {
-        ticket_id: parseInt(ticketId),
+        ticket_id: parsedTicketId,
         sender_type: 'AGENT',
         sender_id: req.user ? req.user.id : null,
         message_text: text.trim(),
@@ -1232,7 +1357,7 @@ const syncTicketToHts = async (req, res) => {
       return res.status(400).json({ error: `Tiket ini sudah disinkronkan ke HTS dengan nomor #${ticket.hts_ticket_no}` });
     }
 
-    // Sinkronisasi update nama/instansi pelapor jika diedit oleh L1
+    // Sinkronisasi update nama/instansi/nomor pelapor jika diedit oleh L1
     if (hts_cust && hts_cust.trim() && hts_cust.trim() !== ticket.customer.name) {
       await prisma.customer.update({
         where: { id: ticket.customer_id },
@@ -1247,6 +1372,24 @@ const syncTicketToHts = async (req, res) => {
       });
       ticket.customer.skpd_name = hts_opd.trim();
     }
+    const hts_wa = req.body.hts_wa || req.body.wa;
+    if (hts_wa && hts_wa.trim()) {
+      let sanitizedNumber = hts_wa.replace(/\D/g, '');
+      if (sanitizedNumber.startsWith('0')) sanitizedNumber = '62' + sanitizedNumber.substring(1);
+      else if (sanitizedNumber.startsWith('8')) sanitizedNumber = '62' + sanitizedNumber;
+
+      if (sanitizedNumber !== ticket.customer.wa_number) {
+        const conflict = await prisma.customer.findUnique({ where: { wa_number: sanitizedNumber } });
+        if (conflict && conflict.id !== ticket.customer_id) {
+          return res.status(400).json({ error: 'Nomor WhatsApp tersebut sudah terdaftar pada kontak lain' });
+        }
+        await prisma.customer.update({
+          where: { id: ticket.customer_id },
+          data: { wa_number: sanitizedNumber }
+        });
+        ticket.customer.wa_number = sanitizedNumber;
+      }
+    }
 
     const firstCustomerMsg = await prisma.message.findFirst({
       where: { ticket_id: ticket.id, sender_type: 'CUSTOMER' },
@@ -1260,15 +1403,19 @@ const syncTicketToHts = async (req, res) => {
       attachmentUrls.push(`/uploads/${req.file.filename}`);
     }
     
-    // Tambahkan selectedAttachmentUrls jika dikirim (array atau string)
+    // Tambahkan selectedAttachmentUrls jika dikirim (array atau string) dengan sanitasi anti path-traversal (SEC-04)
     if (req.body.selectedAttachmentUrls) {
       const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
         ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
         : req.body.selectedAttachmentUrls;
-      parsedUrls.forEach(u => { if (u && !attachmentUrls.includes(u)) attachmentUrls.push(u); });
+      parsedUrls.forEach(u => {
+        const clean = sanitizeAttachmentUrl(u);
+        if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
+      });
     } else if (req.body.selectedAttachmentUrl) {
-      if (!attachmentUrls.includes(req.body.selectedAttachmentUrl)) {
-        attachmentUrls.push(req.body.selectedAttachmentUrl);
+      const clean = sanitizeAttachmentUrl(req.body.selectedAttachmentUrl);
+      if (clean && !attachmentUrls.includes(clean)) {
+        attachmentUrls.push(clean);
       }
     } else if (useChatImage === true || useChatImage === 'true') {
       const imageMsg = await prisma.message.findFirst({
@@ -1367,7 +1514,18 @@ const syncTicketToHts = async (req, res) => {
       }
     });
 
+    const finalTicket = await prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
     if (req.io) {
+      req.io.emit('ticket_updated', { ticketId: ticket.id });
+      req.io.emit('hts_ticket_created', { ticketId: ticket.id });
       req.io.emit('ticket_closed', { ticketId: ticket.id });
       req.io.emit('new_message', {
         ticketId: ticket.id,
@@ -1381,7 +1539,7 @@ const syncTicketToHts = async (req, res) => {
     res.json({
       success: true,
       message: `Tiket berhasil disinkronkan ke HTS: #${htsResult.noTrouble}`,
-      ticket: updated
+      ticket: finalTicket
     });
   } catch (error) {
     console.error('[Chat API] Error syncing ticket to HTS:', error);
@@ -1482,9 +1640,25 @@ const syncSolveHts = async (req, res) => {
 // 1. Mengambil seluruh tiket HTS yang terhubung ke satu tiket chat lokal
 const getTicketHtsList = async (req, res) => {
   const { ticketId } = req.params;
+  const parsedTicketId = parseInt(ticketId);
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
+
   try {
+    if (req.user && req.user.role === 'L2') {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: parsedTicketId },
+        select: { id: true, is_aduan: true, categories: { select: { category_id: true } } }
+      });
+      if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+      if (!req.user.category_id || !ticket.is_aduan || !ticket.categories.some(c => c.category_id === req.user.category_id)) {
+        return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke daftar HTS tiket ini' });
+      }
+    }
+
     const htsList = await prisma.ticketHts.findMany({
-      where: { ticket_id: parseInt(ticketId) },
+      where: { ticket_id: parsedTicketId },
       include: { category: true },
       orderBy: { created_at: 'asc' }
     });
@@ -1524,6 +1698,40 @@ const createTicketHts = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
+    // Sinkronisasi update nama/instansi/nomor pelapor jika diedit oleh L1
+    if (hts_cust && hts_cust.trim() && hts_cust.trim() !== ticket.customer.name) {
+      await prisma.customer.update({
+        where: { id: ticket.customer_id },
+        data: { name: hts_cust.trim(), is_custom_name: true }
+      });
+      ticket.customer.name = hts_cust.trim();
+    }
+    if (hts_opd && hts_opd.trim() && hts_opd.trim() !== ticket.customer.skpd_name) {
+      await prisma.customer.update({
+        where: { id: ticket.customer_id },
+        data: { skpd_name: hts_opd.trim() }
+      });
+      ticket.customer.skpd_name = hts_opd.trim();
+    }
+    const hts_wa = req.body.hts_wa || req.body.wa;
+    if (hts_wa && hts_wa.trim()) {
+      let sanitizedNumber = hts_wa.replace(/\D/g, '');
+      if (sanitizedNumber.startsWith('0')) sanitizedNumber = '62' + sanitizedNumber.substring(1);
+      else if (sanitizedNumber.startsWith('8')) sanitizedNumber = '62' + sanitizedNumber;
+
+      if (sanitizedNumber !== ticket.customer.wa_number) {
+        const conflict = await prisma.customer.findUnique({ where: { wa_number: sanitizedNumber } });
+        if (conflict && conflict.id !== ticket.customer_id) {
+          return res.status(400).json({ error: 'Nomor WhatsApp tersebut sudah terdaftar pada kontak lain' });
+        }
+        await prisma.customer.update({
+          where: { id: ticket.customer_id },
+          data: { wa_number: sanitizedNumber }
+        });
+        ticket.customer.wa_number = sanitizedNumber;
+      }
+    }
+
     let attachmentUrls = [];
     if (req.files && req.files.length > 0) {
       req.files.forEach(f => attachmentUrls.push(`/uploads/${f.filename}`));
@@ -1534,10 +1742,14 @@ const createTicketHts = async (req, res) => {
       const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
         ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
         : req.body.selectedAttachmentUrls;
-      parsedUrls.forEach(u => { if (u && !attachmentUrls.includes(u)) attachmentUrls.push(u); });
+      parsedUrls.forEach(u => {
+        const clean = sanitizeAttachmentUrl(u);
+        if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
+      });
     } else if (req.body.selectedAttachmentUrl) {
-      if (!attachmentUrls.includes(req.body.selectedAttachmentUrl)) {
-        attachmentUrls.push(req.body.selectedAttachmentUrl);
+      const clean = sanitizeAttachmentUrl(req.body.selectedAttachmentUrl);
+      if (clean && !attachmentUrls.includes(clean)) {
+        attachmentUrls.push(clean);
       }
     } else if (useChatImage === true || useChatImage === 'true') {
       const imageMsg = await prisma.message.findFirst({
@@ -1685,15 +1897,32 @@ const solveTicketHtsSingle = async (req, res) => {
 
     const finalSolution = solution || ticketHts.solution || 'Permasalahan telah selesai ditangani secara teknis.';
 
-    const htsResult = await htsClientService.solveTicketHts(
-      req.user.id,
-      ticketHts.hts_ticket_id || ticketHts.hts_ticket_no,
-      {
-        detil: finalSolution,
-        pic_id: finalMergedPicIds[0],
-        pic_ids: finalMergedPicIds
+    let htsResult;
+    try {
+      htsResult = await htsClientService.solveTicketHts(
+        req.user.id,
+        ticketHts.hts_ticket_id || ticketHts.hts_ticket_no,
+        {
+          detil: finalSolution,
+          pic_id: finalMergedPicIds[0],
+          pic_ids: finalMergedPicIds
+        }
+      );
+    } catch (err) {
+      let reconciled = false;
+      try {
+        const realStatus = await htsClientService.lookupTicketByNumber(req.user.id, ticketHts.hts_ticket_no);
+        if (realStatus && (realStatus.status === 'SOLVED' || realStatus.status === 'CLOSED')) {
+          reconciled = true;
+          htsResult = { success: true, message: 'Tiket telah terkonfirmasi SOLVED di portal HTS (reconciled).' };
+          console.log(`[Chat API] Rekonsiliasi berhasil: HTS #${ticketHts.hts_ticket_no} sudah SOLVED di portal.`);
+        }
+      } catch (_) {}
+
+      if (!reconciled) {
+        throw err;
       }
-    );
+    }
 
     const updated = await prisma.ticketHts.update({
       where: { id: ticketHts.id },
@@ -1868,6 +2097,11 @@ const sendInternalMedia = async (req, res) => {
   const { ticketId } = req.params;
   const { text, caption } = req.body;
   const file = req.file;
+  const parsedTicketId = parseInt(ticketId);
+
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
 
   if (!file) {
     return res.status(400).json({ error: 'File gambar wajib diunggah' });
@@ -1875,10 +2109,21 @@ const sendInternalMedia = async (req, res) => {
 
   try {
     const ticket = await prisma.ticket.findUnique({
-      where: { id: parseInt(ticketId) }
+      where: { id: parsedTicketId },
+      include: { categories: true }
     });
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    if (req.user && req.user.role === 'L2') {
+      if (!req.user.category_id || !ticket.is_aduan) {
+        return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke tiket ini' });
+      }
+      const isAssigned = ticket.categories.some(c => c.category_id === req.user.category_id);
+      if (!isAssigned) {
+        return res.status(403).json({ error: 'Akses ditolak: Tiket tidak ditugaskan ke tim Anda' });
+      }
+    }
 
     const finalCaption = (text || caption || '').trim();
     const attachmentUrl = `/uploads/${file.filename}`;
@@ -1936,10 +2181,26 @@ const sendInternalMedia = async (req, res) => {
 // Mengambil daftar foto catatan internal yang ada di tiket ini (untuk opsi bukti penyelesaian HTS)
 const getInternalMediaList = async (req, res) => {
   const { ticketId } = req.params;
+  const parsedTicketId = parseInt(ticketId);
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
+
   try {
+    if (req.user && req.user.role === 'L2') {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: parsedTicketId },
+        select: { id: true, is_aduan: true, categories: { select: { category_id: true } } }
+      });
+      if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+      if (!req.user.category_id || !ticket.is_aduan || !ticket.categories.some(c => c.category_id === req.user.category_id)) {
+        return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke media internal tiket ini' });
+      }
+    }
+
     const mediaMessages = await prisma.message.findMany({
       where: {
-        ticket_id: parseInt(ticketId),
+        ticket_id: parsedTicketId,
         is_internal: true,
         attachment_url: { not: null }
       },
@@ -2201,20 +2462,40 @@ const unlinkHtsTicket = async (req, res) => {
   const { ticketId, htsTicketId } = req.params;
 
   try {
-    const ticketHts = await prisma.ticketHts.findUnique({
-      where: { id: parseInt(htsTicketId) }
+    let ticketHts = null;
+    const parsedId = parseInt(htsTicketId);
+    if (!isNaN(parsedId) && parsedId > 0) {
+      ticketHts = await prisma.ticketHts.findUnique({
+        where: { id: parsedId }
+      });
+    }
+
+    if (!ticketHts) {
+      ticketHts = await prisma.ticketHts.findFirst({
+        where: { ticket_id: parseInt(ticketId) }
+      });
+    }
+
+    const currentTicket = await prisma.ticket.findUnique({
+      where: { id: parseInt(ticketId) }
     });
 
-    if (!ticketHts || ticketHts.ticket_id !== parseInt(ticketId)) {
+    if (!currentTicket) {
+      return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+    }
+
+    if (!ticketHts && !currentTicket.hts_ticket_no && !currentTicket.hts_ticket_id) {
       return res.status(404).json({ error: 'Tiket HTS tidak ditemukan pada percakapan ini' });
     }
 
-    const removedNo = ticketHts.hts_ticket_no;
+    const removedNo = ticketHts?.hts_ticket_no || currentTicket.hts_ticket_no || 'HTS';
 
-    // 1. Hapus dari tabel TicketHts
-    await prisma.ticketHts.delete({
-      where: { id: ticketHts.id }
-    });
+    // 1. Hapus dari tabel TicketHts jika ada
+    if (ticketHts) {
+      await prisma.ticketHts.delete({
+        where: { id: ticketHts.id }
+      });
+    }
 
     // 2. Cek apakah masih ada tiket HTS lain pada tiket ini
     const remainingHts = await prisma.ticketHts.findMany({
@@ -2308,31 +2589,44 @@ const reopenTicket = async (req, res) => {
       return res.status(400).json({ error: 'Hanya tiket dengan status CLOSED yang dapat diaktifkan kembali' });
     }
 
-    // Ubah status kembali menjadi OPEN dan kosongkan closed_at
-    const updated = await prisma.ticket.update({
-      where: { id: ticket.id },
-      data: {
-        status: 'OPEN',
-        closed_at: null
-      },
-      include: {
-        customer: true,
-        categories: { include: { category: true } },
-        hts_tickets: { include: { category: true } }
-      }
-    });
-
     // Catat pesan log sistem internal
     const reasonText = reason && reason.trim() ? ` (Alasan: ${reason.trim()})` : '';
     const noteText = `[SISTEM] Tiket diaktifkan kembali (Re-opened) oleh ${req.user?.name || 'Petugas'}${reasonText}.`;
 
-    await prisma.message.create({
-      data: {
-        ticket_id: ticket.id,
-        sender_type: 'AGENT',
-        sender_id: req.user?.id || null,
-        message_text: noteText,
-        is_internal: true
+    // Ubah status kembali menjadi OPEN, kosongkan closed_at, dan reset status resolusi tim L2 pada TicketCategory
+    await prisma.$transaction([
+      prisma.ticket.update({
+        where: { id: ticket.id },
+        data: {
+          status: 'OPEN',
+          closed_at: null
+        }
+      }),
+      prisma.ticketCategory.updateMany({
+        where: { ticket_id: ticket.id },
+        data: {
+          is_resolved: false,
+          resolved_at: null,
+          solution: null
+        }
+      }),
+      prisma.message.create({
+        data: {
+          ticket_id: ticket.id,
+          sender_type: 'AGENT',
+          sender_id: req.user?.id || null,
+          message_text: noteText,
+          is_internal: true
+        }
+      })
+    ]);
+
+    const updated = await prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
       }
     });
 

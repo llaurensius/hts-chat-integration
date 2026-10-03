@@ -1,5 +1,6 @@
 const axios = require('axios');
 const prisma = require('../config/db');
+const { getSafeUploadPath } = require('../utils/safePath');
 
 const HTS_BASE_URL = 'https://hts.diskomdigi.jatengprov.go.id';
 
@@ -405,11 +406,10 @@ const createTicketPipeline = async (userId, ticketData) => {
     const fs = require('fs');
     for (const url of targetAttachmentUrls) {
       if (!url) continue;
-      const cleanPath = url.replace(/^\/uploads\//, '').replace(/^\//, '');
-      const localFilePath = path.join(__dirname, '../../uploads', cleanPath);
-      if (fs.existsSync(localFilePath)) {
-        const fileBuffer = fs.readFileSync(localFilePath);
-        const fileName = path.basename(localFilePath);
+      const safeFilePath = getSafeUploadPath(url);
+      if (safeFilePath) {
+        const fileBuffer = fs.readFileSync(safeFilePath);
+        const fileName = path.basename(safeFilePath);
         const ext = path.extname(fileName).toLowerCase();
         let mime = 'image/jpeg';
         if (ext === '.png') mime = 'image/png';
@@ -592,6 +592,22 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
     }
 
     if (!lookupOk) {
+      // Rekonsiliasi Idempotensi: Cek apakah tiket sebenarnya sudah SOLVED di portal HTS (EDGE-01)
+      try {
+        const checkSolved = await lookupTicketByNumber(userId, htsTicketId);
+        if (checkSolved && checkSolved.status === 'SOLVED') {
+          console.log(`[HTS Service] Tiket #${htsTicketId} sudah berstatus SOLVED di portal HTS (rekonsiliasi berhasil).`);
+          return {
+            success: true,
+            alreadySolved: true,
+            message: `Tiket #${htsTicketId} sudah berstatus SOLVED di portal HTS.`,
+            idTrouble: checkSolved.idTrouble
+          };
+        }
+      } catch (recErr) {
+        // Abaikan jika tidak ditemukan
+      }
+
       throw new Error(`Tiket HTS #${htsTicketId} tidak ditemukan dalam daftar PENDING di portal HTS. Periksa status di portal HTS atau tautkan ulang nomor tiket.`);
     }
   }
@@ -659,11 +675,10 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
       const fs = require('fs');
       for (const url of targetAttachmentUrls) {
         if (!url) continue;
-        const cleanPath = url.replace(/^\/uploads\//, '').replace(/^\//, '');
-        const filePath = path.join(__dirname, '../../uploads', cleanPath);
-        if (fs.existsSync(filePath)) {
-          const fileBuffer = fs.readFileSync(filePath);
-          const fileName = path.basename(filePath);
+        const safeFilePath = getSafeUploadPath(url);
+        if (safeFilePath) {
+          const fileBuffer = fs.readFileSync(safeFilePath);
+          const fileName = path.basename(safeFilePath);
           const ext = path.extname(fileName).toLowerCase();
           let mime = 'image/jpeg';
           if (ext === '.png') mime = 'image/png';
@@ -770,22 +785,9 @@ const lookupTicketByNumber = async (userId, noTroubleInput) => {
     }
   }
 
-  // Jika tidak ditemukan di pagination 1 status di atas, namun format nomor valid
+  // Jika tiket tidak ditemukan di portal HTS setelah mengecek seluruh status, jangan karang status palsu (LOGIC-01)
   if (!foundTicket) {
-    const parts = noTrouble.split('-');
-    if (parts.length >= 3 && !isNaN(parseInt(parts[0]))) {
-      foundTicket = {
-        idTrouble: parts[0],
-        noTrouble: noTrouble,
-        status: 'PENDING',
-        kategori: parts[1]?.toLowerCase() || 'troubleshoot',
-        subKategori: null,
-        detil: null,
-        picIds: ['14']
-      };
-    } else {
-      throw new Error(`Nomor aduan HTS "${noTrouble}" tidak ditemukan di portal HTS.`);
-    }
+    throw new Error(`Nomor aduan HTS "${noTrouble}" tidak ditemukan di portal HTS.`);
   }
 
   return foundTicket;

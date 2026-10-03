@@ -1,8 +1,7 @@
 const prisma = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey_hts';
+const { JWT_SECRET } = require('../config/env');
 
 const login = async (req, res) => {
   try {

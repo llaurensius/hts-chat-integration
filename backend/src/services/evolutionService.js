@@ -1,12 +1,14 @@
 const axios = require('axios');
-require('dotenv').config();
+const { 
+  EVOLUTION_API_URL: EVO_URL, 
+  EVOLUTION_API_TOKEN: EVO_KEY, 
+  EVOLUTION_INSTANCE_NAME: INSTANCE_NAME 
+} = require('../config/env');
 
-const EVO_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const EVO_KEY = process.env.EVOLUTION_API_TOKEN || 'SecureTokenUntukBackend123';
-const INSTANCE_NAME = 'helpdesk-wa';
 
 const api = axios.create({
   baseURL: EVO_URL,
+  timeout: 10000,
   headers: {
     'apikey': EVO_KEY,
     'Content-Type': 'application/json'

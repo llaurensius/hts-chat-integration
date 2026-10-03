@@ -17,6 +17,9 @@ model Customer {
   wa_push_name        String?   // Menyimpan nama asli profil WhatsApp sebagai data pembanding
   created_at          DateTime  @default(now())
   tickets             Ticket[]
+
+  @@index([name])
+  @@index([skpd_name])
 }
 
 // Menggantikan Division menjadi Category (Fase 1 - V2)
@@ -94,6 +97,8 @@ model Ticket {
   @@index([customer_id])
   @@index([status])
   @@index([is_aduan])
+  @@index([customer_id, status])
+  @@index([status, is_aduan, created_at(sort: Desc)])
 }
 
 // Tabel Hub Multi-HTS (One-to-Many dari 1 Tiket Obrolan ke Banyak Tiket HTS - V4)
@@ -141,13 +146,12 @@ model Message {
   sender         User?      @relation(fields: [sender_id], references: [id], onDelete: SetNull)
   message_text   String?
   attachment_url String?
-  wa_message_id  String?
+  wa_message_id  String?    @unique
   is_internal    Boolean    @default(false) // Penanda apakah ini Catatan Internal L2 (Fase 1 - V2)
   created_at     DateTime   @default(now())
 
   @@index([ticket_id])
   @@index([ticket_id, created_at])
-  @@index([wa_message_id])
 }
 
 enum Role {
