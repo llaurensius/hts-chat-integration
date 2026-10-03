@@ -1,6 +1,6 @@
 # 🚀 Fitur & Kemampuan Sistem (Features & Capabilities)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi Sistem:** Workflow V4.2.1 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
+**Versi Sistem:** Workflow V4.2.2 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
 **Status:** Seluruh fitur tercantum aktif dan terintegrasi di kode sumber  
 **Terakhir Diperbarui:** 03 Oktober 2026  
 
@@ -22,7 +22,7 @@
 13. [Laporan SLA (MTTR & FRT) serta Ekspor CSV (Supervisor)](#13)
 14. [Manajemen Pengguna & Kontak Blast Tim Lapangan (Admin)](#14)
 15. [Pengaturan Bot Sambutan Otomatis (L1)](#15)
-16. [Background Workers: Sesi Keep-Alive & Retensi Berkas](#16)
+16: [Background Workers: Sesi Keep-Alive & Retensi Berkas](#16)
 17. [Hardening Keamanan & Integritas Transaksi Sistem](#17)
 
 ---
@@ -52,8 +52,22 @@ Aplikasi frontend menyediakan ruang kerja terpadu berbasis React 18 yang beradap
   - Panel dapat diciutkan (*collapsible*) untuk memperluas ruang baca obrolan.
   - Kartu Profil Pelanggan: edit nama dan OPD langsung di tempat (*inline edit*), penanda sumber kontak (*Master Data*, *Custom Name*, atau *WhatsApp Profile*).
   - Kartu Penugasan Tim L2: daftar tim yang sedang bertugas (`Network`, `Server`, `M&E`), indikator progres per-tim, tombol *Assign ke L2*, dan opsi *Return Task* bagi teknisi.
-  - Kartu Integrasi Multi-HTS: daftar nomor tiket resmi portal HTS terkait, status `PENDING` atau `SOLVED`, tombol terbitkan tiket baru, tautkan tiket manual, dan selesaikan parsial.
+  - Kartu Integrasi Multi-HTS: daftar nomor tiket resmi portal HTS terkait, status `PENDING` atau `SOLVED`, tombol salin nomor tiket ke papan klip (*copy ticket no*), tombol terbitkan tiket baru, tautkan tiket manual, dan selesaikan parsial.
   - Tombol aksi cepat: *[ ✅ Selesaikan Percakapan ]* (untuk pesan biasa), *[ Selesaikan Tiket ]* (untuk aduan resmi), atau *[ 🔄 Aktifkan Kembali Tiket ]* (untuk tiket yang sudah `CLOSED`).
+
+### C. Matriks 11 Modal Sub-Komponen Interaktif
+Frontend SPA memuat 11 modal dialog terspesialisasi yang menjamin operasional helpdesk berjalan intuitif:
+1. **Modal Login:** Otentikasi staf, validasi kredensial, penyimpanan token JWT ke `localStorage`, dan pemicu koneksi Socket.io.
+2. **Modal Start New Chat:** Inisiasi pesan keluar ke nomor WhatsApp baru dengan penelusuran buku kontak berpaginasi server.
+3. **Modal Impor & Pembersihan Master Kontak (Admin):** Pengunggahan berkas buku telepon (Excel `.xlsx/.xls`, CSV Google Contacts, vCard `.vcf`) dan tombol pembersihan bersih data kontak dengan konfirmasi ketik `HAPUS KONTAK`.
+4. **Modal Buat Tiket HTS (Trouble Drawer):** Formulir penerbitan tiket resmi ke portal HTS (kategori, sub-kategori, detail kendala, multi-PIC penanganan).
+5. **Modal Assign L2:** Pendelegasian tiket ke tim spesialis (Network, Server, M&E) dengan opsi centang *Langsung buka formulir Portal HTS*.
+6. **Modal Selesaikan Mandiri Per-HTS (Solve Single HTS):** Penyelesaian parsial tiket HTS dari panel kanan dengan penarikan otomatis draf solusi dari tim L2 terkait dan opsi unggah foto penanganan.
+7. **Modal Detail & Solusi HTS:** Tampilan inspeksi nomor tiket portal HTS, status, rincian solusi penanganan teknis yang tersimpan, dan bukti gambar.
+8. **Modal Tautkan Nomor HTS (Disaster Recovery):** Penautan manual nomor aduan resmi HTS jika terjadi kendala jaringan saat pengiriman otomatis.
+9. **Modal Selesaikan Tiket & Dual-Close (Close Ticket):** Formulir penutupan akhir tiket lokal dan portal HTS secara sinkron dan atomik.
+10. **Modal Selesaikan Tugas L2 (Resolve Modal):** Ruang pengisian solusi teknis tim L2 sebelum tiket diserahkan kembali ke dispatcher L1.
+11. **Modal Kelola Quick Replies:** Manajemen draf template balasan cepat (buat shortcut, edit isi, dan hapus template).
 
 ---
 

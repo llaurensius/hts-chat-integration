@@ -1,6 +1,6 @@
 # 🏗️ Arsitektur Teknologi, Diagram Alur & Keamanan Sistem
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** Workflow V4.2.1 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
+**Versi:** Workflow V4.2.2 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
 **Audiens Dokumen:** Developer, System Architect & DevOps Engineer  
 **Terakhir Diperbarui:** 03 Oktober 2026  
 
@@ -88,7 +88,7 @@ flowchart TB
 
 ## 3. Arsitektur Internal Frontend SPA (`frontend/`)
 
-Antarmuka dasbor helpdesk dibangun sebagai Single Page Application (SPA) monolitik modular berkinerja tinggi pada [`frontend/src/App.jsx`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend/src/App.jsx) dan diinisialisasi melalui [`frontend/src/main.jsx`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend/src/main.jsx).
+Antarmuka dasbor helpdesk dibangun sebagai Single Page Application (SPA) monolitik modular berkinerja tinggi pada [`frontend/src/App.jsx`](../frontend/src/App.jsx) dan diinisialisasi melalui [`frontend/src/main.jsx`](../frontend/src/main.jsx).
 
 ```mermaid
 flowchart TD
@@ -102,12 +102,26 @@ flowchart TD
     subgraph Dashboard_Component [Struktur Internal Dashboard Component]
         D_NAV[Top Navbar & Tab Navigation: chat | report | users | teams | bot]
         D_AUDIO[Web Audio API Chime & Desktop Notification Manager]
-        D_SOCK[Socket.io Dynamic Auth Lifecycle]
+        D_SOCK[Socket.io Dynamic Auth Lifecycle & Handshake]
         
         subgraph Tab_Chat [Tab 1: Workspace Percakapan 3-Kolom]
             COL_LEFT[Panel Kiri: Filter Kategori, SLA Timer, Search Ticket]
             COL_CENTER[Panel Tengah: Thread Pesan, Divider Riwayat Lampau, Mode Chat / Internal, Slash Commands /]
             COL_RIGHT[Panel Kanan: Pusat Kendali, Multi-HTS Cards, Drawer Manual Link, Auto-Open HTS Modal]
+        end
+
+        subgraph Modals_Layer [11 Modal Sub-Komponen Interaktif]
+            M_CHAT[Start New Chat & Search Directory]
+            M_IMP[Import Contacts CSV/VCF/XLSX & Clear All]
+            M_CLOSE[Close Ticket: Dual-Close HTS & WA]
+            M_SOLVE[Solve Single HTS Panel]
+            M_DETAIL[Detail HTS & Solution Inspector]
+            M_ASSIGN[Assign L2 & Resilient AutoOpen HTS]
+            M_LINK[Manual Link & Disaster Recovery HTS]
+            M_CUST[Edit Customer Profile]
+            M_QR[Quick Replies Slash Manager]
+            M_RES[L2 Resolve Task]
+            M_HTS[Create New HTS Trouble Drawer]
         end
 
         subgraph Tab_Lain [Tab Administrasi & Pelaporan]
@@ -134,10 +148,11 @@ flowchart TD
 2. **Sinkronisasi State dengan `useRef`:**
    Pada aplikasi chat reaktif, listener WebSocket asynchronous sering kali mengalami jebakan nilai lama (*stale closures*). Untuk menjamin akurasi mutasi state tanpa merusak performa render, dashboard memadukan React State dengan referensi mutable:
    - `activeTicketRef` memantau ID tiket yang sedang aktif dibuka pengguna.
-   - `ticketsRef` memantau daftar tiket mutakhir saat event `new_message` atau `ticket_updated` tiba.
+   - `ticketsRef` memantau daftar tiket mutakhir saat event `new_message`, `ticket_created`, atau `ticket_updated` tiba.
+   - `currentTabRef` menjamin pemuatan data tab yang tepat saat event eksternal memicu refresh.
 
 ### 3.2 Penanganan Kesalahan & Ketahanan Crash (`ErrorBoundary`)
-Pada [`frontend/src/main.jsx`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend/src/main.jsx), seluruh antarmuka dibungkus oleh kelas `ErrorBoundary`. Jika terjadi kesalahan render mendadak (*uncaught JavaScript error*), aplikasi tidak menampilkan layar putih (*blank screen*), melainkan menampilkan panel diagnostik bersahabat lengkap dengan *component stack trace* untuk memudahkan investigasi tanpa menghapus data sesi.
+Pada [`frontend/src/main.jsx`](../frontend/src/main.jsx), seluruh antarmuka dibungkus oleh kelas `ErrorBoundary`. Jika terjadi kesalahan render mendadak (*uncaught JavaScript error*), aplikasi tidak menampilkan layar putih (*blank screen*), melainkan menampilkan panel diagnostik bersahabat lengkap dengan *component stack trace* untuk memudahkan investigasi tanpa menghapus data sesi.
 
 ### 3.3 Penanganan Token Kedaluwarsa (Axios Global Interceptor)
 Axios dikonfigurasi secara global untuk menyuntikkan header `Authorization: Bearer <token>` pada setiap *request*. Jika peladen backend mengembalikan respon HTTP 401 Unauthorized (misalnya masa berlaku token 12 jam habis), frontend secara anggun membersihkan `localStorage` dan mengarahkan pengguna kembali ke halaman `/login`.
@@ -279,7 +294,7 @@ erDiagram
 ## 5. Arsitektur Keamanan & Durabilitas Data
 
 ### 5.1 Fail-Fast Initialization (`SEC-03`)
-Modul [`config/env.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/config/env.js) memvalidasi seluruh variabel lingkungan esensial (`DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_TOKEN`, `WEBHOOK_SECRET`) saat proses Node.js mulai berjalan. Server menolak menyala jika terdapat kredensial yang kosong atau menggunakan nilai *fallback default*.
+Modul [`config/env.js`](../backend/src/config/env.js) memvalidasi seluruh variabel lingkungan esensial (`DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_TOKEN`, `WEBHOOK_SECRET`) saat proses Node.js mulai berjalan. Server menolak menyala jika terdapat kredensial yang kosong atau menggunakan nilai *fallback default*.
 
 ### 5.2 Autentikasi Webhook Shared Secret (`SEC-01`)
 Endpoint penerimaan pesan `POST /api/webhook/whatsapp` dilindungi token rahasia bersama `WEBHOOK_SECRET` dengan verifikasi string waktu-konstan (`crypto.timingSafeEqual`) untuk menangkal eksploitasi serangan *timing attack*.
@@ -288,10 +303,10 @@ Endpoint penerimaan pesan `POST /api/webhook/whatsapp` dilindungi token rahasia 
 Hak akses pengguna diverifikasi di tingkat Express menggunakan middleware `verifyToken` dan `requireRole`. Teknisi L2 yang memiliki penugasan `category_id` secara ketat dibatasi hanya dapat membaca data antrean dan percakapan timnya sendiri.
 
 ### 5.4 Sanitasi Berkas Anti-Path Traversal (`SEC-04`)
-Seluruh jalur berkas lampiran yang akan dikirimkan ke portal HTS divalidasi oleh fungsi [`safePath.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/safePath.js). Jalur kanonikal berkas wajib berada di dalam subdirektori `/uploads`. Upaya eksploitasi direktori menggunakan `../` akan langsung ditolak peladen.
+Seluruh jalur berkas lampiran yang akan dikirimkan ke portal HTS divalidasi oleh fungsi [`safePath.js`](../backend/src/utils/safePath.js). Jalur kanonikal berkas wajib berada di dalam subdirektori `/uploads`. Upaya eksploitasi direktori menggunakan `../` akan langsung ditolak peladen.
 
 ### 5.5 Serialisasi Antirace & Deduplikasi Atomik (`DATA-01` & `DATA-02`)
-Pesan masuk dari nomor WhatsApp yang sama diserialisasi secara *in-memory* menggunakan mutex [`perNumberLock.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/perNumberLock.js). Deduplikasi pesan diperkuat oleh batasan unik database (`Message.wa_message_id @unique`), memastikan tidak ada tiket atau gelembung pesan dobel yang tercipta akibat *network retry* dari WhatsApp gateway.
+Pesan masuk dari nomor WhatsApp yang sama diserialisasi secara *in-memory* menggunakan mutex [`perNumberLock.js`](../backend/src/utils/perNumberLock.js). Deduplikasi pesan diperkuat oleh batasan unik database (`Message.wa_message_id @unique`), memastikan tidak ada tiket atau gelembung pesan dobel yang tercipta akibat *network retry* dari WhatsApp gateway.
 
 ### 5.6 Background Worker Terjadwal
 1. **`htsKeepAliveService` (Interval 15 Menit):** Memelihara keaktifan sesi cookie PHP `ci_session` petugas helpdesk agar tidak terputus di tengah jam operasional.

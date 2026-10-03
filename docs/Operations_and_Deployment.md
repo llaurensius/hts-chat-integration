@@ -1,6 +1,6 @@
 # 📘 Panduan Operasional (SOP) & Deployment
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** Workflow V4.2.1 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
+**Versi:** Workflow V4.2.2 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
 **Audiens Dokumen:** DevOps Engineer, System Administrator & Operator Helpdesk  
 **Terakhir Diperbarui:** 03 Oktober 2026  
 

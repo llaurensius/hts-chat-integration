@@ -1,6 +1,6 @@
 # 🗄️ Skema Database & Kontrak API
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** Workflow V4.2.1 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
+**Versi:** Workflow V4.2.2 Produksi (Full-Stack SPA Integration & Consolidated Architecture)  
 **Engine Basis Data:** PostgreSQL 15 (Prisma ORM) — basis data `wa_helpdesk` (port host `5433`)  
 **Audiens Dokumen:** Backend Developer, Frontend Integrator & System Architect  
 **Terakhir Diperbarui:** 03 Oktober 2026  
@@ -238,8 +238,10 @@ erDiagram
   * Memulai percakapan keluar baru (outbound): `{ "waNumber": "628xxx", "name": "...", "skpdName": "...", "sendInitialMessage": true, "initialMessage": "Halo..." }`.
 * **`POST /api/chat/tickets/:ticketId/reopen`** (ADMIN, SPV, L1)  
   * Mengaktifkan kembali tiket yang telah `CLOSED` menjadi `OPEN` secara transaksional: `{ "reason": "Pelanggan kembali komplain..." }`.
-* **`POST /api/chat/tickets/:ticketId/wa-history`** (ADMIN, SPV, L1)  
-  * Menarik hingga 20 riwayat pesan langsung dari memori WhatsApp via Evolution API.
+* **`GET /api/chat/customers/:customerId/history-messages`** (ADMIN, SPV, L1)  
+  * Mengambil riwayat pesan terdahulu dari pelanggan pada sesi-sesi tiket masa lampau yang telah `CLOSED`.
+* **`POST /api/chat/customers/:customerId/fetch-wa-history`** (ADMIN, SPV, L1)  
+  * Menarik hingga 20 riwayat pesan langsung dari memori WhatsApp via Evolution API dengan kueri ganda (`remoteJid` dan `remoteJidAlt`).
 * **`CRUD /api/chat/quick-replies`** (ADMIN, SPV, L1)  
   * `GET`, `POST`, `PUT /:id`, dan `DELETE /:id` untuk pengelolaan template pesan instan balasan cepat.
 
@@ -250,9 +252,9 @@ erDiagram
 * **`POST /api/hts/logout`** (ADMIN, SPV, L1) — Menghapus cookie sesi HTS petugas dari database.
 * **`GET /api/hts/master-data`** (ADMIN, SPV, L1) — Mengambil referensi kategori, sub-kategori, dan daftar PIC teknisi portal HTS.
 
-### 3.6 Pengaturan Bot Sambutan (`/api/setting`)
-* **`GET /api/setting/auto_reply`** (ADMIN, L1) — Mengambil konfigurasi status aktif dan teks bot sambutan.
-* **`POST /api/setting/auto_reply`** (ADMIN, L1) — Memperbarui pengaturan bot: `{ "value": "Halo, selamat datang di Helpdesk SPBE...", "is_active": true }`.
+### 3.6 Pengaturan Bot Sambutan (`/api/settings`)
+* **`GET /api/settings/autoreply`** (ADMIN, SPV, L1) — Mengambil konfigurasi status aktif dan teks bot sambutan dari tabel `Setting`.
+* **`PUT /api/settings/autoreply`** (ADMIN, SPV, L1) — Memperbarui pengaturan bot: `{ "value": "Halo, selamat datang di Helpdesk SPBE...", "isActive": true }`.
 
 ### 3.7 Laporan & Ekspor Data (`/api/reports`)
 * **`GET /api/reports/tickets`** (ADMIN, SPV, L1) — Rekapitulasi tiket dengan filter tanggal, kategori, dan status disertai metrik durasi FRT dan MTTR murni.

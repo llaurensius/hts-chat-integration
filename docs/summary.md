@@ -19,11 +19,11 @@ Melalui pendekatan bertahap berbasis sprint (*Sprint 1: Keamanan & Otorisasi*, *
 
 ## 2. Lingkup & Masalah Awal
 
-Berdasarkan laporan audit teknis independen ([`System_Audit_Report.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/System_Audit_Report.md)), lingkup permasalahan teknis yang diidentifikasi terbagi ke dalam empat kategori utama:
+Berdasarkan laporan audit teknis independen awal (*System Audit Report*), lingkup permasalahan teknis yang diidentifikasi terbagi ke dalam empat kategori utama:
 
 ### A. Keamanan & Otorisasi (*Security & Access Control*)
 1. **SEC-01 (Kritis):** Endpoint webhook publik (`/api/webhook`) tidak memvalidasi otentisitas pengirim, sehingga rentan injeksi pesan tiruan (*spoofing*) dan eksploitasi Denial-of-Service melalui payload JSON berukuran masif.
-2. **SEC-02 & AUTH-01 (Kritis):** Rute operasional tiket ([`routes/chat.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/routes/chat.js)) hanya mengandalkan pengecekan token JWT tanpa penegakan RBAC di tingkat peladen. Agen Level 2 (L2) tanpa kategori dapat mengakses seluruh tiket, dan Level 1 (L1) dapat menyelesaikan tugas teknis L2 tanpa wewenang.
+2. **SEC-02 & AUTH-01 (Kritis):** Rute operasional tiket ([`routes/chat.js`](../backend/src/routes/chat.js)) hanya mengandalkan pengecekan token JWT tanpa penegakan RBAC di tingkat peladen. Agen Level 2 (L2) tanpa kategori dapat mengakses seluruh tiket, dan Level 1 (L1) dapat menyelesaikan tugas teknis L2 tanpa wewenang.
 3. **SEC-03 (Kritis):** Kunci rahasia JWT (`JWT_SECRET`) dan token Evolution API memiliki nilai cadangan (*hardcoded fallback*) dalam kode sumber, melanggar prinsip *fail-fast*.
 4. **SEC-04 (Tinggi):** Jalur berkas lampiran yang dikirimkan ke portal HTS tidak divalidasi dan tidak disanitasi, membuka celah *Path Traversal* (`../`).
 5. **SEC-05 (Tinggi):** Peladen Socket.io berjalan dengan `origin: '*'` tanpa mekanisme *handshake authentication*, memancarkan data identitas pelapor dan catatan internal staf ke pihak luar.
@@ -57,33 +57,33 @@ Pekerjaan diselesaikan secara terstruktur dan terukur melalui tiga sprint:
 ```
 
 ### 3.1. Pelaksanaan Sprint 1 (Keamanan Fondasional)
-- **Implementasi Otentikasi Webhook ([`webhookAuth.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/middlewares/webhookAuth.js)):**
-  Membangun middleware verifikasi *shared secret token* (`WEBHOOK_SECRET`) melalui header HTTP `apikey` atau `x-api-key`. Memisahkan rute webhook pada [`routes/webhook.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/routes/webhook.js) dengan parser JSON mandiri (maksimal 10MB) serta menerapkan *rate limiter* khusus (300 request/menit).
-- **Penegakan RBAC Sisi Peladen ([`routes/chat.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/routes/chat.js) & [`routes/report.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/routes/report.js)):**
+- **Implementasi Otentikasi Webhook ([`webhookAuth.js`](../backend/src/middlewares/webhookAuth.js)):**
+  Membangun middleware verifikasi *shared secret token* (`WEBHOOK_SECRET`) melalui header HTTP `apikey` atau `x-api-key`. Memisahkan rute webhook pada [`routes/webhook.js`](../backend/src/routes/webhook.js) dengan parser JSON mandiri (maksimal 10MB) serta menerapkan *rate limiter* khusus (300 request/menit).
+- **Penegakan RBAC Sisi Peladen ([`routes/chat.js`](../backend/src/routes/chat.js) & [`routes/report.js`](../backend/src/routes/report.js)):**
   Memasang middleware `requireRole` di setiap rute operasional. Di controller, agen L2 dengan `category_id = null` dibatasi secara ketat sehingga tidak dapat membaca antrean tiket non-spesifik. Menambahkan validasi kepemilikan tiket teknis pada `resolveTicket` dan `returnTicket`.
-- **Validasi Variabel Lingkungan Fail-Fast ([`config/env.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/config/env.js)):**
+- **Validasi Variabel Lingkungan Fail-Fast ([`config/env.js`](../backend/src/config/env.js)):**
   Membuat modul inisialisasi yang mengevaluasi keberadaan `DATABASE_URL`, `JWT_SECRET`, dan `EVOLUTION_API_TOKEN` saat proses Node.js dinyalakan. Menghapus seluruh nilai default rahasia pada seluruh repositori.
-- **Pencegahan Path Traversal ([`utils/safePath.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/safePath.js)):**
+- **Pencegahan Path Traversal ([`utils/safePath.js`](../backend/src/utils/safePath.js)):**
   Mengembangkan fungsi sanitasi kanonikal berbasis `path.resolve` yang membatasi resolusi berkas lampiran hanya di dalam subdirektori `/uploads`. Diterapkan pada `closeTicket`, `syncTicketToHts`, dan fungsi unggah lampiran di `htsClientService.js`.
 
 ### 3.2. Pelaksanaan Sprint 2 (Integritas Data & Rekonsiliasi State)
-- **Mekanisme Antirace Kondisi Webhook ([`utils/perNumberLock.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/perNumberLock.js)):**
-  Menerapkan struktur antrean Promise in-memory (`withLock(waNumber, task)`) pada [`webhookController.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/controllers/webhookController.js). Seluruh pesan yang tiba bersamaan dari nomor telepon yang sama dieksekusi secara serial, menghilangkan pembuatan tiket dobel.
-- **Deduplikasi Pesan Atomik ([`schema.prisma`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/prisma/schema.prisma)):**
+- **Mekanisme Antirace Kondisi Webhook ([`utils/perNumberLock.js`](../backend/src/utils/perNumberLock.js)):**
+  Menerapkan struktur antrean Promise in-memory (`withLock(waNumber, task)`) pada [`webhookController.js`](../backend/src/controllers/webhookController.js). Seluruh pesan yang tiba bersamaan dari nomor telepon yang sama dieksekusi secara serial, menghilangkan pembuatan tiket dobel.
+- **Deduplikasi Pesan Atomik ([`schema.prisma`](../backend/prisma/schema.prisma)):**
   Mengubah definisi `wa_message_id` menjadi `@unique`. Menulis skrip migrasi SQL pembersihan baris duplikat historis dan pembuatan indeks unik. Pada controller, dibuat blok penanganan kesalahan khusus untuk kode Prisma `P2002` guna menolak pesan ganda tanpa memicu *unhandled rejection*.
-- **Pembersihan Logika Tiket Fantasi & Rekonsiliasi Status ([`htsClientService.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/services/htsClientService.js) & [`chatController.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/controllers/chatController.js)):**
+- **Pembersihan Logika Tiket Fantasi & Rekonsiliasi Status ([`htsClientService.js`](../backend/src/services/htsClientService.js) & [`chatController.js`](../backend/src/controllers/chatController.js)):**
   Menghapus pembuatan objek tiket palsu pada `lookupTicketByNumber` dan menggantinya dengan error 404 eksplisit. Pada fungsi penutupan tiket (`closeTicket` dan `solveTicketHtsSingle`), ditambahkan alur rekonsiliasi otomatis: jika pengiriman ke portal mengalami *timeout* namun peladen HTS sebenarnya telah menandai tiket sebagai `SOLVED`, sistem lokal mendeteksi status tersebut dan menyelesaikan tiket tanpa kegagalan.
-- **Ketahanan Klien HTTP & Paralelisasi Blast ([`evolutionService.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/services/evolutionService.js)):**
+- **Ketahanan Klien HTTP & Paralelisasi Blast ([`evolutionService.js`](../backend/src/services/evolutionService.js)):**
   Menetapkan `timeout: 10000` (10 detik) pada instance Axios Evolution API, serta timeout 15 detik pada pengunggahan dan pengunduhan media. Mengubah loop notifikasi L2 pada `assignTicket` menjadi operasi paralel menggunakan `Promise.allSettled` dengan batas waktu 5000 ms per target.
-- **Pembersihan State Re-open & Guard State Machine ([`chatController.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/controllers/chatController.js)):**
+- **Pembersihan State Re-open & Guard State Machine ([`chatController.js`](../backend/src/controllers/chatController.js)):**
   Pada `reopenTicket`, sistem kini mereset status `TicketCategory` (`is_resolved: false`, `resolved_at: null`, `solution: null`) dalam satu transaksi atomik `prisma.$transaction`. Pada `closeTicket`, diterapkan *atomic conditional update* (`where: { id, status: { not: 'CLOSED' } }`) yang mengembalikan HTTP 409 Conflict bila terjadi eksekusi ganda.
 
 ### 3.3. Pelaksanaan Sprint 3 (Siklus Hidup Berkas, Soket Aman & Indeks DB)
-- **Otentikasi Handshake Socket.io ([`index.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/index.js) & [`App.jsx`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend/src/App.jsx)):**
+- **Otentikasi Handshake Socket.io ([`index.js`](../backend/src/index.js) & [`App.jsx`](../frontend/src/App.jsx)):**
   Memasang middleware `io.use` yang memvalidasi JWT token dari `socket.handshake.auth.token`. Menolak klien anonim tanpa otentikasi. Mengisolasi soket ke dalam room terpisah (`user_{id}`, `role_{role}`, `category_{id}`). Di sisi frontend, soket dikonfigurasi menggunakan callback token dinamis dari `localStorage` serta otomatis melakukan *disconnect* saat logout dan *reconnect* saat login.
-- **Pencegahan Benturan Berkas & Retensi Berkas ([`utils/imageStorage.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/imageStorage.js) & [`services/fileCleanupService.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/services/fileCleanupService.js)):**
+- **Pencegahan Benturan Berkas & Retensi Berkas ([`utils/imageStorage.js`](../backend/src/utils/imageStorage.js) & [`services/fileCleanupService.js`](../backend/src/services/fileCleanupService.js)):**
   Menambahkan sufiks 6 digit acak pada nama berkas Multer (`img_${Date.now()}_${randomSuffix}${ext}`). Membuat service terjadwal berkala yang menghapus berkas fisik pada direktori `/uploads` untuk tiket yang telah berstatus `CLOSED` lebih dari 90 hari.
-- **Optimasi Indeks Skema Database ([`schema.prisma`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/prisma/schema.prisma)):**
+- **Optimasi Indeks Skema Database ([`schema.prisma`](../backend/prisma/schema.prisma)):**
   Menerapkan indeks gabungan `@@index([status, is_aduan, created_at(sort: Desc)])` dan `@@index([customer_id, status])` pada model `Ticket`, serta indeks pencarian `@@index([name])` dan `@@index([skpd_name])` pada model `Customer`. Disediakan berkas migrasi SQL idempotent di direktori migrasi Prisma.
 
 ---
@@ -391,29 +391,43 @@ Simulasikan penutupan tiket ganda ke endpoint `/api/chat/tickets/:id/close`:
 ## 8. Milestone 8: Harmonisasi Living Documentation & Konsolidasi Full-Stack (Oktober 2026)
 
 ### 8.1 Latar Belakang & Ruang Lingkup
-Mengikuti integrasi komponen antarmuka pengguna berbasis React 18 dan Vite 5 pada direktori [`frontend/`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend), dilakukan audit menyeluruh dan peremajaan dokumentasi hidup (*living documentation*) pada direktori [`docs/`](file:///d:/Kuliah/Repository/hts-chat-integration/docs). Pekerjaan ini memastikan keselarasan 100% antara implementasi riil kode sumber (*Single Source of Truth*) dengan spesifikasi arsitektur, panduan deployment, dan modul pengujian mutu.
+Mengikuti integrasi komponen antarmuka pengguna berbasis React 18 dan Vite 5 pada direktori [`frontend/`](../frontend), dilakukan audit menyeluruh dan peremajaan dokumentasi hidup (*living documentation*) pada direktori [`docs/`](./). Pekerjaan ini memastikan keselarasan 100% antara implementasi riil kode sumber (*Single Source of Truth*) dengan spesifikasi arsitektur, panduan deployment, dan modul pengujian mutu.
 
 ### 8.2 Perbaikan Bug Kunci: Resilient Auto-Open HTS Workflow
 - **Masalah:** Tombol *"Terbitkan ke Portal HTS"* pada drawer formulir HTS tidak merespons jika dibuka otomatis melalui penugasan L2 dengan opsi `autoOpenHts = true`.
-- **Akar Masalah (RCA):** Controller backend [`chatController.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/controllers/chatController.js) memancarkan event Socket.io `ticket_closed` saat tiket di-assign ke L2, padahal status tiket tetap `OPEN`. Akibatnya, listener frontend [`handleTicketClosed`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend/src/App.jsx) mengosongkan state `activeTicket = null`, sehingga saat drawer terbuka, tombol kehilangan objek tiket aktif.
-- **Solusi Final:** Backend diubah untuk memancarkan event `ticket_updated`. State `activeTicket` di frontend dipertahankan utuh, sehingga drawer formulir HTS dapat mengirimkan tiket ke portal HTS tanpa kendala balapan data (*race condition*). Skenario ini kini telah dibakukan pada Modul Pengujian TC-10.6 di [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md).
+- **Akar Masalah (RCA):** Controller backend [`chatController.js`](../backend/src/controllers/chatController.js) memancarkan event Socket.io `ticket_closed` saat tiket di-assign ke L2, padahal status tiket tetap `OPEN`. Akibatnya, listener frontend [`handleTicketClosed`](../frontend/src/App.jsx) mengosongkan state `activeTicket = null`, sehingga saat drawer terbuka, tombol kehilangan objek tiket aktif.
+- **Solusi Final:** Backend diubah untuk memancarkan event `ticket_updated`. State `activeTicket` di frontend dipertahankan utuh, sehingga drawer formulir HTS dapat mengirimkan tiket ke portal HTS tanpa kendala balapan data (*race condition*). Skenario ini kini telah dibakukan pada Modul Pengujian TC-10.6 di [`QA_and_Quality.md`](./QA_and_Quality.md).
 
 ### 8.3 Konsolidasi Dokumentasi (Clean Enterprise Architecture)
 Sesuai kesepakatan dan arahan arsitektur, 6 berkas laporan audit dan RFC rancangan historis berikut telah **dilebur intinya secara komprehensif** ke dalam 7 dokumen hidup utama:
-1. `System_Audit_Report.md` & `Bug_Audit_and_Fix_Recommendations.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md) Bab 5 dan [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md) Bab 5 (Audit Remediasi Kerentanan Sprint 1–3).
-2. `Technical_Design_HTS_Integration_Refactoring.md` & `Technical_Design_Multi_HTS_Independent_Resolution.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md) Bab 4.3 dan [`Features_and_Capabilities.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Features_and_Capabilities.md) Bab 4–5 (Arsitektur One-to-Many Multi-HTS).
-3. `Technical_Specification_Fixes_V4.2.md` $\rightarrow$ Diserap ke dalam [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md) dan [`summary.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/summary.md).
-4. `Report_and_Fix_Plan_Assign_AutoOpen_HTS.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md) Bab 4.2 dan [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md) TC-10.6.
+1. `System_Audit_Report.md` & `Bug_Audit_and_Fix_Recommendations.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](./Architecture.md) Bab 5 dan [`QA_and_Quality.md`](./QA_and_Quality.md) Bab 5 (Audit Remediasi Kerentanan Sprint 1–3).
+2. `Technical_Design_HTS_Integration_Refactoring.md` & `Technical_Design_Multi_HTS_Independent_Resolution.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](./Architecture.md) Bab 4.3 dan [`Features_and_Capabilities.md`](./Features_and_Capabilities.md) Bab 4–5 (Arsitektur One-to-Many Multi-HTS).
+3. `Technical_Specification_Fixes_V4.2.md` $\rightarrow$ Diserap ke dalam [`QA_and_Quality.md`](./QA_and_Quality.md) dan [`summary.md`](./summary.md).
+4. `Report_and_Fix_Plan_Assign_AutoOpen_HTS.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](./Architecture.md) Bab 4.2 dan [`QA_and_Quality.md`](./QA_and_Quality.md) TC-10.6.
 
 Fisik ke-6 file tersebut telah dihapus secara bersih dari root folder `docs/`, menyisakan struktur dokumentasi hidup yang ramping, elegan, dan profesional berstandar enterprise:
-* [`docs/Project_Overview.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Project_Overview.md)
-* [`docs/Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md)
-* [`docs/Features_and_Capabilities.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Features_and_Capabilities.md)
-* [`docs/Database_and_API.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Database_and_API.md)
-* [`docs/Operations_and_Deployment.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Operations_and_Deployment.md)
-* [`docs/QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md)
-* [`docs/summary.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/summary.md)
-* *(Serta fixture data pengujian:* [`docs/contacts.csv`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/contacts.csv) *dan* [`docs/contacts.vcf`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/contacts.vcf)*)*
+* [`docs/Project_Overview.md`](./Project_Overview.md)
+* [`docs/Architecture.md`](./Architecture.md)
+* [`docs/Features_and_Capabilities.md`](./Features_and_Capabilities.md)
+* [`docs/Database_and_API.md`](./Database_and_API.md)
+* [`docs/Operations_and_Deployment.md`](./Operations_and_Deployment.md)
+* [`docs/QA_and_Quality.md`](./QA_and_Quality.md)
+* [`docs/summary.md`](./summary.md)
+* *(Serta fixture data pengujian:* [`docs/contacts.csv`](./contacts.csv) *dan* [`docs/contacts.vcf`](./contacts.vcf)*)*
+
+---
+
+## 9. Milestone 9: Audit Kualitas Full-Stack & Peremajaan Dokumentasi Hidup (Oktober 2026)
+
+### 9.1 Latar Belakang & Ruang Lingkup
+Melakukan inspeksi mendalam terhadap seluruh pilar aplikasi (`frontend/`, `backend/`, `docker/`, dan `docs/`) untuk menyelaraskan dokumentasi teknis dengan implementasi aktual kode sumber:
+- **Frontend SPA (`frontend/`):** Dokumentasi komprehensif komponen React 18, toolchain Vite 5, arsitektur workspace 5-tab, tata letak 3-kolom, matriks 11 sub-komponen modal dialog, integrasi keyboard navigasi slash commands (`/`), sintesis nada dering audio native Web Audio API (D5 $\rightarrow$ A5), serta notifikasi latar belakang HTML5 Desktop Notification API.
+- **Backend API (`backend/`):** Sinkronisasi rute operasional terbaru (`start-new-chat`, `contacts/search` berpaginasi, impor dan penghapusan bersih master kontak, `link-hts` disaster recovery, `unlink-hts`, `complete-pic`, `reopen`, `settings/autoreply`).
+- **Deployment & Nginx:** Standarisasi panduan build statis Vite (`frontend/dist/`), konfigurasi virtual host Nginx reverse proxy tingkat produksi (caching immutable 1 tahun untuk `/assets/`, `client_max_body_size 50M;`, WebSocket proxy timeout 86400s, SPA fall-through `try_files`), serta manajemen process manager PM2.
+- **Sanitasi Path Dokumentasi:** Pembersihan 100% tautan absolut Windows lokal (`file:///d:/Kuliah/...`) menjadi tautan Markdown relatif yang bersih, portabel, dan siap publikasi Git.
+
+### 9.2 Status Kesiapan Sistem (Production-Ready)
+Seluruh modul dinyatakan beroperasi dengan stabilitas tinggi, lulus verifikasi integrasi basis data, dan memiliki dokumentasi yang selaras dengan kenyataan kode sumber (*Single Source of Truth*).
 
 ***
 
