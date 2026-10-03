@@ -4,7 +4,7 @@ Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk
 
 ---
 
-## 🌟 Fitur Utama (Workflow V4.2 Produksi)
+## 🌟 Fitur Utama (Workflow V4.2.1 Produksi)
 
 - **🔄 Integrasi WhatsApp Dua Arah & HP Fisik (Evolution API v2):**
   - Pesan masuk otomatis membuat profil pelanggan (*Customer*) dan tiket baru berstatus `OPEN`.
@@ -27,9 +27,10 @@ Aplikasi **Web Helpdesk & Ticketing System** terintegrasi WhatsApp Gateway untuk
   - **Webhook Shared Secret:** Endpoint webhook dilindungi validasi rahasia `WEBHOOK_SECRET` dengan perbandingan *constant-time* tahan serangan *timing attack*.
   - **Fail-Fast Environment:** Pengecekan otomatis variabel lingkungan rahasia saat startup (`config/env.js`); server menolak menyala jika kredensial kosong.
   - **Anti Path-Traversal:** Sanitasi kanonikal berkas lampiran berbasis `safePath.js` di folder `/uploads`.
-- **👥 Smart Multi-Assign & WhatsApp Blast ke Tim L2:**
+- **👥 Smart Multi-Assign & Resilient Auto-Open HTS:**
   - L1 dapat mendelegasikan tiket ke satu atau banyak tim teknisi sekaligus (`Network`, `Server`, dan `Mechanical & Electrical (M&E)`).
   - **Smart Assign Diffing:** Menambah tim baru tidak mereset progres tim yang sedang bertugas atau sudah selesai.
+  - **Resilient Auto-Open Workflow:** Membuka formulir HTS otomatis pasca penugasan L2 secara mulus dan bebas dari balapan event soket.
   - **WhatsApp Multi-Contact Blast:** Notifikasi penugasan terkirim otomatis hanya kepada kontak/grup tim yang baru ditugaskan.
 - **🔒 Catatan Internal Multimedia Dua Arah (L1 ↔ L2):**
   - Teknisi L2 berkoordinasi via Catatan Internal (teks & foto) yang **100% rahasia** dan tidak pernah bocor ke WhatsApp pelanggan.
@@ -180,13 +181,13 @@ Semua akun benih terdaftar menggunakan **Password:** `password123`
 
 Seluruh dokumentasi teknis mendalam dan standar operasional tersedia di direktori [`docs/`](./docs/):
 
-1. **[Gambaran Umum Proyek (Project Overview)](docs/Project_Overview.md)** — Ringkasan eksekutif, persona pengguna, matriks RBAC mutakhir, dan riwayat evolusi sistem.
-2. **[Arsitektur, Diagram Alur & Keamanan (Architecture)](docs/Architecture.md)** — Tech stack, topologi container, diagram alur Mermaid (inbound, outbound, multi-HTS, background workers), dan spesifikasi hardening keamanan.
+1. **[Gambaran Umum Proyek (Project Overview)](docs/Project_Overview.md)** — Ringkasan eksekutif, persona pengguna, matriks RBAC antarmuka & peladen, dan riwayat evolusi sistem V4.2.1.
+2. **[Arsitektur, Diagram Alur & Keamanan (Architecture)](docs/Architecture.md)** — Arsitektur Full-Stack (Frontend React SPA, Backend Node.js, Docker, Nginx Reverse Proxy), diagram alur Mermaid, dan spesifikasi keamanan.
 3. **[Skema Database & Kontrak API (Database_and_API)](docs/Database_and_API.md)** — Skema ERD PostgreSQL, kamus data tabel & indeks komposit, kontrak lengkap REST API, dan event Socket.io.
-4. **[Fitur & Kemampuan Sistem (Features_and_Capabilities)](docs/Features_and_Capabilities.md)** — Katalog komprehensif seluruh kapabilitas fungsional yang aktif di kode sumber.
+4. **[Fitur & Kemampuan Sistem (Features_and_Capabilities)](docs/Features_and_Capabilities.md)** — Katalog komprehensif 17 kapabilitas fungsional yang aktif di kode sumber (termasuk workspace 5-tab & tata letak 3-kolom).
 5. **[Panduan Operasional & Deployment (Operations_and_Deployment)](docs/Operations_and_Deployment.md)** — Panduan deployment 3 track (Lokal, Docker, dan VPS Node.js produksi via PM2 & Nginx) serta SOP operasional per peran.
-6. **[Pengujian QA & Audit Kualitas (QA_and_Quality)](docs/QA_and_Quality.md)** — Skenario pengujian Modul 1–9, audit keamanan terverifikasi, dan mitigasi risiko teknis.
-7. **[Laporan Eksekutif & Ringkasan Kerja (summary)](docs/summary.md)** — Laporan eksekutif berkala, status penyelesaian sprint remedi, dan roadmap operasional.
+6. **[Pengujian QA & Audit Kualitas (QA_and_Quality)](docs/QA_and_Quality.md)** — Skenario pengujian QA Modul 1–10 (termasuk Frontend UI/UX QA), audit keamanan terverifikasi, dan mitigasi risiko teknis.
+7. **[Laporan Eksekutif & Ringkasan Kerja (summary)](docs/summary.md)** — Laporan eksekutif berkala, status penyelesaian sprint remedi, Milestone 8 harmonisasi living documentation, dan roadmap operasional.
 
 ---
 

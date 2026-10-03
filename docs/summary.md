@@ -356,7 +356,7 @@ Simulasikan penutupan tiket ganda ke endpoint `/api/chat/tickets/:id/close`:
 
 ---
 
-## 6. Changelog Komprehensif Evolusi Sistem (V1.0 s.d. V4.2)
+## 6. Changelog Komprehensif Evolusi Sistem (V1.0 s.d. V4.2.1)
 
 | Versi Rilis | Tanggal Rilis | Sorotan Perubahan Utama & Capaian Fitur |
 |---|:---:|---|
@@ -367,6 +367,7 @@ Simulasikan penutupan tiket ganda ke endpoint `/api/chat/tickets/:id/close`:
 | **V4.0** | Oktober 2026 | Arsitektur One-to-Many Multi-HTS (1 chat banyak nomor tiket resmi), klasifikasi Percakapan Biasa (`GENERAL_CHAT`) vs Aduan Teknis Resmi (`is_aduan`), catatan internal multimedia dua arah (L1 $\leftrightarrow$ L2), perombakan UI 3 kolom, Balasan Cepat (*Quick Replies*), dan disaster recovery penautan manual nomor aduan. |
 | **V4.1** | 02 Oktober 2026 | Manajemen Master Data Kontak (impor file Excel, CSV, dan vCard VCF), Start New Chat (outbound) dengan direktori kontak berpangkal paginasi, re-open tiket selesai, unlink nomor HTS, sinkronisasi balasan langsung dari ponsel helpdesk (`fromMe=true`), dan dukungan WhatsApp LID addressing. |
 | **V4.2** | 03 Oktober 2026 | **Hardening Keamanan & Kestabilan Sistem (Sprint 1–3):** Otentikasi Webhook Shared Secret (`webhookAuth`), penegakan RBAC mutlak sisi peladen (`requireRole`), validasi fail-fast variabel lingkungan (`config/env.js`), pencegahan *Path Traversal* (`safePath.js`), proteksi race condition antrean in-memory (`perNumberLock.js`), constraint basis data unik `@unique wa_message_id`, otentikasi handshake WebSocket (`io.use`) disertai partisi *rooms*, background worker retensi berkas media otomatis (90 hari), dan indeks komposit basis data performa tinggi. |
+| **V4.2.1** | 03 Oktober 2026 | **Full-Stack SPA Integration & UX Resilience:** Integrasi komprehensif Frontend React 18 + Vite 5 (workspace 5-tab, tata letak 3-kolom reaktif, slash command `/` autocomplete balasan cepat, audio chime Web Audio API D5-A5, dan HTML5 desktop push). Remediasi permanen isu balapan event soket pada alur Auto-Open HTS pasca penugasan L2 (`ticket_updated`), serta konsolidasi living documentation 7 dokumen standar enterprise. |
 
 ---
 
@@ -385,6 +386,36 @@ Simulasikan penutupan tiket ganda ke endpoint `/api/chat/tickets/:id/close`:
    - Memverifikasi eksekusi pertama background worker `fileCleanupService` setelah peladen menyala lebih dari 24 jam.
    - Mengaktifkan modul rotasi log `pm2-logrotate` untuk mencegah penumpukan file log peladen di VPS.
 
+---
+
+## 8. Milestone 8: Harmonisasi Living Documentation & Konsolidasi Full-Stack (Oktober 2026)
+
+### 8.1 Latar Belakang & Ruang Lingkup
+Mengikuti integrasi komponen antarmuka pengguna berbasis React 18 dan Vite 5 pada direktori [`frontend/`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend), dilakukan audit menyeluruh dan peremajaan dokumentasi hidup (*living documentation*) pada direktori [`docs/`](file:///d:/Kuliah/Repository/hts-chat-integration/docs). Pekerjaan ini memastikan keselarasan 100% antara implementasi riil kode sumber (*Single Source of Truth*) dengan spesifikasi arsitektur, panduan deployment, dan modul pengujian mutu.
+
+### 8.2 Perbaikan Bug Kunci: Resilient Auto-Open HTS Workflow
+- **Masalah:** Tombol *"Terbitkan ke Portal HTS"* pada drawer formulir HTS tidak merespons jika dibuka otomatis melalui penugasan L2 dengan opsi `autoOpenHts = true`.
+- **Akar Masalah (RCA):** Controller backend [`chatController.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/controllers/chatController.js) memancarkan event Socket.io `ticket_closed` saat tiket di-assign ke L2, padahal status tiket tetap `OPEN`. Akibatnya, listener frontend [`handleTicketClosed`](file:///d:/Kuliah/Repository/hts-chat-integration/frontend/src/App.jsx) mengosongkan state `activeTicket = null`, sehingga saat drawer terbuka, tombol kehilangan objek tiket aktif.
+- **Solusi Final:** Backend diubah untuk memancarkan event `ticket_updated`. State `activeTicket` di frontend dipertahankan utuh, sehingga drawer formulir HTS dapat mengirimkan tiket ke portal HTS tanpa kendala balapan data (*race condition*). Skenario ini kini telah dibakukan pada Modul Pengujian TC-10.6 di [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md).
+
+### 8.3 Konsolidasi Dokumentasi (Clean Enterprise Architecture)
+Sesuai kesepakatan dan arahan arsitektur, 6 berkas laporan audit dan RFC rancangan historis berikut telah **dilebur intinya secara komprehensif** ke dalam 7 dokumen hidup utama:
+1. `System_Audit_Report.md` & `Bug_Audit_and_Fix_Recommendations.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md) Bab 5 dan [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md) Bab 5 (Audit Remediasi Kerentanan Sprint 1–3).
+2. `Technical_Design_HTS_Integration_Refactoring.md` & `Technical_Design_Multi_HTS_Independent_Resolution.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md) Bab 4.3 dan [`Features_and_Capabilities.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Features_and_Capabilities.md) Bab 4–5 (Arsitektur One-to-Many Multi-HTS).
+3. `Technical_Specification_Fixes_V4.2.md` $\rightarrow$ Diserap ke dalam [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md) dan [`summary.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/summary.md).
+4. `Report_and_Fix_Plan_Assign_AutoOpen_HTS.md` $\rightarrow$ Diserap ke dalam [`Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md) Bab 4.2 dan [`QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md) TC-10.6.
+
+Fisik ke-6 file tersebut telah dihapus secara bersih dari root folder `docs/`, menyisakan struktur dokumentasi hidup yang ramping, elegan, dan profesional berstandar enterprise:
+* [`docs/Project_Overview.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Project_Overview.md)
+* [`docs/Architecture.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Architecture.md)
+* [`docs/Features_and_Capabilities.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Features_and_Capabilities.md)
+* [`docs/Database_and_API.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Database_and_API.md)
+* [`docs/Operations_and_Deployment.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/Operations_and_Deployment.md)
+* [`docs/QA_and_Quality.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/QA_and_Quality.md)
+* [`docs/summary.md`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/summary.md)
+* *(Serta fixture data pengujian:* [`docs/contacts.csv`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/contacts.csv) *dan* [`docs/contacts.vcf`](file:///d:/Kuliah/Repository/hts-chat-integration/docs/contacts.vcf)*)*
+
 ***
 
 Laporan eksekutif ini mencerminkan status operasional aktual dan siap dijadikan standar acuan tata kelola teknis sistem HTS Chat Integration.
+
