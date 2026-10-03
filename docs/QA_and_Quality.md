@@ -112,3 +112,146 @@ Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo
 - [ ] Lakukan eksekusi simulasi impor master data 1300 kontak OPD (`docs/contacts.csv`).
 - [ ] Lakukan uji coba pengiriman pesan keluar (*Start New Chat*) dan penutupan dual-close tiket resmi ke portal HTS.
 - [ ] Pastikan reverse proxy Nginx telah mengaktifkan SSL/HTTPS dan pembatasan firewall server (UFW).
+
+---
+
+## 6. Hasil Pelaksanaan User Acceptance Testing (UAT)
+
+> [!NOTE]
+> Pengujian UAT ini berfokus murni pada alur pengguna akhir (*end-user chat workflows*), meliputi pengiriman/penerimaan pesan, notifikasi real-time, manajemen kontak, catatan internal teknisi, dan interaksi bot/webhook dari sudut pandang operator dan pelanggan.
+
+### 6.1 Matriks Rekapitulasi Skenario UAT
+
+| ID Skenario | Judul Skenario UAT | Fokus Pengujian | Status Hasil | Tanggal Uji | Catatan / Temuan |
+|:---:|---|---|:---:|:---:|---|
+| **`[UAT-01]`** | Penerimaan Pesan Inbound WhatsApp, Auto-Reply, & Pembuatan Tiket Otomatis | Bot & Webhook Inbound | ⏳ *Siap Uji* | - | Menunggu verifikasi pesan masuk dari HP penguji |
+| **`[UAT-02]`** | Pengiriman Pesan Teks Outbound dari Web Dashboard & Status Pengiriman | Outbound Chat Operator | ⏳ *Menunggu* | - | Menunggu UAT-01 |
+| **`[UAT-03]`** | Format Pesan Lanjutan: Pengiriman Media Gambar & Quick Reply (`/`) | Efisiensi & Format Pesan | ⏳ *Menunggu* | - | Menunggu UAT-02 |
+| **`[UAT-04]`** | Notifikasi Pesan Real-time & Audio Chime | Notifikasi & Audio | ⏳ *Menunggu* | - | Menunggu UAT-03 |
+| **`[UAT-05]`** | Isolasi Catatan Internal L2 (Internal Notes vs Chat Publik) | Privasi Percakapan | ⏳ *Menunggu* | - | Menunggu UAT-04 |
+| **`[UAT-06]`** | Impor Master Data Kontak (CSV/VCF) & Proteksi Nama Kontak | Manajemen Kontak | ⏳ *Menunggu* | - | Menunggu UAT-05 |
+| **`[UAT-07]`** | Inisiasi Chat Keluar (*Start New Chat*) dari Direktori Kontak | Outbound Direct Chat | ⏳ *Menunggu* | - | Menunggu UAT-06 |
+| **`[UAT-08]`** | Penanganan Error Sisi Pengguna (Input Kosong, File Tidak Valid, & Putus Koneksi) | Ketahanan UI / UX | ⏳ *Menunggu* | - | Menunggu UAT-07 |
+| **`[UAT-09]`** | Penyelesaian Percakapan & Fitur Re-Open Tiket Selesai | Siklus Hidup Tiket | ⏳ *Menunggu* | - | Menunggu UAT-08 |
+
+---
+
+### 6.2 Lembar Kerja Rinci Skenario UAT
+
+#### `[UAT-01]` Penerimaan Pesan Inbound WhatsApp, Auto-Reply, & Pembuatan Tiket Otomatis
+- **Prasyarat:** Server backend & frontend berjalan, gateway WhatsApp terhubung, operator login di web dashboard, nomor WhatsApp penguji belum memiliki tiket aktif.
+- **Langkah Pengujian:** 
+  1. Kirim pesan teks dari WhatsApp penguji ke nomor helpdesk (contoh: *"Halo Helpdesk, saya ingin konsultasi terkait jaringan kantor"*).
+  2. Amati balasan bot di WhatsApp penguji.
+  3. Periksa tampilan dashboard web operator.
+- **Hasil yang Diharapkan:** 
+  1. Balasan otomatis (*auto-reply*) diterima penguji dalam < 5 detik.
+  2. Tiket baru berstatus `OPEN` muncul secara real-time di web dashboard.
+  3. Nomor dan nama penguji tampil akurat dengan bubble chat yang sesuai.
+- **Status:** ⏳ *Sedang Diuji*
+
+#### `[UAT-02]` Pengiriman Pesan Teks Outbound dari Web Dashboard & Status Pengiriman
+- **Prasyarat:** Tiket `[UAT-01]` aktif terbuka di ruang obrolan operator.
+- **Langkah Pengujian:** 
+  1. Operator mengetik balasan teks di input chat web dan klik kirim.
+  2. Periksa tanda centang / status pengiriman di web.
+  3. Periksa pesan yang masuk di WhatsApp penguji.
+- **Hasil yang Diharapkan:** 
+  1. Pesan terkirim ke WhatsApp penguji tanpa delay signifikan.
+  2. Bubble chat di web menampilkan pengirim sebagai Operator dengan waktu terkirim.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-03]` Format Pesan Lanjutan: Pengiriman Media Gambar & Quick Reply (`/`)
+- **Prasyarat:** Tiket aktif terbuka di layar operator.
+- **Langkah Pengujian:** 
+  1. Ketik karakter `/` pada input obrolan web, pilih salah satu template balasan cepat, lalu kirim.
+  2. Unggah lampiran berkas gambar (JPG/PNG) dan kirim ke pelanggan.
+- **Hasil yang Diharapkan:** 
+  1. Teks template tersubstitusi otomatis dan terkirim dengan rapi.
+  2. Gambar terkirim dan dapat dipratinjau (*preview*) dengan baik di web dan WhatsApp pelanggan.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-04]` Notifikasi Pesan Real-time & Audio Chime
+- **Prasyarat:** Dashboard web operator dibuka dan tab diminimalkan (*minimize*) atau beralih ke tab peramban lain.
+- **Langkah Pengujian:** 
+  1. Kirim pesan baru dari WhatsApp penguji ke nomor helpdesk.
+  2. Amati reaksi audio dan notifikasi desktop browser.
+- **Hasil yang Diharapkan:** 
+  1. Nada dering chime audio Web Audio API berbunyi jelas.
+  2. Notifikasi desktop / badge tab menampilkan adanya pesan baru yang belum dibaca.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-05]` Isolasi Catatan Internal L2 (Internal Notes vs Chat Publik)
+- **Prasyarat:** Tiket aduan terbuka oleh operator/teknisi.
+- **Langkah Pengujian:** 
+  1. Aktifkan mode Catatan Internal (*Internal Note*).
+  2. Kirim pesan teknis atau lampirkan foto kendala teknis internal.
+  3. Periksa ponsel WhatsApp penguji apakah pesan tersebut masuk atau tidak.
+- **Hasil yang Diharapkan:** 
+  1. Pesan tampil di web dengan latar warna berbeda (amber/kuning penanda internal).
+  2. Pesan **100% terisolasi** dan sama sekali tidak terkirim ke WhatsApp penguji.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-06]` Impor Master Data Kontak (CSV/VCF) & Proteksi Nama Kontak
+- **Prasyarat:** Memiliki berkas uji `docs/contacts.csv` atau `docs/contacts.vcf`.
+- **Langkah Pengujian:** 
+  1. Buka modal *Import Master Data Kontak* pada menu Chat Baru.
+  2. Unggah berkas kontak dan lakukan konfirmasi impor.
+  3. Periksa daftar direktori kontak dan cari salah satu nama kontak yang diimpor.
+- **Hasil yang Diharapkan:** 
+  1. Kontak berhasil terimpor dengan status sukses.
+  2. Badge `Master Data` muncul pada detail kontak dan nama resmi terlindungi dari penimpaan profil WhatsApp.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-07]` Inisiasi Chat Keluar (*Start New Chat*) dari Direktori Kontak
+- **Prasyarat:** Kontak telah tersedia di master data kontak.
+- **Langkah Pengujian:** 
+  1. Klik tombol `[ ➕ Chat Baru ]` dan pilih salah satu kontak tujuan.
+  2. Uji opsi kirim pesan pembuka (*Toggle ON*) dan opsi buka tiket kosong (*Toggle OFF*).
+- **Hasil yang Diharapkan:** 
+  1. Tiket baru terbuat di dasbor operator.
+  2. Pada toggle ON, pesan pembuka otomatis terkirim ke WhatsApp kontak tujuan.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-08]` Penanganan Error Sisi Pengguna (Input Kosong, File Tidak Valid, & Putus Koneksi)
+- **Prasyarat:** Ruang obrolan aktif.
+- **Langkah Pengujian:** 
+  1. Coba kirim pesan kosong atau spasi saja.
+  2. Coba unggah file yang tidak didukung atau melebihi ukuran batas maksimum.
+  3. Simulasikan pemutusan jaringan internet singkat saat mengirim pesan.
+- **Hasil yang Diharapkan:** 
+  1. Tombol kirim nonaktif saat input kosong, tidak terjadi crash.
+  2. Muncul pesan peringatan/toast yang ramah pengguna untuk file tidak valid.
+  3. Terdapat indikator status gagal kirim / retry yang jelas saat jaringan terputus.
+- **Status:** ⏳ *Menunggu Antrean*
+
+#### `[UAT-09]` Penyelesaian Percakapan & Fitur Re-Open Tiket Selesai
+- **Prasyarat:** Tiket yang telah selesai ditangani.
+- **Langkah Pengujian:** 
+  1. Klik tombol `[ ✅ Selesaikan Percakapan ]`.
+  2. Pindah ke tab filter *Selesai* (`CLOSED`).
+  3. Buka tiket tersebut lalu klik tombol `[ 🔄 Aktifkan Kembali Tiket ]`.
+- **Hasil yang Diharapkan:** 
+  1. Tiket berpindah ke daftar riwayat selesai secara konsisten.
+  2. Fitur re-open mengembalikan status tiket ke `OPEN` dan mencatat alasan pembukaan kembali secara transparan.
+- **Status:** ⏳ *Menunggu Antrean*
+
+---
+
+### 6.3 Catatan Temuan & Log Bug UAT
+
+| No | ID Skenario | Deskripsi Temuan / Kendala | Tingkat Keparahan | Tindakan Korektif | Status |
+|:--:|:---:|---|:---:|---|:---:|
+| - | - | *(Belum ada temuan kendala tercatat)* | - | - | - |
+
+---
+
+### 6.4 Kesimpulan & Status Kelulusan Akhir UAT
+
+- **Total Skenario:** 9 Skenario
+- **Lulus (`PASS`):** 0
+- **Gagal (`FAIL`):** 0
+- **Tertunda / Terblokir (`BLOCKED`):** 0
+- **Belum / Sedang Diuji:** 9
+- **Status Kelulusan Akhir:** 🟡 **IN PROGRESS (PENGUJIAN SEDANG BERJALAN)**
+
