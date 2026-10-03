@@ -107,101 +107,108 @@ Berikut adalah matriks hasil perbaikan teknis utama yang disepakati dan diimplem
 
 ---
 
-## 5. Panduan Tindak Lanjut & Tutorial Eksekusi (Step-by-Step Action Guide)
+## 5. Action Items & Panduan Eksekusi Lengkap (Tutorial Linux / WSL)
 
-Bagian ini menyediakan tutorial teknis praktis langkah demi langkah untuk menerapkan pembaruan, mengeksekusi migrasi basis data, mengonfigurasi variabel lingkungan, serta menjalankan pengujian regresi menyeluruh pada lingkungan *staging* atau *production*.
+Bagian ini merupakan panduan praktis operasional (*step-by-step tutorial*) bagi pengembang maupun tim infrastruktur untuk menerapkan pembaruan, mengeksekusi migrasi basis data PostgreSQL, menyelaraskan variabel lingkungan, serta menjalankan pengujian regresi (*end-to-end testing*) pada sistem operasi **Linux / Windows Subsystem for Linux (WSL)**.
 
 ---
 
-### 5.1. Tutorial Eksekusi Migrasi Basis Data PostgreSQL
+### 5.1. Persiapan Lingkungan (*Environment Setup*)
 
-Terdapat dua berkas migrasi SQL idempotent yang telah disiapkan di repositori:
-1. `backend/prisma/migrations/20261003_add_unique_wa_message_id/migration.sql` (Pembersihan duplikat & indeks `@unique` pada `wa_message_id`).
-2. `backend/prisma/migrations/20261003_add_performance_compound_indexes/migration.sql` (Indeks gabungan performa antrean tiket dan pencarian kontak).
-
-Pilih salah satu metode eksekusi berikut sesuai dengan alur kerja operasional server Anda:
-
-#### Metode A: Menggunakan PostgreSQL CLI (`psql`) — Direkomendasikan untuk Server / Terminal
-Jalankan perintah berikut melalui terminal peladen (pastikan akun memiliki hak akses DDL pada database target):
+Buka terminal terminal Linux atau WSL (Ubuntu/Debian) Anda, lalu masuk ke direktori kerja backend proyek:
 
 ```bash
-# 1. Masuk ke direktori backend repositori
-cd /path/to/hts-chat-integration/backend
+# Jika menggunakan WSL dengan repositori di drive D:
+cd /mnt/d/Kuliah/Repository/hts-chat-integration/backend
 
-# 2. Jalankan migrasi deduplikasi & Unique Index wa_message_id
+# Atau jika repositori berada di dalam filesystem Linux murni:
+# cd ~/hts-chat-integration/backend
+
+# Pastikan Node.js v18+ dan psql/docker telah terpasang
+node -v
+npm -v
+```
+
+---
+
+### 5.2. Langkah 1: Eksekusi Migrasi Basis Data PostgreSQL
+
+Terdapat dua berkas SQL migrasi idempotent di repositori:
+1. `prisma/migrations/20261003_add_unique_wa_message_id/migration.sql` (Pembersihan duplikat historis & indeks `@unique` pada `wa_message_id`).
+2. `prisma/migrations/20261003_add_performance_compound_indexes/migration.sql` (Penambahan indeks gabungan performa filter dan sorting).
+
+Pilih salah satu metode eksekusi berikut sesuai dengan lingkungan database Anda:
+
+#### Opsi A: Eksekusi Langsung via CLI `psql` (Database Lokal / Cloud / RDS)
+Jika koneksi PostgreSQL Anda langsung dapat diakses dari terminal Linux/WSL:
+
+```bash
+# 1. Ekspor variabel dari file .env secara otomatis ke sesi bash
+export $(grep -v '^#' .env | xargs)
+
+# 2. Jalankan migrasi 1: Deduplikasi & Indeks Unik wa_message_id (DATA-02)
 psql "$DATABASE_URL" -f prisma/migrations/20261003_add_unique_wa_message_id/migration.sql
 
-# 3. Jalankan migrasi penambahan Compound Performance Indexes
+# 3. Jalankan migrasi 2: Indeks Gabungan Performa (DATA-04)
 psql "$DATABASE_URL" -f prisma/migrations/20261003_add_performance_compound_indexes/migration.sql
 ```
 
-#### Metode B: Menggunakan Database GUI (DBeaver, pgAdmin, atau Navicat)
-1. Buka aplikasi DBeaver atau pgAdmin, lalu hubungkan ke database PostgreSQL aplikasi.
-2. Buka *SQL Editor* / *Query Tool*.
-3. Salin dan jalankan seluruh instruksi SQL gabungan berikut:
+#### Opsi B: Eksekusi via Docker Container (Jika PostgreSQL Berjalan di Docker)
+Jika service PostgreSQL Anda berjalan di dalam kontainer Docker:
 
-```sql
--- ================================================================
--- TAHAP 1: DEDUPLIKASI DAN INDEKS UNIK WA_MESSAGE_ID (DATA-02)
--- ================================================================
+```bash
+# Cari nama container postgres Anda (misal: hts-postgres atau postgres-db)
+docker ps
 
--- Bersihkan data duplikat historis (mempertahankan baris dengan ID terendah)
-DELETE FROM "Message"
-WHERE id IN (
-  SELECT id FROM (
-    SELECT id, ROW_NUMBER() OVER (PARTITION BY wa_message_id ORDER BY id ASC) as row_num
-    FROM "Message"
-    WHERE wa_message_id IS NOT NULL AND wa_message_id != ''
-  ) t
-  WHERE t.row_num > 1
-);
+# Jalankan migrasi ke dalam kontainer
+docker exec -i <NAMA_CONTAINER_POSTGRES> psql -U postgres -d hts_chat_db < prisma/migrations/20261003_add_unique_wa_message_id/migration.sql
 
--- Terapkan indeks unik pada wa_message_id
-CREATE UNIQUE INDEX IF NOT EXISTS "Message_wa_message_id_key" ON "Message"("wa_message_id");
-
-
--- ================================================================
--- TAHAP 2: OPTIMASI INDEKS GABUNGAN PERFORMA (DATA-04)
--- ================================================================
-
--- Indeks gabungan status tiket dan riwayat per pelanggan
-CREATE INDEX IF NOT EXISTS "Ticket_customer_id_status_idx" ON "Ticket"("customer_id", "status");
-
--- Indeks gabungan filter antrean tiket aktif & sorting kronologis
-CREATE INDEX IF NOT EXISTS "Ticket_status_is_aduan_created_at_idx" ON "Ticket"("status", "is_aduan", "created_at" DESC);
-
--- Indeks pencarian teks nama dan OPD pelanggan
-CREATE INDEX IF NOT EXISTS "Customer_name_idx" ON "Customer"("name");
-CREATE INDEX IF NOT EXISTS "Customer_skpd_name_idx" ON "Customer"("skpd_name");
+docker exec -i <NAMA_CONTAINER_POSTGRES> psql -U postgres -d hts_chat_db < prisma/migrations/20261003_add_performance_compound_indexes/migration.sql
 ```
 
-#### Metode C: Verifikasi Hasil Migrasi
-Untuk memastikan seluruh indeks telah terpasang dengan benar di PostgreSQL, jalankan kueri verifikasi:
+#### Opsi C: Verifikasi Keberadaan Indeks
+Untuk memastikan indeks telah terpasang sempurna di PostgreSQL:
 
-```sql
+```bash
+psql "$DATABASE_URL" -c "
 SELECT indexname, tablename, indexdef 
 FROM pg_indexes 
 WHERE tablename IN ('Message', 'Ticket', 'Customer')
 ORDER BY tablename, indexname;
+"
 ```
-*Hasil yang diharapkan: Terdapat `Message_wa_message_id_key` (UNIQUE), `Ticket_status_is_aduan_created_at_idx`, `Ticket_customer_id_status_idx`, `Customer_name_idx`, dan `Customer_skpd_name_idx`.*
+*Hasil yang diharapkan memuat:*
+- `Message_wa_message_id_key` (`CREATE UNIQUE INDEX ... ON "Message"("wa_message_id")`)
+- `Ticket_status_is_aduan_created_at_idx`
+- `Ticket_customer_id_status_idx`
+- `Customer_name_idx`
+- `Customer_skpd_name_idx`
 
 ---
 
-### 5.2. Tutorial Penyelarasan Variabel Lingkungan (`.env`)
+### 5.3. Langkah 2: Konfigurasi Variabel Lingkungan (`.env`)
 
-Sistem kini menerapkan *fail-fast secret validation* (`config/env.js`). Peladen akan otomatis menolak untuk menyala jika parameter kunci tidak terdefinisi.
+Sistem menerapkan validasi fail-fast (`config/env.js`). Peladen tidak akan menyala jika ada variabel wajib yang kosong.
 
-#### Langkah 1: Buat Nilai Rahasia yang Aman (*Cryptographically Secure*)
-Jalankan perintah Node.js berikut pada terminal untuk menghasilkan string acak aman untuk `JWT_SECRET` dan `WEBHOOK_SECRET`:
+#### 1. Generate Token Rahasia Kriptografis Aman via Terminal
+Jalankan salah satu perintah bash berikut untuk membuat string acak 32-byte hexa:
 
 ```bash
-# Menghasilkan token acak 32-byte hexa
+# Menggunakan openssl bawaan Linux
+openssl rand -hex 32
+
+# Atau menggunakan Node.js crypto CLI
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-#### Langkah 2: Konfigurasi Berkas `.env` Backend
-Buka atau buat berkas `backend/.env`, lalu pastikan seluruh variabel berikut terisi:
+#### 2. Sunting Berkas `.env` di Linux/WSL
+Gunakan editor teks Linux (misalnya `nano .env`):
+
+```bash
+nano .env
+```
+
+Pastikan konfigurasi memuat parameter berikut:
 
 ```env
 # Port aplikasi backend
@@ -210,8 +217,8 @@ PORT=3000
 # URL Koneksi PostgreSQL
 DATABASE_URL="postgresql://postgres:password_db_anda@localhost:5432/hts_chat_db?schema=public"
 
-# Kunci Rahasia JWT (Wajib diisi, minimal 16 karakter acak)
-JWT_SECRET="masukkan_string_acak_hasil_langkah_1_disini"
+# Kunci Rahasia JWT (Wajib diisi string acak aman hasil generate)
+JWT_SECRET="masukkan_string_acak_hasil_openssl_disini"
 
 # Kredensial dan Endpoint Evolution API v2 (WhatsApp Engine)
 EVOLUTION_API_URL="http://localhost:8080"
@@ -219,90 +226,165 @@ EVOLUTION_API_TOKEN="token_api_evolution_anda"
 EVOLUTION_INSTANCE_NAME="helpdesk-diskominfo"
 
 # Shared Secret untuk Autentikasi Webhook Masuk (SEC-01)
-# Nilai ini harus sama dengan header apikey yang dikonfigurasi pada Webhook Evolution API
+# Header 'apikey' pada webhook Evolution API wajib menyertakan nilai ini
 WEBHOOK_SECRET="masukkan_string_acak_webhook_secret_disini"
 
-# URL Asal Frontend (untuk pengamanan CORS Socket.io)
+# URL Frontend (untuk kontrol CORS Socket.io)
 FRONTEND_URL="http://localhost:5173"
 ```
+*Simpan perubahan dengan `Ctrl + O`, `Enter`, lalu keluar dengan `Ctrl + X`.*
 
-#### Langkah 3: Konfigurasi Webhook pada Evolution API
-Pastikan pengaturan webhook pada dashboard Evolution API Anda menyertakan header keamanan berikut:
-- **Webhook URL:** `http://IP_ATAU_DOMAIN_BACKEND:3000/api/webhook`
-- **Headers:**
-  - `apikey`: `<ISI_DENGAN_NILAI_WEBHOOK_SECRET>`
-- **Events:** Centang `MESSAGES_UPSERT`.
+#### 3. Konfigurasi Webhook di Panel Evolution API
+Pada antarmuka/API manajemen Evolution API, pastikan webhook dikonfigurasi:
+- **URL Webhook:** `http://IP_PELADEN_BACKEND:3000/api/webhook`
+- **Headers:** Tambahkan header `apikey` dengan nilai sama persis seperti `WEBHOOK_SECRET`.
+- **Events Subscribed:** `MESSAGES_UPSERT`.
 
 ---
 
-### 5.3. Tutorial Pengujian Regresi Menyeluruh (End-to-End Testing)
+### 5.4. Langkah 3: Menjalankan Peladen Backend
 
-Setelah backend dan basis data diperbarui, jalankan pengujian regresi berikut untuk memastikan seluruh sistem proteksi bekerja sesuai spesifikasi:
-
-#### Uji 1: Validasi Proteksi Webhook Masuk (SEC-01)
-Uji apakah peladen menolak request webhook tiruan yang tidak memiliki header otentikasi.
+Jalankan perintah berikut untuk menguji dan menjalankan backend di Linux/WSL:
 
 ```bash
-# Skenario A: Kirim request tanpa header apikey (Ekspektasi: HTTP 401 Unauthorized)
-curl -i -X POST http://localhost:3000/api/webhook \
-  -H "Content-Type: application/json" \
-  -d '{"event":"messages.upsert"}'
+# 1. Pastikan dependensi npm terpasang
+npm install
 
-# Skenario B: Kirim request dengan header apikey yang SALAH (Ekspektasi: HTTP 401 Unauthorized)
-curl -i -X POST http://localhost:3000/api/webhook \
-  -H "Content-Type: application/json" \
-  -H "apikey: token_palsu_123" \
-  -d '{"event":"messages.upsert"}'
+# 2. Jalankan server (Mode Development)
+npm run dev
 
-# Skenario C: Kirim request dengan header apikey yang BENAR (Ekspektasi: HTTP 200 OK)
-curl -i -X POST http://localhost:3000/api/webhook \
-  -H "Content-Type: application/json" \
-  -H "apikey: MASUKKAN_NILAI_WEBHOOK_SECRET" \
-  -d '{"event":"messages.upsert","data":{}}'
+# Atau jalankan langsung via Node
+# node src/index.js
+
+# Atau jalankan di background menggunakan PM2 (Rekomendasi Server Linux)
+# pm2 start src/index.js --name "hts-backend"
+# pm2 logs hts-backend
 ```
 
-#### Uji 2: Pengujian Anti-Race Lock & Deduplikasi Pesan (DATA-01 & DATA-02)
-Jalankan pengujian konkurensi dengan mengirimkan dua payload webhook identik (`wa_message_id` sama) dalam milidetik yang sama.
-- **Hasil yang Diharapkan:**
-  - Pesan pertama diproses dengan sukses.
-  - Pesan kedua dicegat oleh `perNumberLock` dan `prisma.message.create` menangkap kode `P2002` tanpa memunculkan crash/error pada log peladen.
-  - Tidak terjadi duplikasi tiket ataupun pesan ganda di tabel `Message`.
-
-#### Uji 3: Pengujian Handshake Autentikasi Socket.io (SEC-05)
-Uji ketahanan peladen WebSocket terhadap akses tanpa izin menggunakan Node.js CLI:
-
-```bash
-# Pengujian Koneksi Socket Anonim (Ekspektasi: Error 'unauthorized')
-node -e "
-const io = require('socket.io-client');
-const socket = io('http://localhost:3000', { autoConnect: true });
-socket.on('connect_error', (err) => {
-  console.log('✅ Uji Berhasil: Koneksi anonim ditolak ->', err.message);
-  process.exit(0);
-});
-socket.on('connect', () => {
-  console.error('❌ Gagal: Klien anonim berhasil terhubung tanpa token!');
-  process.exit(1);
-});
-"
-```
-
-#### Uji 4: Pengujian State Machine & Pencegahan Double-Close (DATA-03)
-1. Buka dashboard tiket helpdesk via browser.
-2. Buka tiket dengan status `OPEN`.
-3. Klik tombol **Tutup Tiket** dengan cepat secara berulang (*double-click*), atau simulasikan dua request POST bersamaan ke `/api/chat/tickets/:id/close`.
-- **Hasil yang Diharapkan:**
-  - Request pertama berhasil menutup tiket (HTTP 200 OK).
-  - Request kedua langsung ditolak dengan pesan: `HTTP 409 Conflict: Tiket sudah dalam status CLOSED`.
-  - Catatan internal penutupan tiket hanya dibuat satu kali.
-
-#### Uji 5: Verifikasi Service Pembersihan Berkas Lampau (RES-03)
-Nyalakan backend dengan perintah `npm run dev` atau `node src/index.js`.
-Periksa log konsol startup untuk memverifikasi inisialisasi modul:
+**Output Log Konsol Startup yang Diharapkan:**
 ```text
 [File Cleanup] Service diinisialisasi (Retensi: 90 hari, Interval cek: setiap 24 jam).
 [HTS Keep-Alive] Background Heartbeat diinisialisasi (setiap 15 menit).
 🚀 Server running on http://localhost:3000
 ```
-Jika log di atas muncul, seluruh mekanisme pemeliharaan latar belakang telah berjalan optimal.
 
+---
+
+### 5.5. Langkah 4: Pengujian Regresi Menyeluruh via Linux Terminal (*End-to-End Testing*)
+
+Gunakan perintah-perintah Linux CLI berikut untuk memvalidasi proteksi keamanan dan integritas transaksi:
+
+#### Pengujian 1: Validasi Keamanan Webhook Masuk (SEC-01)
+Buka tab terminal Linux baru dan jalankan simulasi request HTTP:
+
+```bash
+# Skenario A: Request tanpa header otentikasi (Harus DITOLAK -> HTTP 401 Unauthorized)
+curl -i -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event":"messages.upsert"}'
+
+# Skenario B: Request dengan token palsu/salah (Harus DITOLAK -> HTTP 401 Unauthorized)
+curl -i -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -H "apikey: token_salah_12345" \
+  -d '{"event":"messages.upsert"}'
+
+# Skenario C: Request dengan WEBHOOK_SECRET yang benar (Harus DITERIMA -> HTTP 200 OK)
+curl -i -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -H "apikey: MASUKKAN_NILAI_WEBHOOK_SECRET_ANDA" \
+  -d '{"event":"messages.upsert","data":{}}'
+```
+
+#### Pengujian 2: Validasi Handshake Authentication Socket.io (SEC-05)
+Uji apakah klien anonim tanpa token JWT ditolak oleh peladen WebSocket:
+
+```bash
+# Jalankan skrip evaluasi soket singkat di Linux terminal
+node -e "
+const { io } = require('socket.io-client');
+console.log('Mencoba koneksi socket tanpa token JWT...');
+const socket = io('http://localhost:3000', { autoConnect: true });
+
+socket.on('connect_error', (err) => {
+  console.log('✅ Uji Berhasil! Koneksi ditolak oleh server ->', err.message);
+  process.exit(0);
+});
+
+socket.on('connect', () => {
+  console.error('❌ Gagal Keamanan: Klien anonim berhasil terhubung tanpa autentikasi!');
+  process.exit(1);
+});
+"
+```
+*Hasil yang diharapkan: Menampilkan `✅ Uji Berhasil! Koneksi ditolak oleh server -> unauthorized`.*
+
+#### Pengujian 3: Validasi Anti-Race Lock Webhook (DATA-01 & DATA-02)
+Kirimkan dua pesan simultan menggunakan bash background execution (`&`) untuk menyimulasikan burst lonjakan pesan WhatsApp:
+
+```bash
+PAYLOAD='{
+  "event": "messages.upsert",
+  "data": {
+    "key": {
+      "remoteJid": "628999888777@s.whatsapp.net",
+      "fromMe": false,
+      "id": "BURST_TEST_MSG_001"
+    },
+    "message": { "conversation": "Tes pesan burst konkurensi" },
+    "messageTimestamp": 1759450000
+  }
+}'
+
+# Kirim dua request secara paralel bersamaan
+curl -s -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -H "apikey: MASUKKAN_NILAI_WEBHOOK_SECRET_ANDA" \
+  -d "$PAYLOAD" & \
+curl -s -X POST http://localhost:3000/api/webhook \
+  -H "Content-Type: application/json" \
+  -H "apikey: MASUKKAN_NILAI_WEBHOOK_SECRET_ANDA" \
+  -d "$PAYLOAD" &
+wait
+```
+*Hasil yang diharapkan: Tidak ada server crash, hanya ada 1 record pesan yang tersimpan di basis data, dan tidak ada tiket ganda yang terbentuk.*
+
+#### Pengujian 4: Validasi State Machine Anti-Double Close (DATA-03)
+Simulasikan penutupan tiket ganda ke endpoint `/api/chat/tickets/:id/close`:
+- Request pertama berhasil (HTTP 200).
+- Request kedua yang datang dalam waktu berdekatan langsung ditolak oleh guard status dengan respons: `HTTP 409 Conflict: {"error":"Tiket sudah dalam status CLOSED"}`.
+
+---
+
+## 6. Changelog Komprehensif Evolusi Sistem (V1.0 s.d. V4.2)
+
+| Versi Rilis | Tanggal Rilis | Sorotan Perubahan Utama & Capaian Fitur |
+|---|:---:|---|
+| **V1.0** | September 2026 | Inisialisasi arsitektur dasar: Webhook inbound WhatsApp via Baileys, pembalasan chat keluar, integrasi WebSocket dasar, pelabelan kategori, dan rekapitulasi awal. |
+| **V2.0** | September 2026 | Otentikasi JWT dan perutean Role-Based Access Control (RBAC), dukungan pengiriman gambar dua arah, UI adaptif dispatcher vs teknisi, dan siklus tiket `RESOLVED`. |
+| **V2.1 / V2.2** | September 2026 | Pembagian 3 pilar tim L2 (`Network`, `Server`, `M&E`), penugasan Smart Multi-Assign, penyelesaian mandiri per-tim (`is_resolved`), pelepasan tugas mandiri (*self-unassign*), klasifikasi jenis layanan (*Service Type*), sakelar bot auto-reply dinamis, dan buku kontak WhatsApp blast. |
+| **V3.0** | September 2026 | Integrasi portal resmi HTS Diskominfo Jawa Tengah: reverse-engineering sesi cookie PHP `ci_session`, bypass CAPTCHA numerik live, pipeline aduan 3 tahap, sinkronisasi PIC resmi, dan dual-close tiket. |
+| **V4.0** | Oktober 2026 | Arsitektur One-to-Many Multi-HTS (1 chat banyak nomor tiket resmi), klasifikasi Percakapan Biasa (`GENERAL_CHAT`) vs Aduan Teknis Resmi (`is_aduan`), catatan internal multimedia dua arah (L1 $\leftrightarrow$ L2), perombakan UI 3 kolom, Balasan Cepat (*Quick Replies*), dan disaster recovery penautan manual nomor aduan. |
+| **V4.1** | 02 Oktober 2026 | Manajemen Master Data Kontak (impor file Excel, CSV, dan vCard VCF), Start New Chat (outbound) dengan direktori kontak berpangkal paginasi, re-open tiket selesai, unlink nomor HTS, sinkronisasi balasan langsung dari ponsel helpdesk (`fromMe=true`), dan dukungan WhatsApp LID addressing. |
+| **V4.2** | 03 Oktober 2026 | **Hardening Keamanan & Kestabilan Sistem (Sprint 1–3):** Otentikasi Webhook Shared Secret (`webhookAuth`), penegakan RBAC mutlak sisi peladen (`requireRole`), validasi fail-fast variabel lingkungan (`config/env.js`), pencegahan *Path Traversal* (`safePath.js`), proteksi race condition antrean in-memory (`perNumberLock.js`), constraint basis data unik `@unique wa_message_id`, otentikasi handshake WebSocket (`io.use`) disertai partisi *rooms*, background worker retensi berkas media otomatis (90 hari), dan indeks komposit basis data performa tinggi. |
+
+---
+
+## 7. Langkah Operasional Berikutnya & Roadmap Produksi
+
+1. **Eksekusi Pengujian Lapangan Bersama (User Acceptance Testing - UAT):**
+   - Melakukan simulasi impor berkas riil master data kontak OPD Jawa Tengah (`docs/contacts.csv` dan `docs/contacts.vcf`).
+   - Menguji pengiriman pesan outbound *Start New Chat* ke nomor penguji eksternal.
+   - Menguji alur aktivasi kembali tiket (*Re-Open Ticket*) pada tiket selesai.
+2. **Standardisasi Kredensial Produksi (Pre-Launch Checklist):**
+   - Mengganti seluruh kata sandi akun benih default (`password123`) pada tabel `User` dengan kata sandi acak yang kuat.
+   - Memastikan `JWT_SECRET` dan `WEBHOOK_SECRET` pada file `.env` peladen produksi di-generate menggunakan `openssl rand -hex 32`.
+3. **Penyelarasan Domain & Sertifikat SSL:**
+   - Memastikan domain resmi Diskominfo (misal: `helpdesk.diskominfo.jatengprov.go.id`) terhubung ke VPS dan dilindungi sertifikat SSL Let's Encrypt melalui Certbot Nginx.
+4. **Pemantauan Kapasitas Storage & Log:**
+   - Memverifikasi eksekusi pertama background worker `fileCleanupService` setelah peladen menyala lebih dari 24 jam.
+   - Mengaktifkan modul rotasi log `pm2-logrotate` untuk mencegah penumpukan file log peladen di VPS.
+
+***
+
+Laporan eksekutif ini mencerminkan status operasional aktual dan siap dijadikan standar acuan tata kelola teknis sistem HTS Chat Integration.

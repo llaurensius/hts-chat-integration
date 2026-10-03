@@ -1,108 +1,107 @@
 # 📋 Gambaran Umum Proyek (Project Overview)
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Instansi:** Diskomdigi Provinsi Jawa Tengah  
-**Versi Sistem:** Workflow V4.1 Produksi (Multi-HTS, General Chat, Multimedia L2, Quick Replies, Manual Link, Master Data Kontak, Start New Chat, Re-Open Tiket)  
+**Instansi:** Diskominfo Provinsi Jawa Tengah  
+**Versi Sistem:** Workflow V4.2 Produksi (Multi-HTS, General Chat, Multimedia L2, Quick Replies, Manual Link, Master Data Kontak, Start New Chat, Re-Open Tiket, Hardening Keamanan & Durabilitas)  
 **Audiens Dokumen:** Developer (utama) & Operator Helpdesk (sekunder)  
-**Terakhir Diperbarui:** 02 Oktober 2026  
+**Terakhir Diperbarui:** 03 Oktober 2026  
 
 ---
 
 ## 1. Ringkasan Eksekutif
 
-Sistem Helpdesk **HTS Chat Integration** menjembatani saluran **WhatsApp** dengan dasbor web helpdesk internal dan portal tiket resmi **HTS Diskomdigi Jawa Tengah** (`https://hts.diskomdigi.jatengprov.go.id`).
+Sistem Helpdesk **HTS Chat Integration** menjembatani saluran komunikasi **WhatsApp** dengan dasbor web helpdesk internal dan portal tiket resmi **Helpdesk Ticketing System (HTS) Diskominfo Provinsi Jawa Tengah** (`https://hts.diskomdigi.jatengprov.go.id`).
 
 Arsitektur inti: **Evolution API v2 (Baileys WhatsApp)** $\rightarrow$ **Node.js Express + Socket.io** $\rightarrow$ **PostgreSQL 15 (Prisma ORM)** $\rightarrow$ **React.js + Vite**.
 
-Tata kelola berbasis **RBAC** dengan 4 peran:
-- **ADMIN** — akses penuh, manajemen pengguna, master data kontak, reset rekap
-- **L1 (Dispatcher)** — garda depan, balas WA pelapor, delegasi L2, integrasi HTS
-- **L2 (Teknisi)** — 3 pilar: `Network`, `Server`, `Mechanical & Electrical (M&E)`
-- **SPV (Supervisor)** — monitoring antrean, laporan SLA, ekspor CSV
+Tata kelola sistem ditegakkan secara ketat berbasis **Role-Based Access Control (RBAC)** di lapisan peladen (*server-side enforcement*) dengan 4 peran utama:
+- **ADMIN** — akses penuh, manajemen pengguna, master data kontak, reset rekapitulasi, pengelolaan kontak blast tim
+- **L1 (Dispatcher)** — garda depan penanganan, komunikasi WhatsApp pelapor, delegasi teknisi L2, integrasi penerbitan tiket portal HTS, dan penutupan tiket resmi
+- **L2 (Teknisi)** — spesialis penanganan lapangan 3 pilar: `Network`, `Server`, `Mechanical & Electrical (M&E)`
+- **SPV (Supervisor)** — pemantauan antrean real-time, evaluasi performa SLA (FRT/MTTR), dan ekspor laporan CSV
 
 ---
 
 ## 2. Tujuan Bisnis
 
-1. **Memangkas waktu respons aduan** — bot auto-reply + WebSocket real-time.
-2. **Kolaborasi lintas bidang** — 1 chat WhatsApp bisa mendelegasikan ke banyak tim L2 sekaligus dan menerbitkan banyak tiket HTS resmi (Multi-HTS).
-3. **Privasi komunikasi teknis** — L2 berkoordinasi via Catatan Internal yang 100% tidak bocor ke WhatsApp pelanggan.
-4. **Pelaporan siap saji** — rekapitulasi durasi SLA (FRT/MTTR), kesimpulan solusi, ekspor CSV.
-5. **Konsistensi data master** — import kontak resmi (Excel/CSV/Google Contacts/VCF) menjadi identitas pelapor prioritas utama.
+1. **Memangkas waktu respons aduan (FRT)** — respons otomatis bot sambutan (*auto-reply*) dan notifikasi real-time WebSocket.
+2. **Kolaborasi teknis lintas bidang** — satu percakapan WhatsApp dapat didelegasikan ke banyak tim teknisi sekaligus dan menerbitkan banyak tiket resmi ke portal HTS (One-to-Many Multi-HTS).
+3. **Privasi komunikasi teknis** — teknisi L2 berkoordinasi via Catatan Internal (teks dan gambar bukti) yang 100% terisolasi dan tidak bocor ke WhatsApp pelanggan.
+4. **Pelaporan SLA akurat & terukur** — kalkulasi durasi murni penanganan kendala teknis (MTTR) yang secara otomatis mengecualikan percakapan biasa (*general chat*).
+5. **Integritas master data kontak** — impor data resmi OPD/SKPD (Excel, CSV, Google Contacts, vCard VCF) sebagai identitas pelapor prioritas utama yang tidak tertimpa nama profil WhatsApp.
+6. **Keamanan & keandalan transaksi** — proteksi race condition pesan burst, pembatasan akses data berbasis peran di peladen, soket terotentikasi handshake JWT, dan retensi berkas kedaluwarsa otomatis.
 
 ---
 
 ## 3. Profil Pengguna (User Personas)
 
-| Peran | Tugas Utama | Kanal |
+| Peran | Tugas Utama | Kanal Interaksi |
 |---|---|---|
-| **Pelapor (PIC WhatsApp)** | Mengirim laporan gangguan/permohonan layanan via WhatsApp | WA pelanggan |
-| **Dispatcher L1** | Triase aduan, balas pelapor, multi-assign L2, terbitkan/tutup tiket HTS | Dasbor web |
-| **Teknisi L2** | Terima blast notifikasi, koordinasi catatan internal, tandai selesai per-tim | Dasbor web + WA blast |
-| **Administrator** | CRUD pengguna, master data kontak, kontak blast L2, reset rekap | Dasbor web |
-| **Supervisor** | Pantau antrean, evaluasi SLA, ekspor laporan | Dasbor web |
+| **Pelapor (PIC WhatsApp / OPD)** | Mengirim laporan gangguan teknis atau permohonan layanan SPBE | WhatsApp Pelanggan |
+| **Dispatcher L1** | Triase aduan, verifikasi identitas, balas pelapor, multi-assign L2, terbitkan/tutup tiket HTS | Dasbor Web Helpdesk |
+| **Teknisi L2** | Terima notifikasi blast WA, koordinasi catatan internal teknis, unggah bukti, tandai selesai per-tim | Dasbor Web + Notifikasi WhatsApp |
+| **Administrator** | Manajemen pengguna, impor/hapus master data kontak, kontak blast L2, pembersihan data testing | Dasbor Web Helpdesk |
+| **Supervisor** | Pantau antrean & SLA real-time, evaluasi durasi penanganan, ekspor rekapitulasi CSV | Dasbor Web Helpdesk |
 
 ---
 
 ## 4. Peran & Hak Akses (RBAC)
 
-### Akun Seed (Semua Password: `password123`)
-| Role | Email | Kategori | Hak Akses Utama |
+### Akun Bawaan Seeding (Semua Password: `password123`)
+| Role | Email | Kategori Tim | Hak Akses Utama |
 |---|---|:---:|---|
-| ADMIN | `admin@helpdesk.go.id` | - | Akses penuh, CRUD pengguna, master data kontak, hapus rekap |
-| L1 | `l1@helpdesk.go.id` | - | Chat WA, multi-assign L2, bot, integrasi HTS, tutup tiket |
-| SPV | `spv@helpdesk.go.id` | - | Monitoring antrean, laporan SLA, ekspor CSV |
-| L2 Network | `l2_network@helpdesk.go.id` | Network | View-only chat, catatan internal, tandai selesai, return |
-| L2 Server | `l2_server@helpdesk.go.id` | Server | View-only chat, catatan internal, tandai selesai, return |
-| L2 M&E | `l2_me@helpdesk.go.id` | M&E | View-only chat, catatan internal, tandai selesai, return |
+| **ADMIN** | `admin@helpdesk.go.id` | - | Akses penuh seluruh modul, CRUD pengguna, master kontak, hapus rekap |
+| **L1** | `l1@helpdesk.go.id` | - | Chat WA, toggle bot, multi-assign L2, integrasi HTS, tutup tiket resmi |
+| **SPV** | `spv@helpdesk.go.id` | - | Monitoring antrean, laporan performa SLA, ekspor CSV |
+| **L2 Network** | `l2_network@helpdesk.go.id` | Network | View-only chat, catatan internal tim, tandai selesai, return tugas |
+| **L2 Server** | `l2_server@helpdesk.go.id` | Server | View-only chat, catatan internal tim, tandai selesai, return tugas |
+| **L2 M&E** | `l2_me@helpdesk.go.id` | Mechanical & Electrical | View-only chat, catatan internal tim, tandai selesai, return tugas |
 
-### Matriks Hak Akses
-| Fitur | ADMIN | L1 | L2 | SPV |
+### Matriks Penegakan Hak Akses (Server-Side Enforced)
+| Fitur Operasional | ADMIN | L1 | L2 | SPV |
 |---|:---:|:---:|:---:|:---:|
-| Kirim balasan chat ke pelapor | ✅ | ✅ | ❌ | ❌ |
-| Kirim lampiran gambar ke pelapor | ✅ | ✅ | ❌ | ❌ |
-| Multi-assign tim L2 | ✅ | ✅ | ❌ | ❌ |
+| Kirim balasan WhatsApp ke pelapor | ✅ | ✅ | ❌ | ❌ |
+| Kirim lampiran gambar ke WhatsApp | ✅ | ✅ | ❌ | ❌ |
+| Multi-assign penugasan tim L2 | ✅ | ✅ | ❌ | ❌ |
 | Kustomisasi & toggle Auto-Reply Bot | ❌ | ✅ | ❌ | ❌ |
-| Tulis catatan internal | ✅ | ✅ | ✅ | ❌ |
-| Tandai selesai bagian tim (`is_resolved`) | ✅ | ❌ | ✅ | ❌ |
-| Lepas / kembalikan penugasan | ✅ | ❌ | ✅ | ❌ |
+| Tulis catatan internal (teks & gambar) | ✅ | ✅ | ✅ | ❌ |
+| Tandai selesai penanganan tim (`is_resolved`) | ✅ | ❌ | ✅ | ❌ |
+| Lepas / kembalikan penugasan (*return*) | ✅ | ❌ | ✅ | ❌ |
 | Tutup tiket resmi (`Mandatory Summary`) | ✅ | ✅ | ❌ | ❌ |
-| Lihat rekap aduan & ekspor CSV | ✅ | ✅ | ❌ | ✅ |
-| Hapus data rekap (terpilih / semua + reset ID) | ✅ | ❌ | ❌ | ❌ |
-| Manajemen kontak & nomor WA blast L2 | ✅ | ❌ | ❌ | ❌ |
-| Manajemen pengguna (CRUD user) | ✅ | ❌ | ❌ | ❌ |
-| **Import / hapus Master Data Kontak** | ✅ | ❌ | ❌ | ❌ |
-| **Start New Chat (outbound)** | ✅ | ✅ | ❌ | ❌ |
-| **Re-Open Tiket (aktifkan kembali)** | ✅ | ✅ | ❌ | ❌ |
-| **Unlink tiket HTS** | ✅ | ✅ | ❌ | ❌ |
-
-### Tips Pengujian Multi-Role
-1. Buka 2–3 jendela browser (atau mode Incognito).
-2. Jendela 1: login `l1@helpdesk.go.id` (antrean & delegasi).
-3. Jendela 2: login `l2_network@helpdesk.go.id` (terima tugas, catatan internal, tandai selesai).
-4. Jendela 3: login `admin@helpdesk.go.id` (kontak tim & data testing).
+| Sinkronisasi & terbitkan tiket portal HTS | ✅ | ✅ | ❌ | ❌ |
+| Selesaikan tiket portal HTS | ✅ | ✅ | ❌ | ❌ |
+| Tautkan manual / lepas tautan (*unlink*) HTS | ✅ | ✅ | ❌ | ❌ |
+| Start New Chat (Outbound) & Re-Open Tiket | ✅ | ✅ | ❌ | ❌ |
+| Lihat antrean tiket tim lain | ✅ | ✅ | ❌ (Hanya tim sendiri) | ✅ |
+| Lihat rekapitulasi aduan & ekspor CSV | ✅ | ✅ | ❌ | ✅ |
+| Hapus data rekap (terpilih / semua + reset sequence) | ✅ | ❌ | ❌ | ❌ |
+| Manajemen kontak blast WhatsApp L2 | ✅ | ❌ | ❌ | ❌ |
+| Manajemen akun pengguna (CRUD Pengguna) | ✅ | ❌ | ❌ | ❌ |
+| Impor & pembersihan Master Data Kontak | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
 ## 5. Evolusi Sistem
 
-| Versi | Fokus | Status |
+| Versi | Fokus Pengembangan | Status |
 |---|---|:---:|
-| **V1** | Webhook inbound, outbound chat, WebSocket, tagging, report, helmet/rate-limit | ✅ Selesai |
-| **V2** | JWT + RBAC, media gambar dua arah, mode dinamis L1 vs L2, admin CRUD, blast, siklus hidup `RESOLVED` | ✅ Selesai |
-| **V2.1/V2.2** | 3 pilar L2, multi-assign, per-team resolution, self-unassign, service type, bot toggle, multi-kontak blast | ✅ Selesai |
-| **V3** | Integrasi penuh portal HTS Diskomdigi (cookie `ci_session`, bypass CAPTCHA, pipeline 3 tahap, PIC sync, dual-close) | ✅ Selesai |
-| **V4.0** | Multi-HTS, General Chat, multimedia L2, redesign 3 kolom, quick replies & SLA, manual link recovery | ✅ Selesai |
-| **V4.1** | Master Data Kontak (import), Start New Chat + direkontori paginasi, Re-Open Tiket, Unlink & auto-assign HTS, fix `fromMe`/LID | ✅ Selesai |
+| **V1.0** | Webhook inbound WhatsApp, outbound chat, Socket.io dasar, tagging, rekapitulasi, rate-limit | ✅ Selesai |
+| **V2.0** | Otentikasi JWT + RBAC, media gambar dua arah, UI adaptif L1 vs L2, admin CRUD pengguna, siklus `RESOLVED` | ✅ Selesai |
+| **V2.1/V2.2** | 3 pilar tim L2, smart multi-assign diffing, resolusi mandiri per-tim, self-unassign, klasifikasi service type, multi-kontak blast | ✅ Selesai |
+| **V3.0** | Integrasi portal resmi HTS Diskomdigi (sesi cookie `ci_session`, bypass CAPTCHA, pipeline 3 tahap, PIC sync, dual-close) | ✅ Selesai |
+| **V4.0** | Arsitektur Multi-HTS (One-to-Many), Percakapan Biasa vs Aduan Teknis, multimedia L2, redesign 3 kolom, quick replies, disaster recovery manual link | ✅ Selesai |
+| **V4.1** | Impor Master Data Kontak (Excel/CSV/VCF), Start New Chat outbound + paginasi direktori, Re-Open tiket, Unlink HTS, sinkronisasi balasan HP helpdesk (`fromMe`), WhatsApp LID addressing | ✅ Selesai |
+| **V4.2** | Hardening Keamanan & Kestabilan Sistem: Webhook Shared Secret Auth, Server-side RBAC, Socket.io Handshake Auth & Room Partitions, Fail-fast config env, Path Traversal Protection, Anti-Race Lock (`perNumberLock`), Deduplikasi atomik `@unique wa_message_id`, Background File Retention Worker (90 hari), dan Indeks Komposit Database | ✅ Selesai |
 
 ---
 
-## 6. Indeks Dokumentasi
+## 6. Indeks Dokumentasi Teknis
 
-| Dokumen | Isi |
+| Berkas Dokumen | Lingkup Pembahasan |
 |---|---|
-| `Project_Overview.md` | Dokumen ini — PRD, ringkasan proyek, peran & RBAC, akun seed |
-| `Architecture.md` | Tech stack, topologi, diagram alur sistem, spesifikasi keamanan |
-| `Database_and_API.md` | ERD, struktur tabel & kolom, kontrak REST API & WebSocket |
-| `Features_and_Capabilities.md` | Seluruh fitur operasional V1–V4.1 yang aktif |
-| `Operations_and_Deployment.md` | SOP operator (L1/L2/Admin/SPV) & panduan deployment |
-| `QA_and_Quality.md` | Skenario pengujian QA, potensi bug & mitigasi, audit arsitektur |
+| [`Project_Overview.md`](./Project_Overview.md) | Dokumen ini — PRD, ringkasan eksekutif, persona pengguna, matriks RBAC, akun seed, dan roadmap evolusi sistem |
+| [`Architecture.md`](./Architecture.md) | Tumpukan teknologi, topologi Docker, diagram alur sistem Mermaid, dan arsitektur pengamanan sistem |
+| [`Database_and_API.md`](./Database_and_API.md) | Diagram ERD, kamus data tabel & indeks komposit PostgreSQL, kontrak REST API lengkap, dan event WebSocket |
+| [`Features_and_Capabilities.md`](./Features_and_Capabilities.md) | Katalog fungsional seluruh fitur aktif (V1 s/d V4.2) |
+| [`Operations_and_Deployment.md`](./Operations_and_Deployment.md) | Panduan instalasi 3 track (Lokal, Docker, VPS Node.js produksi via PM2 & Nginx) dan SOP operasional per peran |
+| [`QA_and_Quality.md`](./QA_and_Quality.md) | Skenario pengujian QA Modul 1–9, audit keamanan terverifikasi, mitigasi edge cases, dan release checklist |
+| [`summary.md`](./summary.md) | Ringkasan eksekutif remedi teknis, changelog komprehensif, dan panduan operasional Linux/WSL |

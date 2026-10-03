@@ -1,38 +1,34 @@
 # 🏗️ Arsitektur Teknologi, Diagram Alur & Keamanan Sistem
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi:** Workflow V4.1 Produksi  
-**Audiens Dokumen:** Developer  
+**Versi:** Workflow V4.2 Produksi  
+**Audiens Dokumen:** Developer & System Architect  
+**Terakhir Diperbarui:** 03 Oktober 2026  
 
 ---
 
 ## 1. Tech Stack
 
-| Layer | Teknologi | Versi | Peran |
+| Layer | Teknologi | Versi | Peran & Tanggung Jawab |
 |---|---|:---:|---|
-| **WhatsApp Gateway** | **Evolution API v2 (Baileys)** | `v2.3.7` | Mengelola protokol WhatsApp (Baileys), QR auth, webhook `messages.upsert`, REST kirim teks/media |
-| **Realtime Gateway** | **Socket.io** | `v4.8+` | WebSocket dua arah: pesan masuk, status tiket, notifikasi |
-| **Backend Core** | **Node.js + Express.js** | `v18+/v22` | REST API, controller webhook, JWT, integrasi HTS |
-| **HTS Engine** | **Axios + Form-Data** | `v1.7+` | Reverse-engineering portal HTS (cookie PHP `ci_session`, CSRF, bypass CAPTCHA, multipart) |
-| **Database & ORM** | **PostgreSQL 15 + Prisma** | `v5.22` | Seluruh data relasional (tiket, pesan, pengguna, pelanggan, integrasi HTS) |
-| **Session Cache** | **Redis (Alpine)** | Latest | Cache sesi Evolution API (Docker) |
-| **Frontend** | **React.js + Vite** | `v18+/Vite 5` | SPA dasbor helpdesk, RBAC UI, react-router-dom |
-| **UI Styling** | **Tailwind CSS + Lucide React** | `v3+` | Antarmuka responsif, ikon grafis |
+| **WhatsApp Gateway** | **Evolution API v2 (Baileys)** | `v2.3+` | Mengelola protokol WhatsApp (Baileys), autentikasi QR, webhook `messages.upsert`, pengiriman teks & media |
+| **Realtime Gateway** | **Socket.io** | `v4.8+` | WebSocket dua arah terotentikasi: pembaruan chat, status tiket, notifikasi real-time terpartisi (*rooms*) |
+| **Backend Core** | **Node.js + Express.js** | `v18+/v20/v22` | REST API, webhook controller, otentikasi JWT, penegakan RBAC, reverse-engineering HTS |
+| **HTS Engine** | **Axios + Form-Data** | `v1.7+` | Integrasi portal HTS Diskominfo (cookie PHP `ci_session`, CSRF token, bypass CAPTCHA, multipart upload) |
+| **Database & ORM** | **PostgreSQL 15 + Prisma** | `v5.22` | Relational storage (tiket, pesan, pengguna, pelanggan, sesi HTS, quick replies) + indeks komposit |
+| **Session Cache** | **Redis (Alpine)** | Latest | Cache sesi WhatsApp pada Evolution API (Docker) |
+| **Frontend** | **React.js + Vite** | `v18+/Vite 5` | Single Page Application dasbor helpdesk, manajemen state, perutean RBAC |
+| **UI Styling & Ikon** | **Tailwind CSS + Lucide React** | `v3+` | Antarmuka responsif modern, tema warna, ikon grafis |
 
 ### Pustaka Backend Utama (`backend/package.json`)
-- `@prisma/client` & `prisma` — ORM PostgreSQL
-- `jsonwebtoken` — JWT 12 jam
-- `bcryptjs` — hashing password (salt rounds 10)
-- `socket.io` — WebSocket real-time
-- `axios`, `form-data` — komunikasi HTTP ke Evolution API & Portal HTS
-- `multer` — upload file media (diskStorage, ekstensi asli)
-- `helmet`, `express-rate-limit` — keamanan HTTP
-- `xlsx` — parsing file import kontak (Excel/CSV)
-- `cors`, `dotenv`
-
-### Pustaka Frontend Utama (`frontend/package.json`)
-- `react`, `react-dom`, `react-router-dom`, `vite`
-- `socket.io-client`, `axios`
-- `lucide-react`, `tailwindcss`, `date-fns`
+- `@prisma/client` & `prisma` — ORM basis data PostgreSQL
+- `jsonwebtoken` — Otentikasi stateless JWT (12 jam) & WebSocket handshake
+- `bcryptjs` — Hashing kata sandi (salt rounds 10)
+- `socket.io` — Engine WebSocket dengan middleware handshake otentikasi & room partition
+- `axios`, `form-data` — Klien HTTP dengan timeout eksplisit untuk gateway WhatsApp & portal HTS
+- `multer` — Penanganan berkas unggahan dengan sufiks acak dan sanitasi kanonikal
+- `helmet`, `express-rate-limit` — Hardening header HTTP (CSP, CORP) & proteksi DoS
+- `xlsx` — Parser multi-format impor master data kontak (Excel `.xlsx/.xls`, CSV, dan vCard `.vcf`)
+- `cors`, `dotenv` — Konfigurasi lingkungan & CORS terarah
 
 ---
 
@@ -41,119 +37,135 @@
 ```mermaid
 flowchart TD
     subgraph Pengguna Luar
-        PIC([Pelanggan / PIC WhatsApp])
+        PIC([Pelapor / PIC WhatsApp])
     end
 
     subgraph Docker [Infrastruktur Docker Container]
         EVO[Evolution API Gateway :8080]
         REDIS[(Redis Cache :6379)]
         PG_EVO[(evolution_db)]
-        PG_HTS[(wa_helpdesk :5433->5432)]
+        PG_HTS[(wa_helpdesk :5433 -> 5432)]
         EVO --- REDIS
         EVO --- PG_EVO
     end
 
-    subgraph Host [Host Server / LAN]
+    subgraph Host [Host Server / VPS / LAN]
         BE[Backend Express + Socket.io :3000]
-        UPLOADS[(Folder /uploads/)]
+        UPLOADS[(Folder Penyimpanan /uploads/)]
+        WORKER_CLEANUP[File Cleanup Worker<br/>90 Days Retention / 24h Cron]
+        WORKER_KEEPALIVE[HTS Keep-Alive Worker<br/>Ping Session / 15m Cron]
         FE[Frontend React + Vite :5200]
+        
         BE --- PG_HTS
         BE --- UPLOADS
-        BE <-->|WebSocket & REST| FE
+        BE --- WORKER_CLEANUP
+        BE --- WORKER_KEEPALIVE
+        BE <-->|WebSocket Handshake Auth & REST| FE
     end
 
-    subgraph Eksternal [Portal Eksternal Pemprov Jateng]
-        HTS_SRV[Portal HTS Diskomdigi]
+    subgraph Eksternal [Portal Resmi Pemprov Jateng]
+        HTS_SRV[Portal HTS Diskominfo Jateng<br/>hts.diskomdigi.jatengprov.go.id]
     end
 
     subgraph Tim [Perangkat Tim Helpdesk]
-        L1_UI[L1 Dispatcher]
-        L2_UI[L2 Teknisi]
-        ADM_UI[Administrator]
+        L1_UI[L1 Dispatcher Web]
+        L2_UI[L2 Teknisi Web]
+        ADM_UI[Administrator Web]
+        SPV_UI[Supervisor Web]
         FE --- L1_UI
         FE --- L2_UI
         FE --- ADM_UI
+        FE --- SPV_UI
     end
 
     PIC <-->|Protokol WhatsApp| EVO
-    EVO -->|Webhook POST /api/webhook/whatsapp| BE
+    EVO -->|Webhook POST /api/webhook/whatsapp<br/>Auth: apikey = WEBHOOK_SECRET| BE
     BE -->|REST API /message/sendText & sendMedia| EVO
-    BE <-->|Sinkronisasi Tiket & Dual-Close<br/>Cookie ci_session + CSRF| HTS_SRV
+    BE <-->|Multi-HTS Pipeline & Dual-Close<br/>Cookie ci_session + CSRF| HTS_SRV
 ```
 
-### Catatan Jaringan Docker
-- `docker-compose.yml` memetakan Postgres ke **`5433:5432`** (host:container). Backend di host wajib memakai port **5433** di `DATABASE_URL`.
-- Webhook Evolution → backend memakai IP bridge Docker host: `http://172.17.0.1:3000/api/webhook/whatsapp` (atau `HOST_IP`).
-- Frontend memakai `window.location.hostname` dinamis untuk koneksi API/Socket agar akses LAN langsung jalan tanpa konfigurasi tambahan.
+### Catatan Jaringan & Port
+- `docker-compose.yml` memetakan PostgreSQL ke **`5433:5432`** (host:container). Backend di host **wajib** menggunakan port **`5433`** pada `DATABASE_URL` di file `.env`.
+- Webhook Evolution API menuju backend host dialirkan melalui alamat IP bridge gateway: `http://172.17.0.1:3000/api/webhook/whatsapp` (atau via hostname reverse proxy VPS).
+- Frontend Vite dikonfigurasi pada port **`5200`** (`vite.config.js`) dan mendeteksi host backend secara otomatis via `window.location.hostname`.
 
 ---
 
 ## 3. Diagram Alur Sistem (Flowcharts)
 
-### 3.1 Alur Pesan Masuk (Inbound WhatsApp $\rightarrow$ Webhook)
+### 3.1 Alur Pesan Masuk (Inbound WhatsApp $\rightarrow$ Webhook $\rightarrow$ Database)
 
 ```mermaid
 flowchart TD
-    A([Pelapor Kirim Pesan / Gambar via WA]) --> B[Server WhatsApp / Meta]
+    A([Pelapor Kirim Pesan / Media via WA]) --> B[Server WhatsApp / Meta]
     B --> C[Evolution API Gateway]
-    C -->|Webhook POST /api/webhook/whatsapp| D[Backend Express Controller]
-
-    D --> E{Pesan Memuat Gambar?}
-    E -- Ya --> F[Unduh Base64 dari Evolution API<br/>Simpan ke /uploads/img_*.jpg]
-    E -- Tidak --> G[Ekstrak Teks Pesan]
-    F --> H[Cek / Upsert Customer]
-    G --> H
-
-    H --> H2{Nama berasal dari<br/>Master Data Import / Edit Manual?}
-    H2 -- Ya --> H3[TIDAK TIMPA nama<br/>Simpan pushName ke wa_push_name]
-    H2 -- Tidak --> H4[Update nama dari pushName / kontak HP]
-    H3 --> I
-    H4 --> I
-
-    I{Ada Tiket Aktif?<br/>OPEN atau RESOLVED}
-    I -- Tidak --> J[Buat Tiket Baru<br/>is_aduan=false, GENERAL_CHAT]
-    J --> K{fromMe = false<br/>(dari pelanggan)?}
-    K -- Ya --> L[Kirim Auto-Reply Bot jika aktif]
-    K -- Tidak --> P[Simpan sebagai AGENT]
-    L --> M[Simpan pesan BOT]
-    M --> P
-    I -- Ada --> N[Sambungkan ke Tiket Aktif]
-    N --> P
-
-    P --> R[Emit Socket.io: new_message]
-    R --> S([Tampil Seketika di Web Dashboard])
+    C -->|POST /api/webhook/whatsapp<br/>Header: apikey| D[Middleware verifyWebhookAuth]
+    
+    D -->|Otentikasi Gagal| D_ERR[HTTP 401 Unauthorized]
+    D -->|Otentikasi Berhasil| D_OK[Balas HTTP 200 OK ke Gateway]
+    
+    D_OK --> E[withLock per-nomor: wa:waNumber]
+    
+    subgraph LockScope [Serial Execution per WhatsApp Number]
+        E --> F{wa_message_id sudah ada di DB?}
+        F -- Ya --> F_SKIP[Abaikan: Deduplikasi Sukses]
+        F -- Tidak --> G{Pesan Memuat Media Gambar?}
+        
+        G -- Ya --> H[Ambil Base64 & Simpan ke /uploads/<br/>Nama: img_timestamp_rand6.jpg]
+        G -- Tidak --> I[Ekstrak Teks Pesan]
+        
+        H --> J[Cek Identitas Pelapor di DB]
+        I --> J
+        
+        J --> J1{is_imported_contact = true ATAU<br/>is_custom_name = true?}
+        J1 -- Ya --> J2[Pertahankan Nama Resmi Master Data<br/>Simpan pushName ke wa_push_name]
+        J1 -- Tidak --> J3[Resolusi Nama Hybrid:<br/>Kontak HP > Push Name > Nomor WA]
+        
+        J2 --> K{Ada Tiket Aktif?<br/>Status OPEN atau RESOLVED}
+        J3 --> K
+        
+        K -- Tidak Ada --> L[Buat Tiket Baru<br/>is_aduan=false, GENERAL_CHAT]
+        L --> M{fromMe = false<br/>Pesan dari pelanggan?}
+        M -- Ya --> N{Auto-Reply Bot Aktif?}
+        N -- Ya --> O[Kirim Balasan Bot via WhatsApp<br/>Simpan pesan sender_type=BOT]
+        N -- Tidak --> P[Lewati Bot]
+        M -- Tidak --> Q[Pesan dari HP Fisik Helpdesk<br/>Simpan sender_type=AGENT]
+        
+        K -- Ada --> R[Hubungkan Pesan ke Tiket Aktif Tersebut]
+        
+        O --> S[Simpan Pesan ke Tabel Message<br/>Constraint @unique wa_message_id]
+        P --> S
+        Q --> S
+        R --> S
+        
+        S --> T[req.io.emit 'new_message']
+    end
+    
+    T --> U([Gelembung Chat Muncul Real-time di Dasbor Web])
 ```
-
-**Catatan teknis (V4.1):**
-- Deduplikasi pesan via kolom `Message.wa_message_id` (`key.id` dari Evolution). Webhook skip jika ID sudah ada.
-- Proteksi *race condition*: `prisma.customer.upsert` + fallback pembuatan tiket jika bentrok konkurensi.
-- Mendukung **WhatsApp LID addressing** (`remoteJidAlt` $\rightarrow$ nomor HP asli).
-- Pesan `fromMe=true` dari HP fisik helpdesk diterima & disimpan sebagai `AGENT`.
 
 ---
 
-### 3.2 Alur Pendelegasian Smart Multi-Assign & WhatsApp Blast
+### 3.2 Alur Pendelegasian Smart Multi-Assign & WhatsApp Blast L2
 
 ```mermaid
 flowchart TD
-    A([L1 Buka Tiket Aktif]) --> B[Klik Assign ke L2]
-    B --> C[Modal Penugasan]
-    C --> D[Centang Tim: Network / Server / M&amp;E]
-    D --> E[Pilih Jenis Layanan]
-    E --> F[Klik Simpan Penugasan]
+    A([Dispatcher L1 Buka Tiket Aktif]) --> B[Klik 'Assign ke L2']
+    B --> C[Modal Penugasan Tim]
+    C --> D[Centang 1 atau Banyak Tim:<br/>Network / Server / M&E]
+    D --> E[Pilih Jenis Layanan Service Type]
+    E --> F[Klik 'Simpan Penugasan']
 
     F --> G[POST /api/chat/tickets/:id/assign]
-    G --> H[Diff Penugasan:<br/>Existing dipertahankan<br/>Added dibuat baru<br/>Removed dihapus dengan konfirmasi]
-    H --> I[Tulis Catatan Internal Sistem]
-    I --> J{Ada Kontak di CategoryContact<br/>untuk Tim yang Baru Ditugaskan?}
-    J -- Ya --> K[Loop Kirim WA Blast ke Nomor/Grup L2]
-    J -- Tidak --> L[Lewati Notifikasi]
-    K --> M[Emit Socket.io]
+    G --> H[Evaluasi Diff Penugasan Tim:<br/>- Tim eksisting dipertahankan<br/>- Tim baru dibuatkan TicketCategory<br/>- Tim dilepas dimintai konfirmasi]
+    H --> I[Catat Catatan Internal Sistem]
+    I --> J{Terdapat Kontak di CategoryContact<br/>untuk Tim yang Baru Ditugaskan?}
+    J -- Ya --> K[Paralel WA Blast via Promise.allSettled<br/>Timeout 5000ms per nomor]
+    J -- Tidak --> L[Lewati Notifikasi WA]
+    K --> M[Emit Socket.io 'ticket_assigned']
     L --> M
-    M --> N([Antrean L1 & L2 Terupdate])
+    M --> N([Antrean Tim L2 Terkait Otomatis Terbarui])
 ```
-
-**Catatan teknis:** Blast hanya dikirim ke tim **yang baru ditambahkan** (anti-spam berulang). Penugasan ulang tidak mereset `is_resolved` tim yang sudah selesai.
 
 ---
 
@@ -161,219 +173,137 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A([Teknisi L2 Buka Tiket]) --> B[Analisis Kendala Lapangan]
-    B --> C{Status Pekerjaan Tim?}
-    C -- Selesai --> D[Klik Tandai Selesai]
-    D --> E[Isi Solusi Teknis]
-    E --> F[POST /tickets/:id/resolve]
-    F --> G[Update TicketCategory:<br/>is_resolved=true, solution]
-    G --> H{Semua Tim Ditugaskan<br/>sudah is_resolved?}
-    H -- Belum --> I[Tiket Utama Tetap OPEN]
-    H -- Ya --> J[Otomatis Status = RESOLVED]
-    C -- Salah Kamar --> K[Klik Kembalikan / Lepas]
-    K --> L[POST /tickets/:id/return + Alasan]
-    L --> M[Tim Tersebut Dilepas,<br/>Tim Lain Tidak Terpengaruh]
+    A([Teknisi L2 Buka Tiket Timnya]) --> B[Analisis & Tindakan Perbaikan Lapangan]
+    B --> C{Hasil Evaluasi Tim L2}
+    
+    C -- Selesai Dilayani --> D[Klik 'Tandai Selesai']
+    D --> E[Isi Formulir Solusi Teknis Lapangan]
+    E --> F[POST /api/chat/tickets/:id/resolve]
+    F --> G[Update TicketCategory:<br/>is_resolved=true, solution, resolved_at]
+    G --> H{Apakah Seluruh Tim yang Ditugaskan<br/>Telah Menyatakan is_resolved = true?}
+    H -- Belum Lengkap --> I[Tiket Utama Tetap Berstatus OPEN<br/>Header tampilkan centang parsial]
+    H -- Sudah Lengkap --> J[Status Tiket Utama Otomatis Berubah: RESOLVED<br/>L1 Siap Menutup Tiket Resmi]
+    
+    C -- Bukan Kewenangan Tim --> K[Klik 'Kembalikan / Lepas Penugasan']
+    K --> L[POST /api/chat/tickets/:id/return + Alasan]
+    L --> M[Hapus TicketCategory Tim Tersebut<br/>Tim Lain Tetap Berjalan Normal]
 ```
 
 ---
 
-### 3.4 Alur Integrasi Portal HTS Diskomdigi
+### 3.4 Alur Integrasi Portal Resmi HTS Diskominfo
 
-#### A. Autentikasi Sesi HTS (Bypass CAPTCHA Visual)
+#### A. Autentikasi Sesi HTS (Bypass Visual CAPTCHA)
 ```mermaid
 sequenceDiagram
     autonumber
     actor P as Dispatcher L1
     participant UI as Web Dashboard
     participant BE as Express Server
-    participant HTS as Portal HTS
+    participant HTS as Portal HTS Pemprov Jateng
 
     P->>UI: Klik "Hubungkan Akun HTS"
     UI->>BE: GET /api/hts/captcha
-    BE->>HTS: GET halaman + /captcha (cookie ci_session)
-    HTS-->>BE: Buffer gambar PNG CAPTCHA
-    BE-->>UI: Base64 CAPTCHA + CSRF Token
-    UI-->>P: Tampilkan gambar CAPTCHA
-    P->>UI: Email + Password + teks CAPTCHA
+    BE->>HTS: GET / (ambil CSRF token & cookie awal)
+    BE->>HTS: GET /captcha?rand=... (buffer biner)
+    HTS-->>BE: Gambar PNG CAPTCHA + Set-Cookie
+    BE-->>UI: { success: true, captchaImage: base64, csrfToken }
+    UI-->>P: Render gambar CAPTCHA di modal login
+    P->>UI: Input Email HTS + Password + Teks CAPTCHA
     UI->>BE: POST /api/hts/login
     BE->>HTS: POST /login (x-www-form-urlencoded)
-    HTS-->>BE: 302 + Set-Cookie ci_session (login sukses)
-    BE->>BE: Simpan cookie ke tabel HtsUserSession
-    BE-->>UI: { success, message: "Terhubung sebagai ..." }
-    UI-->>P: Panel kanan hijau: Terhubung
+    HTS-->>BE: 302 Redirect + Set-Cookie ci_session
+    BE->>BE: Simpan cookie sesi aktif ke tabel HtsUserSession
+    BE-->>UI: { success: true, user: "..." }
+    UI-->>P: Panel kanan hijau: "Terhubung sebagai ..."
 ```
 
-#### B. Penerbitan Tiket (Pipeline 3 Tahap)
+#### B. Penerbitan Tiket HTS (Pipeline 3 Tahap)
 ```mermaid
 flowchart TD
-    A([L1 Klik Sinkronkan ke Portal HTS]) --> B[Form Data HTS]
-    B --> C[Isi: Kategori, Detil min 10 char,<br/>PIC Penerima, OPD Induk opsional, Lampiran multi-foto]
-    C --> D[POST /api/chat/tickets/:id/sync-hts]
-    D --> E[Ambil Cookie ci_session dari HtsUserSession]
+    A([L1 Klik Sinkronkan ke Portal HTS]) --> B[Formulir Data Aduan HTS]
+    B --> C[Isi Data: Kategori, Detil min 10 char,<br/>PIC Penerima, OPD Induk, Lampiran multi-foto]
+    C --> D[POST /api/chat/tickets/:id/hts]
+    D --> E[Ambil Cookie ci_session Petugas dari DB]
 
     subgraph Pipeline [Pipeline 3 Tahap htsClientService]
-        E --> F[Tahap 1: POST /submit_aduan<br/>Kirim data + pic[] array]
-        F --> G[HTS Terbitkan Nomor Aduan<br/>contoh: 2041-TShoot-2026-jateng-10]
-        G --> H[POST /get_aduan_data unsubmitted<br/>Ambil id_trouble numerik]
-        H --> I[Tahap 2: POST /submit_aduan_status<br/>unsubmitted -> input-pic]
-        I --> J[Tahap 3: POST /submit_pic<br/>PIC awal, misal pic_id=14]
+        E --> F[Tahap 1: POST /submit_aduan<br/>Kirim data formulir + lampiran pic]
+        F --> G[HTS Mengeluarkan Nomor Aduan Resmi<br/>Format: 2041-TShoot-2026-jateng-10]
+        G --> H[POST /get_aduan_data status unsubmitted<br/>Ekstrak id_trouble numerik]
+        H --> I[Tahap 2: POST /submit_aduan_status<br/>Ubah status: unsubmitted -> input-pic]
+        I --> J[Tahap 3: POST /submit_pic<br/>Penugasan PIC awal via form-data]
     end
 
-    J --> K[Status HTS = PENDING]
-    K --> L[Simpan di DB:<br/>Ticket.hts_* + baris TicketHts]
-    L --> M[Emit Socket.io hts_ticket_created]
-    M --> N([Nomor HTS tampil di Header & Panel])
+    J --> K[Status Tiket HTS Menjadi PENDING]
+    K --> L[Simpan Entri ke Tabel TicketHts<br/>+ Relasi ke Category Tim]
+    L --> M[req.io.emit 'hts_ticket_created']
+    M --> N([Kartu Tiket HTS Tampil di Panel Kanan])
 ```
 
-#### C. Dual-Close (Penutupan Tiket + Selesaikan di HTS)
+#### C. Dual-Close Berintegritas (Penutupan Lokal + Penyelesaian HTS)
 ```mermaid
 flowchart TD
-    A([L1 Klik Selesaikan Tiket]) --> B[Modal Penutupan]
-    B --> C{Seluruh Tiket HTS<br/>terkait sudah SOLVED?}
-    C -- Ya --> D[Form HTS disembunyikan<br/>Badge: Sudah SOLVED]
-    C -- Belum --> E[Form Solusi HTS aktif<br/>Tanggal/Jam/PIC/Bukti]
-    E --> F[L1 Centang PIC:<br/>PIC Penerima + PIC Penanganan]
-    D --> G[Klik Tutup Tiket]
-    F --> G
-    G --> H[POST /api/chat/tickets/:id/close<br/>Gate baca SSOT TicketHts]
-    H --> I[Loop TicketHts berstatus PENDING<br/>Submit solveTicketHts per tiket<br/>Catat failedItems]
-    I --> J{Semua target HTS SOLVED?}
-    J -- Ada yang gagal --> K[BATALKAN Penutupan Lokal!<br/>Return 400: daftar #HTS + alasan<br/>Chat tetap terbuka]
-    J -- Semua selesai --> L[Update lokal CLOSED + summary]
-    L --> M[Emit Socket.io ticket_closed]
-```
-
-**Kebijakan integritas (V4.1):** Status HTS dibaca dari **SSOT `TicketHts`**, bukan kolom legacy. Kegagalan diperiksa **per tiket**: bila ada satu pun yang gagal, seluruh penutupan lokal dibatalkan dan `400` berisi daftar nomor HTS gagal beserta alasan dikembalikan ke UI (mis. sesi expired, nomor tidak ditemukan di portal HTS). Kolom legacy `Ticket.hts_ticket_status` yang salah di-set `SOLVED` padahal `TicketHts` masih `PENDING` otomatis diluruskan (*self-healing*), sehingga form/tombol selesaikan HTS muncul kembali tanpa perbaikan data manual. Lookup ID trouble yang gagal kini melempar error jelas — fallback tebakan diam-diam telah dihapus.
-
-#### D. Manual Link & Disaster Recovery
-```mermaid
-flowchart TD
-    A([Tiket belum punya Nomor HTS]) --> B[Klik Sinkronkan ke Portal HTS]
-    B --> C[Drawer Tab 1: Terbitkan Baru]
-    B --> D[Drawer Tab 2: Tautkan yang Sudah Ada]
-    C --> E[Pipeline 3 tahap seperti 3.4-B]
-    D --> F[Input No. Aduan + Pilih Divisi Tim]
-    F --> G[POST /tickets/:id/link-hts]
-    G --> H{Nomor sudah tertaut<br/>di percakapan ini?}
-    H -- Ya --> I[TOLAK 400: Duplikat di percakapan]
-    H -- Belum --> J{Nomor tertaut<br/>di tiket lain?}
-    J -- Ya --> K[Konfirmasi Force Link 409]
-    J -- Tidak --> L[lookupTicketByNumber ke HTS]
-    K --> L
-    L --> M[Simpan TicketHts + Update Ticket.hts_*]
-    M --> N[Auto-Promotion is_aduan=true]
-    N --> O{category_id dipilih?}
-    O -- Ya --> P[Auto-create TicketCategory<br/>+ Socket ticket_assigned]
-    O -- Tidak --> Q[Lewati auto-assign]
-    P --> Q
-    Q --> R[Catatan internal sistem<br/>+ Emit hts_ticket_created]
+    A([L1 Klik Tombol Selesaikan Tiket]) --> B[Modal Penutupan Tiket Resmi]
+    B --> C{Cek SSOT TicketHts:<br/>Apakah seluruh tiket HTS terkait<br/>sudah berstatus SOLVED?}
+    
+    C -- Sudah Semua SOLVED --> D[Formulir Solusi HTS Disembunyikan<br/>Badge Hijau: Seluruh Tiket HTS Selesai]
+    C -- Masih Ada PENDING --> E[Formulir Solusi HTS Diaktifkan<br/>Input Solusi + Pilihan Gabungan PIC Penerima & Penanganan]
+    
+    D --> F[Klik 'Konfirmasi Tutup Tiket']
+    E --> F
+    
+    F --> G[POST /api/chat/tickets/:id/close]
+    G --> H[Loop Seluruh TicketHts yang Masih PENDING<br/>Kirim POST /submit_solve ke Portal HTS]
+    
+    H --> I{Apakah Seluruh Eksekusi HTS Berhasil?}
+    
+    I -- Ada yang Gagal / Timeout --> J[BATALKAN PENUTUPAN LOKAL!<br/>Kembalikan HTTP 400 berisi daftar nomor #HTS yang gagal<br/>Tiket tetap OPEN agar dapat dicoba kembali]
+    I -- Seluruhnya Berhasil SOLVED --> K[Tutup Tiket Lokal:<br/>status=CLOSED, closed_at=now, summary]
+    
+    K --> L[req.io.emit 'ticket_closed']
+    L --> M([Tiket Pindah ke Tab Selesai])
 ```
 
 ---
 
-### 3.5 Alur Start New Chat (Outbound) & Import Master Data Kontak
+## 4. Arsitektur Keamanan Sistem (Security Architecture)
 
-```mermaid
-flowchart TD
-    subgraph Impor [Import Master Data Kontak - Admin]
-        A1[Admin Buka Modal Chat Baru<br/>klik Import Master Data Kontak] --> A2[Unggah File Excel/CSV/VCF]
-        A2 --> A3{Deteksi Format File}
-        A3 -- VCF --> A4[Parser vCard: FN/N + TEL + ORG]
-        A3 -- CSV/XLSX --> A5[Parser xlsx: kolom fleksibel<br/>termasuk First/Middle/Last Name<br/>dan Organization Name]
-        A4 --> A6
-        A5 --> A6[Upsert Customer:<br/>is_imported_contact=true]
-        A6 --> A7[MASTER DATA = PRIORITAS UTAMA<br/>Tidak tertimpa nama WA]
-    end
+### 4.1 Validasi Konfigurasi Lingkungan Fail-Fast (`SEC-03`)
+Sistem menginisialisasi [`config/env.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/config/env.js) pada baris pertama startup aplikasi. Jika salah satu variabel wajib (`DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_TOKEN`) tidak disetel atau bernilai string kosong, peladen langsung menghentikan proses (`process.exit(1)`) dengan pesan kesalahan konfigurasi fatal, mencegah eksekusi dengan kredensial default yang lemah.
 
-    subgraph Chat [Start New Chat]
-        B1[L1 Klik Chat Baru] --> B2[Pencarian Direktori Kontak<br/>(DB Master + Kontak HP Evolution)]
-        B2 --> B3[Pilih Kontak atau Ketik Manual<br/>+ Pesan Pembuka]
-        B3 --> B4{Toggle: Langsung<br/>Kirim Pesan?}
-        B4 -- Ya --> B5[POST /chat/start-new-chat<br/>+ sendText Evolution]
-        B4 -- Tidak --> B6[Tiket kosong<br/>(tanpa kirim WA)]
-        B5 --> B7[Simpan pesan AGENT<br/>+ Socket new_message]
-        B6 --> B8[Tiket terbuka,<br/>L1 kirim manual nanti]
-    end
-```
+### 4.2 Autentikasi Webhook Shared Secret (`SEC-01`)
+Endpoint penerimaan pesan WhatsApp `POST /api/webhook/whatsapp` dilindungi oleh [`webhookAuth.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/middlewares/webhookAuth.js):
+- Memvalidasi token dari header `apikey`, `x-api-key`, `Authorization: Bearer <token>`, atau query parameter `token`.
+- Menggunakan perbandingan string waktu-konstan (`crypto.timingSafeEqual`) untuk menolak serangan *timing attack*.
+- Membatasi ukuran body parser webhook maksimal **10MB** dan menerapkan *rate limiter* khusus **300 request / menit / IP**.
 
-**Hierarki resolusi nama pelapor (V4.1):**
-1. 🥇 **Hasil import Admin** (`is_imported_contact = true`) — tidak tertimpa apa pun
-2. 🥈 **Edit manual via dashboard** (`is_custom_name = true`)
-3. 🥉 **Kontak HP Evolution API** (`pushName`)
-4. 🏅 **WhatsApp Push Name** (disimpan ke `wa_push_name` sebagai data pembanding)
-5. 📱 **Nomor telepon** (fallback terakhir)
+### 4.3 Penegakan Otorisasi RBAC Sisi Peladen (`SEC-02` & `AUTH-01`)
+Otorisasi tidak hanya dibebankan pada antarmuka web, melainkan ditegakkan secara absolut di lapisan Express via [`authMiddleware.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/middlewares/authMiddleware.js):
+- `verifyToken`: Memverifikasi integritas token JWT dan menyuntikkan identitas pengguna ke `req.user`.
+- `requireRole([...])`: Memeriksa peran aktif pengguna (`ADMIN`, `SPV`, `L1`, `L2`).
+- **Isolasi Baris Data:** Agen L2 yang memiliki `category_id` hanya diizinkan membaca pesan dan antrean tiket timnya sendiri.
 
----
+### 4.4 Otentikasi Handshake WebSocket & Isolasi Ruang (`SEC-05`)
+Peladen Socket.io pada [`index.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/index.js) menerapkan middleware handshake `io.use`:
+- Memverifikasi token JWT dari `socket.handshake.auth.token` sebelum menyetujui koneksi WebSocket.
+- Klien anonim langsung ditolak dengan pesan `unauthorized`.
+- Soket yang terotentikasi otomatis dimasukkan ke dalam ruang (*rooms*) eksklusif: `user_{id}`, `role_{role}`, dan `category_{category_id}`.
 
-### 3.6 Alur Re-Open Tiket
+### 4.5 Pencegahan Path Traversal Lampiran (`SEC-04`)
+Seluruh fungsi pemrosesan lampiran berkas yang dikirimkan ke portal HTS disaring menggunakan modul [`safePath.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/safePath.js):
+- Memeriksa nama berkas menggunakan `path.resolve` dan memastikan jalur kanonikal berkas berada di dalam folder yang diizinkan (`/uploads`).
+- Upaya manipulasi jalur direktori (`../`) akan memicu penolakan seketika dengan pesan `Akses path traversal ditolak`.
 
-```mermaid
-flowchart TD
-    A([Pelanggan Tanya Ulang / Kendala Kambuh]) --> B{Tiket Sebelumnya CLOSED?}
-    B -- Ya --> C[L1 Buka Tab Selesai<br/>klik Aktifkan Kembali Tiket]
-    B -- Tidak --> D[Lanjut di Tiket Aktif]
-    C --> E[Input Alasan Opsional]
-    E --> F[POST /api/chat/tickets/:id/reopen]
-    F --> G[Update: status=OPEN, closed_at=null]
-    G --> H[Catatan internal + Socket ticket_updated]
-    H --> I([Chat Bisa Dibalas Lagi])
-```
+### 4.6 Proteksi Race Condition & Konkurensi Data (`DATA-01` & `DATA-02`)
+- **Mutex Per-Nomor WhatsApp:** Webhook incoming dibungkus oleh antrean janji in-memory [`perNumberLock.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/perNumberLock.js) berbasis key `wa:${waNumber}`. Pesan yang tiba dalam interval milidetik diproses secara serial.
+- **Deduplikasi Atomik Database:** Kolom `Message.wa_message_id` memiliki indeks `@unique`. Jika terjadi tabrakan pesan ganda, penanganan kesalahan Prisma menangkap kode `P2002` secara elegan tanpa menjatuhkan proses peladen.
 
----
+### 4.7 Background Workers & Siklus Hidup File (`RES-03`)
+Aplikasi menjalankan dua background service mandiri di dalam event loop peladen:
+1. **`htsKeepAliveService` (Interval 15 Menit):** Melakukan ping ringan otomatis ke portal HTS untuk memastikan sesi cookie petugas L1 tidak kedaluwarsa.
+2. **`fileCleanupService` (Interval 24 Jam):** Memindai dan menghapus berkas lampiran media fisik pada direktori `/uploads` untuk tiket yang telah berstatus `CLOSED` lebih dari 90 hari.
 
-## 4. Spesifikasi Keamanan (Security Specification)
-
-### 4.1 Autentikasi (JWT & Hashing)
-- Password dihash dengan **`bcryptjs`**, salt rounds **10**. Tidak pernah disimpan plaintext.
-- Token JWT (`jsonwebtoken`) berlaku **12 jam**.
-- Payload: `{ id, name, role, category_id }` (tanpa data sensitif).
-- Transmisi: HTTP Header `Authorization: Bearer <TOKEN>`.
-
-### 4.2 Otorisasi (RBAC)
-- Middleware `verifyToken` di seluruh rute `/api/chat`, `/api/reports`, `/api/admin`, `/api/hts`.
-- Middleware `requireRole([...])` untuk proteksi berbasis peran (misal `/api/admin` hanya `ADMIN`).
-- Matriks hak akses lengkap ada di `Project_Overview.md`.
-
-### 4.3 Proteksi HTTP Headers (Helmet & CORS)
-```javascript
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      "img-src": ["'self'", "data:", "blob:", "*"],
-    },
-  },
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-}));
-```
-- CORP `cross-origin` mengizinkan media `/uploads/` dimuat dari frontend di port/IP berbeda (LAN).
-- CSP membatasi eksekusi skrip berbahaya (XSS).
-
-### 4.4 Rate Limiting
-- `express-rate-limit`: **1000 requests / 15 menit / IP**.
-- Rute `/api/webhook` **dikecualikan** agar transmisi pesan WhatsApp tidak pernah terputus.
-
-### 4.5 Validasi Unggahan Berkas (Multer)
-1. Filter MIME: `image/jpeg`, `image/jpg`, `image/png`, `image/gif`, `image/webp` (tipe biner berbahaya ditolak).
-2. Batas ukuran: **10 MB per file**.
-3. Nama file acak berbasis `Date.now() + randomSuffix` — mencegah *path traversal* & collision timestamp.
-4. Body parser JSON dibatasi **50 MB** agar payload webhook besar dari Evolution tidak error `PayloadTooLarge`.
-
-### 4.6 Isolasi Database
-Dua database terpisah dalam satu instance Postgres:
-- **`wa_helpdesk`** — data aplikasi helpdesk (tiket, pesan, pengguna, pelanggan). Hanya diakses backend Node.js.
-- **`evolution_db`** — session storage/cache Evolution API.
-
-### 4.7 Integritas Data & Anti-Duplikasi
-- **Deduplikasi pesan:** kolom `Message.wa_message_id` + time-window 60 detik untuk balasan agen.
-- **Proteksi duplikat HTS:** penautan nomor HTS yang sama di 1 percakapan ditolak; nomor di tiket lain memicu konfirmasi force link.
-- **FK `onDelete: Cascade`** pada `TicketCategory` & `Message` ke `Ticket` (anti-orphan record).
-- **Index performa:** `Message` diindeks pada `(ticket_id)`, `(ticket_id, created_at)`, dan `(wa_message_id)`.
-- **Race condition webhook:** `customer.upsert` atomik + fallback pembuatan tiket.
-
-### 4.8 Batasan & Risiko yang Diketahui
-| Risiko | Status |
-|---|---|
-| CSRF Token portal HTS invalidasi saat submit bersamaan | 🔴 **BELUM diperbaiki** — rekomendasi: mutex lock per userId (`async-mutex`) |
-| Disk `/uploads/` tanpa retensi/cleanup cron | 🟡 Belum ada cron pembersihan berkas lama |
-| Ekspor file kontak Google Contacts format `.vcf` dengan multi-`TEL` | ⚪ Parser menghasilkan baris per nomor (by design) |
+### 4.8 Optimasi Indeks Skema Database (`DATA-04`)
+Model basis data PostgreSQL telah dilengkapi dengan indeks komposit:
+- `Ticket`: `@@index([status, is_aduan, created_at(sort: Desc)])` untuk filtering antrean cepat dan `@@index([customer_id, status])`.
+- `Customer`: `@@index([name])` dan `@@index([skpd_name])` untuk pencarian direktori kontak berkinerja tinggi.

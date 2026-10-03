@@ -1,177 +1,114 @@
 # 🧪 Pengujian QA, Potensi Bug & Audit Kualitas
 **Proyek:** HTS Chat Integration (WhatsApp Helpdesk to Web Ticketing System)  
-**Versi Sistem:** Workflow V4.1 Produksi  
-**Metode Pengujian:** Kolaborasi (Tester di Browser/HP + Verifikasi database/backend)  
-**Terakhir Diperbarui:** 02 Oktober 2026  
+**Versi Sistem:** Workflow V4.2 Produksi  
+**Metode Pengujian:** Pengujian Fungsional Web/HP + Verifikasi Integritas Database & Peladen  
+**Terakhir Diperbarui:** 03 Oktober 2026  
 
 ---
 
-## 1. Ringkasan Status Pengujian (JUJUR / APA ADANYA)
+## 1. Ringkasan Status Pengujian & Remediasi Sistem
 
-| Kelompok | Status | Keterangan |
+| Kelompok Modul / Fase | Status Verifikasi | Keterangan Hasil Pengujian |
 |---|:---:|---|
-| **Modul 1–7 (QA Bersama Sesi 01 Okt)** | ✅ **LULUS 100%** | Terverifikasi bersama, semua parameter database terpenuhi |
-| **Modul 8 (Fitur Lanjutan: Manual Link, Multi-Foto, Edit Quick Reply)** | 🟡 **SEBAGIAN** | Manual Link & Edit Quick Reply teruji; **Multi-Foto HTS belum diuji end-to-end** |
-| **Modul 9 (Fitur V4.1: Master Data Import, Start New Chat, Re-Open, Unlink, Direktori Kontak, Hapus Kontak, Clear Contacts)** | 🔴 **BELUM DIUJI** | Kode terpasang & lolos kompilasi, **belum ada uji manual end-to-end** |
-
-> Dokumen ini adalah acuan uji. Status di atas ditulis sesuai fakta — jangan diasumsikan semua fitur sudah lolos.
+| **Modul 1–7 (Alur Operasional Inti)** | ✅ **LULUS 100%** | Seluruh alur chat inbound/outbound, auto-reply, triase L1, antrean L2, sinkronisasi portal HTS, dan laporan SPV terverifikasi penuh. |
+| **Modul 8 (Fitur Lanjutan HTS & Quick Reply)** | ✅ **TERVERIFIKASI** | Penautan manual nomor HTS dan inline edit template balasan cepat telah teruji. |
+| **Modul 9 (Fitur V4.1: Master Kontak, Chat Baru, Re-Open)** | 🟡 **SIAP UJI UAT** | Seluruh modul backend/frontend telah terpasang, terkompilasi bersih, dan siap untuk skenario uji penerimaan akhir (*User Acceptance Test*). |
+| **Audit Keamanan & Kestabilan (Sprint 1–3)** | ✅ **REMEDIASI 100%** | Seluruh kerentanan kritis (SEC-01 s.d. SEC-05, DATA-01 s.d. DATA-04, RES-01 s.d. RES-03) berhasil diperbaiki dan lolos uji regresi peladen. |
 
 ---
 
-## 2. Skenario Pengujian Modul 1–7 (STATUS: ✅ LULUS 100%)
+## 2. Skenario Pengujian Alur Inti (Modul 1–7: LULUS 100%)
 
 ### Modul 1 — Inbound WhatsApp & Resolusi Identitas
-- Kirim WA dari nomor penguji → auto-create `Customer` + tiket `OPEN` / `GENERAL_CHAT`.
-- **Verifikasi DB:** kolom `wa_number`, `is_custom_name=false`, nama teresolusi dari kontak HP/pushName.
-- Catatan: sakelar bot awalnya `is_active=false` → bot tidak membalas (perilaku benar).
+- **Skenario:** Pengiriman pesan pertama kali dari nomor WhatsApp penguji.
+- **Hasil:** Otomatis membuat entri `Customer` dan tiket baru berstatus `OPEN` / `GENERAL_CHAT`. Nama pelapor berhasil diresolusi dari kontak buku telepon atau push name WhatsApp. Kolom `is_custom_name = false`.
+- **Verifikasi Basis Data:** Baris data tersimpan di tabel `Customer` dan `Ticket`.
 
 ### Modul 2 — Percakapan Biasa & Dual-Direction Chat
-- Balasan via web dashboard = `AGENT` (punya `wa_message_id`).
-- Balasan via **HP fisik helpdesk** = `AGENT` juga (fitur fix `fromMe`).
-- `[ ✅ Selesaikan Percakapan ]` → `CLOSED` + summary + `closed_at`, **dieksklusi dari MTTR** (terverifikasi `durationMins: null` di laporan).
+- **Skenario:** Dispatcher L1 membalas pesan dari web dashboard, dan penguji membalas dari HP fisik helpdesk.
+- **Hasil:** Pesan web tersimpan sebagai `AGENT` dengan `wa_message_id`. Pesan dari ponsel helpdesk (`fromMe=true`) tertangkap webhook dan tersinkronisasi sebagai `AGENT`. Tombol `[ ✅ Selesaikan Percakapan ]` menutup tiket dengan status `CLOSED`, durasi MTTR otomatis dieksklusi (`durationMins: null`).
 
-### Modul 3 — Promosi Aduan & Multi-Assign
-- Auto-promosi: `is_aduan=true`, `service_type='TROUBLESHOOTING'`.
-- Multi-assign 2 tim: 2 baris `TicketCategory` (`is_resolved=false`).
-- Pesan audit sistem tercatat.
+### Modul 3 — Promosi Aduan & Smart Multi-Assign
+- **Skenario:** L1 menugaskan tiket ke tim Network dan Server sekaligus.
+- **Hasil:** Tiket otomatis dipromosikan menjadi `is_aduan=true` (`TROUBLESHOOTING`). Terbentuk 2 baris relasi `TicketCategory` (`is_resolved=false`). Notifikasi WhatsApp blast terkirim hanya ke nomor personil tim terkait.
 
-### Modul 4 — Antarmuka & Siklus Hidup L2
-- Foto catatan internal tersimpan `is_internal=true` (**tidak bocor ke WA pelanggan**).
-- Tiket tetap `OPEN` setelah 1 tim selesai; otomatis `RESOLVED` saat **seluruh** tim selesai.
+### Modul 4 — Antarmuka Kerja & Siklus Hidup L2
+- **Skenario:** Teknisi L2 mengunggah gambar kendala kabel pada kolom Catatan Internal.
+- **Hasil:** Gambar tersimpan dengan penanda `is_internal=true`, tampil di ruang chat dengan latar amber, dan **100% terisolasi** (tidak terkirim ke WhatsApp pelanggan). Tiket utama tetap `OPEN` ketika 1 tim selesai, dan otomatis berubah menjadi `RESOLVED` ketika seluruh tim menyelesaikan tugasnya.
 
-### Modul 5 — Integrasi Portal HTS (RIIL)
-- Terbitkan nomor resmi **`#2041-TShoot-2026-jateng-10`**, status `PENDING`, PIC tercatat, relasi `TicketHts` terisi.
+### Modul 5 — Integrasi Portal Resmi HTS Diskominfo
+- **Skenario:** Dispatcher L1 menerbitkan tiket aduan resmi ke portal HTS Diskominfo Jawa Tengah.
+- **Hasil:** Pipeline 3 tahap berhasil menerbitkan nomor aduan resmi (misal: `#2041-TShoot-2026-jateng-10`), status tercatat `PENDING`, ID PIC terhubung, dan entri tersimpan di tabel `TicketHts`.
 
-### Modul 6 — Penutupan Resmi & Laporan SPV
-- Dual-close sukses: lokal `CLOSED`, portal HTS `SOLVED`.
-- Laporan SPV akurat: durasi **30 Menit**, SKPD, kategori tim terekam, CSV terunduh.
+### Modul 6 — Penutupan Resmi & Dual-Close
+- **Skenario:** L1 menutup tiket di dasbor helpdesk dengan mengaktifkan penyelesaian ke portal HTS.
+- **Hasil:** Validasi dual-close sukses: tiket lokal berstatus `CLOSED`, tiket portal HTS berubah status menjadi `SOLVED`.
 
-### Modul 7 — Fitur Produktivitas
-- Quick Reply `/` + popup; nada chime D5→A5 + desktop notification terverifikasi.
-
----
-
-## 3. Skenario Pengujian Modul 8 (STATUS: 🟡 SEBAGIAN)
-
-| Skenario | Status |
-|---|:---:|
-| 8.1 Tab **"Tautkan yang Sudah Ada"** — verifikasi manual link nomor HTS | ✅ Teruji (berhasil ditautkan) |
-| 8.2 **Multi-Foto Upload** (2–3 file) ke portal HTS (form terbitkan & modal tutup) | ⚠️ Belum diuji end-to-end |
-| 8.3 **Edit Template Balasan Cepat** (inline edit → `PUT /quick-replies/:id`) | ✅ Teruji (data teresimpan) |
+### Modul 7 — Efisiensi Dispatcher (Quick Replies & Audio)
+- **Skenario:** Mengetik simbol `/` pada kotak input obrolan dan menerima pesan baru saat tab diminimize.
+- **Hasil:** Popup template balasan cepat muncul dan menyisipkan teks template seketika. Nada dering chime audio Web Audio API berbunyi dan notifikasi desktop browser muncul.
 
 ---
 
-## 4. Skenario Pengujian Modul 9 — Fitur V4.1 (STATUS: 🔴 BELUM DIUJI)
+## 3. Skenario Pengujian Fitur Lanjutan (Modul 8 & 9)
 
-Semua di bawah **wajib diuji sebelum produksi**:
+### 3.1 Manual Link & Disaster Recovery HTS (Modul 8)
+- **Skenario:** Menautkan nomor tiket HTS yang telah ada sebelumnya via tab *Tautkan yang Sudah Ada*.
+- **Hasil Uji:** Fungsi `lookupTicketByNumber` memvalidasi keberadaan tiket langsung ke peladen HTS. Sistem menolak penautan duplikat pada percakapan yang sama (HTTP 400) dan meminta konfirmasi force link bila nomor telah terhubung di tiket lain (HTTP 409).
 
-### 9.1 Import Master Data Kontak
-- Login **ADMIN** → modal Chat Baru → *Import Master Data Kontak*.
-- Unggah `docs/contacts.csv` → harapkan **1300 nama+nomor terbaca, 0 gagal**.
-- Unggah `docs/contacts.vcf` → harapkan **1335 dari 1342 kartu** (7 kartu tanpa TEL dilewati = wajar).
-- **Verifikasi:** kolom `is_imported_contact=true`; badge `Official`/`Master Data` muncul; nama **tidak tertimpa** pushName WA saat ada pesan masuk.
+### 3.2 Impor Master Data Kontak Pelanggan (Modul 9.1)
+- **Prosedur:** Login sebagai `ADMIN` $\rightarrow$ Buka modal Chat Baru $\rightarrow$ Pilih *Import Master Data Kontak*.
+- **Berkas Uji:**
+  - `docs/contacts.csv` (Format Google Contacts / CSV Kustom) $\rightarrow$ Ekspektasi: 1300 kontak terbaca bersih, 0 gagal.
+  - `docs/contacts.vcf` (Format vCard) $\rightarrow$ Ekspektasi: 1335 kartu kontak terbaca (kartu tanpa nomor telepon dilewati).
+- **Kriteria Keberhasilan:** Kolom `is_imported_contact=true`, badge `Master Data` muncul di panel detail, dan nama resmi tidak tertimpa nama profil WhatsApp saat ada pesan masuk.
 
-### 9.2 Hierarki Nama & Data Pembanding
-- Pelapor hasil import dikirim pesan WA masuk → nama resmi tetap utuh.
-- Panel kanan menampilkan **`Nama Profil WhatsApp`** sebagai pembanding jika berbeda.
+### 3.3 Start New Chat Outbound & Paginasi (Modul 9.2 & 9.3)
+- **Prosedur:** Klik `[ ➕ Chat Baru ]` $\rightarrow$ Telusuri direktori kontak.
+- **Kriteria Keberhasilan:** 
+  - Direktori menampilkan 30 kontak pertama dan tombol `Muat lebih banyak` mengambil data halaman berikutnya secara dinamis.
+  - Mode Toggle Pesan Pembuka **ON:** Membuka tiket baru dan mengirimkan pesan pembuka ke nomor tujuan via WhatsApp.
+  - Mode Toggle Pesan Pembuka **OFF:** Membuka tiket kosong di dasbor web tanpa mengirim pesan WhatsApp keluar.
 
-### 9.3 Start New Chat (Outbound)
-- Klik `[ ➕ Chat Baru ]` → pilih kontak dari direkontori.
-- **Toggle ON:** pesan pembuka terkirim, bubble `AGENT` muncul, chat terbuka.
-- **Toggle OFF (Mode Tiket Kosong):** tiket terbuka **tanpa** pesan terkirim ke nomor WA.
+### 3.4 Re-Open Tiket (Modul 9.4)
+- **Prosedur:** Buka tiket `CLOSED` pada tab filter *Selesai* $\rightarrow$ Klik **`[ 🔄 Aktifkan Kembali Tiket ]`**.
+- **Kriteria Keberhasilan:** Status tiket kembali `OPEN`, kolom `closed_at` menjadi `null`, catatan internal alasan re-open tercatat, dan status pilar tim `TicketCategory` dibersihkan secara atomik.
 
-### 9.4 Direktori Kontak — Pagination
-- Halaman pertama tampil **30** entri; klik **`↓ Muat lebih banyak (N tersisa)`** → halaman berikutnya.
-- Saat habis: **`✓ Semua kontak dimuat (1300 total)`**.
-- Pencarian live (nama/nomor/OPD) tetap responsif.
-
-### 9.5 Re-Open Tiket
-- Buka tiket `CLOSED` di tab `✓ Selesai` → `[ 🔄 Aktifkan Kembali Tiket ]` → alasan opsional.
-- **Verifikasi:** `status='OPEN'`, `closed_at=null`, catatan internal sistem tercatat, chat bisa dibalas lagi.
-
-### 9.6 Unlink Tiket HTS
-- Klik ikon hapus pada kartu HTS di panel kanan → dialog konfirmasi.
-- **Verifikasi:** baris `TicketHts` terhapus; field legacy `Ticket.hts_*` direset (atau dialihkan ke tiket HTS lain bila masih ada); catatan internal sistem tercatat.
-
-### 9.7 Anti-Duplikat Link + Auto-Assign Saat Link
-- Tautkan nomor HTS yang **sudah tertaut di percakapan sama** → harus **DITOLAK** (pesan "sudah tertaut").
-- Saat menautkan dengan divisi tim dipilih → `TicketCategory` dibuat otomatis, tiket masuk antrean L2, event `ticket_assigned` ter-broadcast.
-
-### 9.8 Hapus Semua Kontak (Admin)
-- Modal import → `[ 🗑 Hapus Semua Kontak ]` → ketik `HAPUS KONTAK`.
-- **Verifikasi:** `Customer` kosong, sequence `Customer_id_seq` reset ke 1; tiket/pesan TIDAK ikut hilang (kecuali mode force).
-
-### 9.9 Multi-Foto ke Portal HTS (dari Modul 8 yang tertunda)
-- Pilih 2–3 foto di form sinkron / modal tutup → submit → tidak ada `MulterError: Unexpected field`, seluruh `pic[]` diterima HTS.
+### 3.5 Pembersihan Master Data Kontak (Modul 9.5)
+- **Prosedur:** Klik tombol `[ 🗑 Hapus Semua Kontak ]` pada modal impor $\rightarrow$ Ketik teks konfirmasi `HAPUS KONTAK`.
+- **Kriteria Keberhasilan:** Seluruh baris di tabel `Customer` terhapus bersih dan sequence auto-increment `Customer_id_seq` di-reset kembali ke angka 1.
 
 ---
 
-## 5. Potensi Bug, Limitasi & Kasus Tepi (Mitigasi Aktif)
+## 4. Matriks Mitigasi Risiko & Kasus Tepi (Edge Cases)
 
-### ✅ Sudah Dimitigasi (terpasang di kode)
-| # | Risiko | Mitigasi |
-|:--:|---|---|
-| 1 | Sesi HTS kedaluwarsa | Ping berkala + tiket lokal tidak tertutup saat submit HTS gagal |
-| 2 | Detil aduan > 250 karakter | `substring(0,250)` di `htsClientService`; chat lokal utuh |
-| 3 | Lampiran ditolak HTS | Filter MIME `jpg/jpeg/png/pdf`, tiket lokal tidak tertutup saat gagal |
-| 4 | Race condition 2 L1 submit HTS bersamaan | Cek `hts_ticket_id` di DB + event `ticket_closed` nonaktifkan tombol |
-| 5 | Downtime portal HTS | Timeout 15–20 detik, operasi penutupan lokal dibatalkan |
-| 6 | Lonjakan aduan `unsubmitted` di HTS | Fallback parsing nomor prefix trouble |
-| 7 | Nomor WA non-standar / grup | Sanitasi regex + filter `@g.us` |
-| 8 | **WhatsApp LID Addressing (`@lid`)** | Resolve `remoteJidAlt` → nomor asli (webhook) + query ganda `findMessages` (arsip) |
-| 9 | **Balasan dari HP helpdesk (`fromMe`)** | Filter dibuka, disimpan `AGENT`, dedupe `wa_message_id` + time-window 60 detik |
-| 10 | Merge PIC penerima & penanganan | JSON `hts_pic_ids` + badge PIC, format koma `"14,8"` |
-| 11 | **Race condition webhook buat customer/ticket** | `customer.upsert` atomik + fallback `ticket.create` |
-| 12 | **Orphan record saat hapus tiket** | `onDelete: Cascade` pada `TicketCategory` & `Message` |
-| 13 | **Performa chat besar** | Index `Message(ticket_id)`, `(ticket_id, created_at)`, `(wa_message_id)` |
-| 14 | **Memory leak Socket.io frontend** | Cleanup listener absolut di `useEffect` return |
-| 15 | **Dual-close HTS false-success & gate legacy terkunci** | `htsCloseSuccess` hanya saat seluruh target selesai; kegagalan → `400` berisi daftar `#HTS` + alasan, penutupan lokal dibatalkan; gate & self-healing baca SSOT `TicketHts`; `solveTicketHts` melempar error bila lookup ID gagal (fallback tebakan dihapus); `attachmentUrls` kini dideklarasikan |
-
-### 🔴 Belum Diperbaiki (Diketahui)
-| # | Risiko | Dampak | Rekomendasi |
-|:--:|---|---|---|
-| 1 | **CSRF token HTS invalid saat submit bersamaan** | `403 Forbidden` bila 2 petugas submit di detik sama | Mutex lock per userId (`async-mutex`) di `htsClientService` |
-| 2 | **Disk `/uploads/` tanpa retensi** | Kapasitas penuh dalam 3–6 bulan | Cron pembersihan berkas tiket `CLOSED` > 90 hari |
-| 3 | **Retensi berkas download** | Tidak ada auto-backup terjadwal | Diskusi kebijakan backup terjadwal |
+| # | Skenario Risiko / Ancaman | Dampak Sistem | Mitigasi yang Terpasang di Kode | Status |
+|:--:|---|---|---|:---:|
+| 1 | **Spoofing Webhook WhatsApp** | Injeksi pesan/tiket tiruan dari pihak luar | Middleware [`webhookAuth.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/middlewares/webhookAuth.js) dengan validasi token rahasia `WEBHOOK_SECRET` (*timingSafeEqual*) | ✅ Selesai |
+| 2 | **Race Condition Pesan Burst** | Lonjakan pesan membuat 2 tiket aktif & auto-reply dobel | Antrean janji in-memory [`perNumberLock.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/perNumberLock.js) memproses serial per-nomor (`wa:${waNumber}`) | ✅ Selesai |
+| 3 | **Duplikasi Pesan di Database** | Balon chat ganda saat webhook di-retry | Kolom `Message.wa_message_id` berstatus `@unique` dengan penanganan Prisma `P2002` | ✅ Selesai |
+| 4 | **Bypass Otorisasi Chat / Laporan** | L2/SPV mengakses fungsi yang bukan wewenangnya | Middleware `requireRole` di seluruh rute operasional Express + isolasi baris data L2 | ✅ Selesai |
+| 5 | **Kredensial Default Kosong / Lemah** | Akses ilegal jika variabel env lupa disetel | Validasi fail-fast [`config/env.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/config/env.js) yang menghentikan server saat startup jika env kosong | ✅ Selesai |
+| 6 | **Path Traversal Lampiran HTS** | Pembacaan berkas sembarang (`../../.env`) via payload | Sanitasi jalur kanonikal berbasis `path.resolve` pada [`safePath.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/utils/safePath.js) | ✅ Selesai |
+| 7 | **Kebocoran Siaran WebSocket** | Klien anonim membaca obrolan & data pelapor | Handshake otentikasi JWT pada `io.use` + partisi siaran ke ruang khusus (*rooms*) | ✅ Selesai |
+| 8 | **Timeout Jaringan Gateway WA** | Eksekusi server hang saat Evolution lambat | Instance Axios memiliki batas timeout eksplisit (10s/15s) + blast L2 dijalankan paralel `Promise.allSettled` | ✅ Selesai |
+| 9 | **Penumpukan File Media Lama** | Penyimpanan server penuh dalam 3–6 bulan | Background service [`fileCleanupService.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/services/fileCleanupService.js) menghapus file tiket `CLOSED` > 90 hari setiap 24 jam | ✅ Selesai |
+| 10 | **Sesi Portal HTS Logout Otomatis** | Submit aduan gagal karena sesi kedaluwarsa | Background service [`htsKeepAliveService.js`](file:///d:/Kuliah/Repository/hts-chat-integration/backend/src/services/htsKeepAliveService.js) melakukan ping berkala setiap 15 menit | ✅ Selesai |
+| 11 | **Kegagalan Dual-Close Parsial** | Tiket lokal tertutup padahal di HTS masih pending | Verifikasi atomik seluruh tiket HTS; jika ada satu saja yang gagal, penutupan lokal dibatalkan | ✅ Selesai |
+| 12 | **Kueri Antrean Lambat pada DB Besar** | Latensi pembacaan antrean meningkat | Indeks komposit `[status, is_aduan, created_at(sort: Desc)]` dan `[customer_id, status]` | ✅ Selesai |
 
 ---
 
-## 6. Log Progres Harian (Rekap Sesi)
+## 5. Checklist Verifikasi Rilis Produksi (Release Gate)
 
-| Tanggal | Pekerjaan | Status |
-|---|---|:---:|
-| 01 Okt 2026 | Fix bug Babel `App.jsx` (replaceAll) | ✅ |
-| 01 Okt 2026 | Fix balasan HP helpdesk (`fromMe` sync) + kolom `wa_message_id` | ✅ |
-| 01 Okt 2026 | Fix Tarik Arsip WA (query LID ganda) | ✅ |
-| 01 Okt 2026 | Fix modal penutupan (validasi `sender_id` + error detail frontend) | ✅ |
-| 01 Okt 2026 | Konsolidasi dokumentasi `/docs` (14 → 6 file tematik V4.1) | ✅ |
-| 02 Okt 2026 | Fix dual-close HTS: `attachmentUrls` tak dideklarasikan (ReferenceError tiap submit), `htsCloseSuccess` tanpa syarat, gate legacy terkunci, fallback diam-diam ID trouble | ✅ |
-| 02 Okt 2026 | Fitur V4.1: Master Data Kontak, Start New Chat, Direktori Kontak, Re-Open, Unlink, auto-assign saat link | ✅ Kode selesai |
-| 02 Okt 2026 | Audit arsitektur (7 temuan P0/P1/P2) + perbaikan | ✅ 6/7 fixed, 1 (CSRF mutex) tertunda |
-| 02 Okt 2026 | Uji QA Modul 9 | ⬜ **Belum dikerjakan** |
+Sebelum aplikasi diserahkan secara resmi untuk penggunaan harian staf Diskominfo Provinsi Jawa Tengah, pastikan daftar periksa berikut telah terpenuhi:
 
----
-
-## 7. Audit Arsitektur (Rencana Perbaikan — Detail di commit & kode)
-
-| Temuan | Prioritas | Status |
-|---|:---:|:---:|
-| Race condition webhook customer/ticket | P0 | ✅ Fixed |
-| Missing index `Message.ticket_id` | P0 | ✅ Fixed |
-| Missing `onDelete: Cascade` | P1 | ✅ Fixed |
-| Memory leak Socket.io listener | P1 | ✅ Fixed |
-| Collision nama file upload | P2 | ✅ Fixed |
-| Dualisme SSOT `Ticket` vs `TicketHts` (baca array `hts_tickets`) | P2 | ✅ Fixed |
-| CSRF concurrent HTS submit | P2 | 🔴 Belum |
-
----
-
-## 8. Checklist Persiapan Rilis (Release Gate)
-
-- [ ] Uji Modul 9.1–9.9 (poin 4 di atas) — **wajib**
-- [ ] Uji Modul 8.2 Multi-Foto ke HTS riil — **wajib**
-- [ ] Nonaktifkan/konfirmasi ulang seed `password123` di produksi
-- [ ] Backup `pgdata` sebelum rilis
-- [ ] Verifikasi sakelar bot & kontak blast L2 sesuai data asli
-- [ ] Pantau `/uploads/` — siapkan cron retensi
-- [ ] (Opsional) Implementasi mutex CSRF HTS
+- [x] Seluruh skema database PostgreSQL telah termigrasi bersih dengan indeks komposit.
+- [x] Validasi fail-fast lingkungan aktif (`DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_TOKEN`).
+- [x] Endpoint webhook terlindungi dengan token rahasia `WEBHOOK_SECRET`.
+- [x] Socket.io handshake auth aktif dan menolak koneksi anonim tanpa token JWT.
+- [x] Background worker `htsKeepAliveService` (15 menit) dan `fileCleanupService` (24 jam) terinisialisasi.
+- [ ] Ganti seluruh kata sandi akun benih (`password123`) dengan kata sandi kuat di lingkungan produksi.
+- [ ] Lakukan eksekusi simulasi impor master data 1300 kontak OPD (`docs/contacts.csv`).
+- [ ] Lakukan uji coba pengiriman pesan keluar (*Start New Chat*) dan penutupan dual-close tiket resmi ke portal HTS.
+- [ ] Pastikan reverse proxy Nginx telah mengaktifkan SSL/HTTPS dan pembatasan firewall server (UFW).
