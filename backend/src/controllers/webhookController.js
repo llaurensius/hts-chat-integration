@@ -97,8 +97,8 @@ const handleIncomingMessage = async (req, res) => {
         const randomSuffix = Math.random().toString(36).substring(2, 8);
         const filename = `img_${Date.now()}_${randomSuffix}.jpg`;
         const uploadDir = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        fs.writeFileSync(path.join(uploadDir, filename), buffer);
+        await fs.promises.mkdir(uploadDir, { recursive: true });
+        await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
         attachmentUrl = `/uploads/${filename}`;
         console.log(`[Webhook] Successfully saved image to ${attachmentUrl}`);
       } else {
@@ -183,12 +183,13 @@ const handleIncomingMessage = async (req, res) => {
 
           if (isBotActive && autoReplyText.trim()) {
             try {
-              await evolutionService.sendText(waNumber, autoReplyText);
+              const botSendRes = await evolutionService.sendText(waNumber, autoReplyText);
               await prisma.message.create({
                 data: {
                   ticket_id: ticketId,
                   sender_type: 'BOT',
-                  message_text: autoReplyText
+                  message_text: autoReplyText,
+                  wa_message_id: botSendRes?.key?.id || null
                 }
               });
             } catch (botErr) {
@@ -203,6 +204,10 @@ const handleIncomingMessage = async (req, res) => {
           orderBy: { created_at: 'desc' }
         });
         ticketId = fallbackTicket ? fallbackTicket.id : null;
+        if (!ticketId) {
+          console.error(`[Webhook] Fatal: Gagal membuat dan mengambil fallback tiket untuk customer ${customer.id}`);
+          return;
+        }
       }
     } else {
       ticketId = activeTicket.id;
@@ -214,7 +219,7 @@ const handleIncomingMessage = async (req, res) => {
       const recentDup = await prisma.message.findFirst({
         where: {
           ticket_id: ticketId,
-          sender_type: 'AGENT',
+          sender_type: { in: ['AGENT', 'BOT'] },
           message_text: conversation,
           created_at: { gte: oneMinuteAgo }
         }

@@ -13,14 +13,19 @@ const server = http.createServer(app);
 
 // Setup Socket.io dengan origin kontrol dan handshake auth (SEC-05)
 const FRONTEND_ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
+const ALLOWED_ORIGINS = [
+  FRONTEND_ORIGIN,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+].filter(Boolean);
 
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      if (!origin || origin === FRONTEND_ORIGIN || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error('Origin tidak diizinkan oleh CORS policy Socket.IO'), false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
@@ -50,7 +55,15 @@ io.use((socket, next) => {
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin tidak diizinkan oleh CORS policy REST API'), false);
+  },
+  credentials: true
+}));
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -111,6 +124,17 @@ app.use('/api/admin', verifyToken, requireRole(['ADMIN']), adminRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/hts', verifyToken, htsRoutes);
 
+// Centralized Error Handler (Express)
+app.use((err, req, res, next) => {
+  console.error(`[Unhandled API Error] ${req.method} ${req.originalUrl}:`, err);
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ error: `File upload error: ${err.message}` });
+  }
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? 'Terjadi kesalahan internal server' : err.message
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -146,5 +170,22 @@ server.listen(PORT, () => {
   startHtsKeepAliveService(15);
   // Inisialisasi background retensi file uploads (RES-03)
   startFileCleanupService(90, 24);
+});
+
+// Process Lifecycle & Graceful Shutdown
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught Exception:', error);
+  process.exit(1);
+});
+process.on('SIGTERM', async () => {
+  console.log('[System] Menerima SIGTERM, menutup server secara anggun...');
+  server.close(async () => {
+    const prisma = require('./config/db');
+    await prisma.$disconnect();
+    process.exit(0);
+  });
 });
 

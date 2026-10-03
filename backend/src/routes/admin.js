@@ -13,7 +13,19 @@ const {
   clearAllCustomerContacts
 } = require('../controllers/adminController');
 const multer = require('multer');
-const uploadDoc = multer({ storage: multer.memoryStorage() });
+const uploadDoc = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // Maksimal 15MB
+  fileFilter: (req, file, cb) => {
+    const allowedExts = ['.xlsx', '.xls', '.csv', '.vcf', '.vcard'];
+    const ext = require('path').extname(file.originalname).toLowerCase();
+    if (allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format berkas tidak didukung. Unggah berkas Excel (.xlsx/.xls), CSV, atau VCF.'));
+    }
+  }
+});
 
 router.get('/users', getUsers);
 router.post('/users', createUser);

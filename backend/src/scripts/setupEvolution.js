@@ -7,14 +7,16 @@ const {
 } = require('../config/env');
 
 const secretToken = WEBHOOK_SECRET || EVO_KEY;
-const WEBHOOK_URL = `http://172.17.0.1:3000/api/webhook/whatsapp?token=${encodeURIComponent(secretToken)}`; // Menggunakan IP Host Docker Default dengan secret token
+const BACKEND_HOST = process.env.BACKEND_INTERNAL_URL || (process.platform === 'win32' ? 'http://host.docker.internal:3000' : 'http://172.17.0.1:3000');
+const WEBHOOK_URL = `${BACKEND_HOST}/api/webhook/whatsapp`;
 
 const api = axios.create({
   baseURL: EVO_URL,
   headers: {
     'apikey': EVO_KEY,
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 10000
 });
 
 async function setup() {

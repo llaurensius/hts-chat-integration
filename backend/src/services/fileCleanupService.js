@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fsPromises = fs.promises;
 const path = require('path');
 const prisma = require('../config/db');
 const { UPLOAD_DIR } = require('../utils/imageStorage');
@@ -47,10 +48,16 @@ const cleanupExpiredUploads = async (retentionDays = 90) => {
         const filePath = path.join(UPLOAD_DIR, filename);
 
         try {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+          try {
+            await fsPromises.unlink(filePath);
             removedCount++;
+          } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
           }
+          await prisma.message.update({
+            where: { id: msg.id },
+            data: { attachment_url: null }
+          });
         } catch (fileErr) {
           console.warn(`[File Cleanup] Gagal menghapus file ${filename}:`, fileErr.message);
         }

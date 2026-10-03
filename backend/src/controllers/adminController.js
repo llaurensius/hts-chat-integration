@@ -250,11 +250,12 @@ const clearAllCustomerContacts = async (req, res) => {
     const activeTicketsCount = await prisma.ticket.count({
       where: { status: { in: ['OPEN', 'RESOLVED'] } }
     });
+    const totalTicketsCount = await prisma.ticket.count();
 
-    if (activeTicketsCount > 0 && !req.body.force) {
+    if (totalTicketsCount > 0 && !req.body.force) {
       return res.status(400).json({
         requires_force: true,
-        error: `Terdapat ${activeTicketsCount} tiket yang masih aktif (OPEN / RESOLVED). Selesaikan atau hapus tiket terlebih dahulu, atau gunakan opsi hapus paksa.`
+        error: `Terdapat ${totalTicketsCount} data riwayat tiket (${activeTicketsCount} aktif). Anda harus menggunakan opsi Hapus Paksa (Force Delete) untuk membersihkan seluruh data pelanggan beserta tiket terkait.`
       });
     }
 
@@ -373,7 +374,7 @@ const importCustomerContacts = async (req, res) => {
       let cleanNum = String(rawNumber).replace(/\D/g, '');
       if (cleanNum.startsWith('0')) {
         cleanNum = '62' + cleanNum.substring(1);
-      } else if (!cleanNum.startsWith('62') && cleanNum.length <= 11) {
+      } else if (cleanNum.startsWith('8')) {
         cleanNum = '62' + cleanNum;
       }
 

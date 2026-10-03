@@ -3,7 +3,10 @@ const prisma = require('../config/db');
 // Mengambil data rekap tiket untuk laporan
 const getTicketReports = async (req, res) => {
   try {
-    const { status, startDate, endDate, categoryId, is_aduan } = req.query;
+    const { status, startDate, endDate, categoryId, is_aduan, limit, page } = req.query;
+
+    const take = limit ? Math.min(Math.max(parseInt(limit) || 50, 1), 200) : undefined;
+    const skip = page && take ? Math.max((parseInt(page) - 1) * take, 0) : undefined;
     
     // Bangun query filter secara dinamis
     let whereClause = {};
@@ -33,6 +36,8 @@ const getTicketReports = async (req, res) => {
 
     const tickets = await prisma.ticket.findMany({
       where: whereClause,
+      ...(take !== undefined && { take }),
+      ...(skip !== undefined && { skip }),
       include: {
         customer: true,
         messages: {

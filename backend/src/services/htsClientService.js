@@ -1,6 +1,43 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const prisma = require('../config/db');
 const { getSafeUploadPath } = require('../utils/safePath');
+
+const ENCRYPTION_KEY_RAW = process.env.SESSION_ENCRYPTION_KEY || process.env.JWT_SECRET || 'hts-session-secret-key-default-32-chars!!';
+const ENCRYPTION_KEY = crypto.createHash('sha256').update(ENCRYPTION_KEY_RAW).digest();
+const ALGORITHM = 'aes-256-gcm';
+
+const encryptSessionData = (plainText) => {
+  if (!plainText) return '';
+  try {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+    let encrypted = cipher.update(plainText, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  } catch (err) {
+    console.error('[HTS Service] Encryption error:', err.message);
+    return plainText;
+  }
+};
+
+const decryptSessionData = (cipherText) => {
+  if (!cipherText) return '';
+  if (cipherText.startsWith('{') || cipherText.startsWith('[')) return cipherText;
+  try {
+    const [ivHex, authTagHex, encryptedHex] = cipherText.split(':');
+    if (!ivHex || !authTagHex || !encryptedHex) return cipherText;
+    const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[HTS Service] Decryption error:', err.message);
+    return cipherText;
+  }
+};
 
 const HTS_BASE_URL = 'https://hts.diskomdigi.jatengprov.go.id';
 
@@ -73,12 +110,12 @@ const getCaptchaStream = async (userId) => {
       await prisma.htsUserSession.upsert({
         where: { user_id: parseInt(userId) },
         update: {
-          cookie_data: JSON.stringify({ cookies: mergedCookies, csrfToken }),
+          cookie_data: encryptSessionData(JSON.stringify({ cookies: mergedCookies, csrfToken })),
           is_logged_in: false
         },
         create: {
           user_id: parseInt(userId),
-          cookie_data: JSON.stringify({ cookies: mergedCookies, csrfToken }),
+          cookie_data: encryptSessionData(JSON.stringify({ cookies: mergedCookies, csrfToken })),
           is_logged_in: false
         }
       });
@@ -112,7 +149,7 @@ const login = async (userId, email, password, captchaCode) => {
 
   let sessionState;
   try {
-    sessionState = JSON.parse(userSession.cookie_data);
+    sessionState = JSON.parse(decryptSessionData(userSession.cookie_data));
   } catch (e) {
     sessionState = {};
   }
@@ -185,7 +222,7 @@ const login = async (userId, email, password, captchaCode) => {
     await prisma.htsUserSession.update({
       where: { user_id: parseInt(userId) },
       data: {
-        cookie_data: JSON.stringify({ cookies: updatedCookies }),
+        cookie_data: encryptSessionData(JSON.stringify({ cookies: updatedCookies })),
         is_logged_in: true,
         last_login: new Date()
       }
@@ -224,7 +261,7 @@ const checkSession = async (userId) => {
 
   let sessionState;
   try {
-    sessionState = JSON.parse(user.hts_session.cookie_data);
+    sessionState = JSON.parse(decryptSessionData(user.hts_session.cookie_data));
   } catch (e) {
     return { isLoggedIn: false };
   }
@@ -301,7 +338,7 @@ const getActiveUserCookiesAndCsrf = async (userId) => {
 
   let sessionState;
   try {
-    sessionState = JSON.parse(userSession.cookie_data);
+    sessionState = JSON.parse(decryptSessionData(userSession.cookie_data));
   } catch (e) {
     throw new Error('Format sesi HTS rusak, silakan login ulang.');
   }
@@ -408,7 +445,7 @@ const createTicketPipeline = async (userId, ticketData) => {
       if (!url) continue;
       const safeFilePath = getSafeUploadPath(url);
       if (safeFilePath) {
-        const fileBuffer = fs.readFileSync(safeFilePath);
+        const fileBuffer = await fs.promises.readFile(safeFilePath);
         const fileName = path.basename(safeFilePath);
         const ext = path.extname(fileName).toLowerCase();
         let mime = 'image/jpeg';
@@ -523,7 +560,7 @@ const createTicketPipeline = async (userId, ticketData) => {
   await prisma.htsUserSession.update({
     where: { user_id: parseInt(userId) },
     data: {
-      cookie_data: JSON.stringify({ cookies }),
+      cookie_data: encryptSessionData(JSON.stringify({ cookies })),
       updated_at: new Date()
     }
   });
@@ -677,7 +714,7 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
         if (!url) continue;
         const safeFilePath = getSafeUploadPath(url);
         if (safeFilePath) {
-          const fileBuffer = fs.readFileSync(safeFilePath);
+          const fileBuffer = await fs.promises.readFile(safeFilePath);
           const fileName = path.basename(safeFilePath);
           const ext = path.extname(fileName).toLowerCase();
           let mime = 'image/jpeg';
@@ -710,7 +747,7 @@ const solveTicketHts = async (userId, htsTicketId, technicalData = {}) => {
   await prisma.htsUserSession.update({
     where: { user_id: parseInt(userId) },
     data: {
-      cookie_data: JSON.stringify({ cookies }),
+      cookie_data: encryptSessionData(JSON.stringify({ cookies })),
       updated_at: new Date()
     }
   });
@@ -840,5 +877,3 @@ module.exports = {
   formatCookieHeader,
   parseCookies
 };
-
-

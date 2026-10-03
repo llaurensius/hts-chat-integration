@@ -2,12 +2,17 @@ const prisma = require('../config/db');
 const htsClientService = require('./htsClientService');
 
 let keepAliveInterval = null;
+let isPingRunning = false;
 
 /**
  * Melakukan ping ringan otomatis ke portal HTS (/api/notif)
  * untuk setiap petugas L1/Admin yang sedang memiliki sesi login aktif.
  */
 const pingActiveHtsSessions = async () => {
+  if (isPingRunning) {
+    return;
+  }
+  isPingRunning = true;
   try {
     const activeSessions = await prisma.htsUserSession.findMany({
       where: { is_logged_in: true },
@@ -38,6 +43,8 @@ const pingActiveHtsSessions = async () => {
     }
   } catch (error) {
     console.error('[HTS Keep-Alive] Terjadi kesalahan pada loop heartbeat:', error.message);
+  } finally {
+    isPingRunning = false;
   }
 };
 

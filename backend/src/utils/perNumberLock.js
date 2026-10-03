@@ -16,9 +16,10 @@ const chains = new Map();
 const withLock = (key, fn) => {
   const prev = chains.get(key) || Promise.resolve();
   const run = prev.then(fn, fn);
-  chains.set(key, run.catch(() => {}));
-  run.finally(() => {
-    if (chains.get(key) === run) {
+  const cleanupPromise = run.catch(() => {});
+  chains.set(key, cleanupPromise);
+  cleanupPromise.finally(() => {
+    if (chains.get(key) === cleanupPromise) {
       chains.delete(key);
     }
   });

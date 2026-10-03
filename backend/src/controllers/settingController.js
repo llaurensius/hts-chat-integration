@@ -29,8 +29,8 @@ const getAutoReplySetting = async (req, res) => {
 const updateAutoReplySetting = async (req, res) => {
   const { message, isActive } = req.body;
 
-  if (message !== undefined && message.trim().length === 0) {
-    return res.status(400).json({ error: 'Pesan balasan tidak boleh kosong' });
+  if (message !== undefined && (typeof message !== 'string' || message.trim().length === 0)) {
+    return res.status(400).json({ error: 'Pesan balasan tidak boleh kosong dan harus berupa teks' });
   }
 
   try {

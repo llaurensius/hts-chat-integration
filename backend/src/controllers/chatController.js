@@ -413,7 +413,7 @@ const closeTicket = async (req, res) => {
           data: {
             ticket_id: targetTicketId,
             sender_type: 'AGENT',
-            sender_id: req.user ? req.user.id : 1,
+            sender_id: req.user?.id || null,
             message_text: htsCloseMessage,
             is_internal: true
           }
@@ -495,7 +495,7 @@ const sendMedia = async (req, res) => {
 
     // Konversi file ke base64
     const fs = require('fs');
-    const base64Data = fs.readFileSync(file.path, { encoding: 'base64' });
+    const base64Data = await fs.promises.readFile(file.path, { encoding: 'base64' });
 
     const axios = require('axios');
     const payload = {
@@ -521,6 +521,7 @@ const sendMedia = async (req, res) => {
       waMessageId = evoMediaRes.data?.key?.id || null;
     } catch (evoError) {
       console.error('[Evolution API] Failed to send WA Media:', evoError?.response?.data || evoError.message);
+      return res.status(502).json({ error: 'Gagal mengirimkan media ke WhatsApp. Periksa status koneksi WhatsApp gateway.' });
     }
 
     
@@ -816,7 +817,7 @@ const assignTicket = async (req, res) => {
       data: {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
-        sender_id: req.user ? req.user.id : 1,
+        sender_id: req.user?.id || null,
         message_text: noteText,
         is_internal: true
       }
@@ -827,8 +828,7 @@ const assignTicket = async (req, res) => {
     const evolutionApiUrl = EVOLUTION_API_URL;
     const evolutionApiKey = EVOLUTION_API_TOKEN;
     const instanceName = EVOLUTION_INSTANCE_NAME;
-    const hostHeader = req.headers.host || 'localhost:5173';
-    const dashboardUrl = hostHeader.includes(':') ? `http://${hostHeader.split(':')[0]}:5173` : `http://${hostHeader}:5173`;
+    const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     const axios = require('axios');
     const blastPromises = [];
@@ -1007,7 +1007,7 @@ const resolveTicket = async (req, res) => {
       data: {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
-        sender_id: user ? user.id : 1,
+        sender_id: user?.id || null,
         message_text: noteText,
         is_internal: true
       }
@@ -1124,7 +1124,7 @@ const returnTicket = async (req, res) => {
       data: {
         ticket_id: ticket.id,
         sender_type: 'AGENT',
-        sender_id: user ? user.id : 1,
+        sender_id: user?.id || null,
         message_text: noteText,
         is_internal: true
       }
@@ -1405,13 +1405,20 @@ const syncTicketToHts = async (req, res) => {
     
     // Tambahkan selectedAttachmentUrls jika dikirim (array atau string) dengan sanitasi anti path-traversal (SEC-04)
     if (req.body.selectedAttachmentUrls) {
-      const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
-        ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
-        : req.body.selectedAttachmentUrls;
-      parsedUrls.forEach(u => {
-        const clean = sanitizeAttachmentUrl(u);
-        if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
-      });
+      let parsedUrls = [];
+      try {
+        parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
+          ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
+          : req.body.selectedAttachmentUrls;
+      } catch (parseErr) {
+        parsedUrls = [];
+      }
+      if (Array.isArray(parsedUrls)) {
+        parsedUrls.forEach(u => {
+          const clean = sanitizeAttachmentUrl(u);
+          if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
+        });
+      }
     } else if (req.body.selectedAttachmentUrl) {
       const clean = sanitizeAttachmentUrl(req.body.selectedAttachmentUrl);
       if (clean && !attachmentUrls.includes(clean)) {
@@ -2471,9 +2478,7 @@ const unlinkHtsTicket = async (req, res) => {
     }
 
     if (!ticketHts) {
-      ticketHts = await prisma.ticketHts.findFirst({
-        where: { ticket_id: parseInt(ticketId) }
-      });
+      return res.status(404).json({ error: 'Data tiket HTS yang dimaksud tidak ditemukan pada percakapan ini' });
     }
 
     const currentTicket = await prisma.ticket.findUnique({
@@ -2587,6 +2592,20 @@ const reopenTicket = async (req, res) => {
 
     if (ticket.status !== 'CLOSED') {
       return res.status(400).json({ error: 'Hanya tiket dengan status CLOSED yang dapat diaktifkan kembali' });
+    }
+
+    // Cegah membuka kembali jika pelanggan sudah memiliki tiket aktif lain
+    const activeExistingTicket = await prisma.ticket.findFirst({
+      where: {
+        customer_id: ticket.customer_id,
+        status: { in: ['OPEN', 'RESOLVED'] },
+        id: { not: ticket.id }
+      }
+    });
+    if (activeExistingTicket) {
+      return res.status(400).json({
+        error: `Pelanggan ini sedang memiliki tiket aktif lain (#${activeExistingTicket.id}). Tutup tiket aktif tersebut terlebih dahulu sebelum mengaktifkan kembali tiket ini.`
+      });
     }
 
     // Catat pesan log sistem internal
@@ -2752,7 +2771,7 @@ const startNewChat = async (req, res) => {
   let cleanNumber = String(waNumber).replace(/\D/g, '');
   if (cleanNumber.startsWith('0')) {
     cleanNumber = '62' + cleanNumber.substring(1);
-  } else if (!cleanNumber.startsWith('62') && cleanNumber.length <= 11) {
+  } else if (cleanNumber.startsWith('8')) {
     cleanNumber = '62' + cleanNumber;
   }
 
@@ -3149,5 +3168,3 @@ module.exports = {
   startNewChat,
   reopenTicket
 };
-
-
