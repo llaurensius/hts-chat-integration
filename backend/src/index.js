@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('./config/env');
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // Setup Socket.io dengan origin kontrol dan handshake auth (SEC-05)

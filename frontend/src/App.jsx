@@ -429,7 +429,7 @@ function Dashboard() {
     setNewChatWaNumber('');
     setNewChatName('');
     setNewChatSkpd('');
-    setNewChatInitialMsg('Halo, selamat pagi/siang. Ada yang bisa kami bantu dari Helpdesk SPBE Diskomdigi Jawa Tengah?');
+    setNewChatInitialMsg('Selamat Pagi/Siang/Malam Bapak/Ibu, Saat ini dengan Helpdesk Data Center Provinsi Jawa Tengah.');
     setNewChatSendInitial(true);
     setNewChatIsAduan(false);
     setShowNewChatModal(true);
