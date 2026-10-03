@@ -192,4 +192,4 @@ Seluruh dokumentasi teknis mendalam dan standar operasional tersedia di direktor
 ---
 
 ## 📄 Lisensi
-Hak Cipta © 2026 Tim Pengembang HTS Chat Integration — Diskominfo Provinsi Jawa Tengah. Seluruh hak cipta dilindungi.
+Hak Cipta © 2026 Tim Pengembang HTS Chat Integration — Laurensius Liquori Igridfian - Diskomdigi Provinsi Jawa Tengah. Seluruh hak cipta dilindungi.
