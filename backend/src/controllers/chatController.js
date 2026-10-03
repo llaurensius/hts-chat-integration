@@ -250,40 +250,24 @@ const closeTicket = async (req, res) => {
       });
     }
 
-    if (existingTicket.hts_ticket_no && !isAlreadySolvedInHts && closeHtsTicket !== false && closeHtsTicket !== 'false') {
-      try {
-        // FIX 3: deklarasikan attachmentUrls (sebelumnya TIDAK ADA -> ReferenceError setiap submit)
-        const attachmentUrls = [];
-        if (req.files && req.files.length > 0) {
-          req.files.forEach(f => attachmentUrls.push(`/uploads/${f.filename}`));
-        } else if (req.file) {
-          attachmentUrls.push(`/uploads/${req.file.filename}`);
-        } else if (req.body.selectedAttachmentUrls) {
-          const parsedUrls = typeof req.body.selectedAttachmentUrls === 'string'
-            ? (req.body.selectedAttachmentUrls.startsWith('[') ? JSON.parse(req.body.selectedAttachmentUrls) : [req.body.selectedAttachmentUrls])
-            : req.body.selectedAttachmentUrls;
-          parsedUrls.forEach(u => {
-            const clean = sanitizeAttachmentUrl(u);
-            if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
-          });
-        } else if (req.body.selectedAttachmentUrl) {
-          const clean = sanitizeAttachmentUrl(req.body.selectedAttachmentUrl);
-          if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
-        } else if (useChatImage === true || useChatImage === 'true') {
-          const imageMsg = await prisma.message.findFirst({
-            where: { ticket_id: existingTicket.id, attachment_url: { not: null } },
-            orderBy: { created_at: 'desc' }
-          });
-          if (imageMsg) attachmentUrls.push(imageMsg.attachment_url);
-        }
-        const attachmentUrl = attachmentUrls[0] || null;
+    // Validasi aturan bisnis mutlak: Seluruh tiket HTS wajib diselesaikan sebelum chat ditutup
+    if (existingTicket.hts_ticket_no && !isAlreadySolvedInHts) {
+      if (closeHtsTicket === false || closeHtsTicket === 'false') {
+        return res.status(400).json({
+          error: 'Seluruh tiket HTS yang terhubung wajib diselesaikan terlebih dahulu sebelum percakapan pelanggan dapat ditutup.'
+        });
+      }
 
-        // Hubungkan PIC Penerima/Awal dengan PIC Penanganan Akhir agar tersambung
-        const initialPicIds = parsePicIds(existingTicket.hts_pic_ids);
-        const closingPicIds = parsePicIds(htsPicIds, htsPicId);
-        finalMergedPicIds = Array.from(new Set([...initialPicIds, ...closingPicIds]));
-        if (finalMergedPicIds.length === 0) {
-          finalMergedPicIds = ['14']; // Default PIC Helpdesk jika belum ditentukan
+      try {
+        let parsedResolutions = [];
+        if (req.body.htsResolutions) {
+          try {
+            parsedResolutions = typeof req.body.htsResolutions === 'string'
+              ? JSON.parse(req.body.htsResolutions)
+              : req.body.htsResolutions;
+          } catch (e) {
+            console.warn('[closeTicket] Gagal parse htsResolutions:', e.message);
+          }
         }
 
         const targetsToSolve = pendingHtsList.length > 0
@@ -292,25 +276,96 @@ const closeTicket = async (req, res) => {
 
         const solvedNos = [];
         const failedItems = [];
+
         for (const target of targetsToSolve) {
+          // Cari spesifikasi resolusi khusus untuk tiket HTS ini jika dikirim via htsResolutions
+          const resItem = Array.isArray(parsedResolutions) ? parsedResolutions.find(r => 
+            (target.id && r.htsId && (parseInt(r.htsId) === target.id)) ||
+            (r.htsTicketNo && String(r.htsTicketNo) === String(target.hts_ticket_no))
+          ) : null;
+
+          const itemSolution = resItem?.solution || htsSolution || summary.trim();
+          const initialPicIds = parsePicIds(target.hts_pic_ids || existingTicket.hts_pic_ids);
+          const closingPicIds = parsePicIds(resItem?.picIds || resItem?.picId || htsPicIds, htsPicId);
+          let itemMergedPicIds = Array.from(new Set([...initialPicIds, ...closingPicIds]));
+          if (itemMergedPicIds.length === 0) itemMergedPicIds = ['14'];
+
+          const itemTgl = resItem?.tglteknis || htsTglTeknis || new Date().toISOString().split('T')[0];
+          const itemJam = resItem?.jam_problem || htsJamTeknis || new Date().toTimeString().split(' ')[0].substring(0, 5);
+
+          // Kumpulkan berkas lampiran khusus untuk tiket HTS ini
+          const itemAttachmentUrls = [];
+          if (req.files && req.files.length > 0) {
+            req.files.forEach(f => {
+              const matchesHts = (target.id && f.fieldname === `attachment_${target.id}`) ||
+                                 (f.fieldname === `attachment_${target.hts_ticket_no}`);
+              if (matchesHts) {
+                itemAttachmentUrls.push(`/uploads/${f.filename}`);
+              }
+            });
+            // Fallback: jika tidak ada fieldname spesifik dan hanya ada 1 tiket pending atau mode seragam
+            if (itemAttachmentUrls.length === 0 && (targetsToSolve.length === 1 || !resItem)) {
+              req.files.forEach(f => {
+                if (f.fieldname === 'attachment' || f.fieldname === 'attachments') {
+                  itemAttachmentUrls.push(`/uploads/${f.filename}`);
+                }
+              });
+            }
+          } else if (req.file && (targetsToSolve.length === 1 || !resItem)) {
+            itemAttachmentUrls.push(`/uploads/${req.file.filename}`);
+          }
+
+          // Lampiran dari Catatan Internal / Chat WA
+          const selUrls = resItem?.selectedAttachmentUrls || req.body.selectedAttachmentUrls;
+          if (selUrls) {
+            const parsedSel = typeof selUrls === 'string'
+              ? (selUrls.startsWith('[') ? JSON.parse(selUrls) : [selUrls])
+              : selUrls;
+            if (Array.isArray(parsedSel)) {
+              parsedSel.forEach(u => {
+                const clean = sanitizeAttachmentUrl(u);
+                if (clean && !itemAttachmentUrls.includes(clean)) itemAttachmentUrls.push(clean);
+              });
+            }
+          } else if (req.body.selectedAttachmentUrl && (targetsToSolve.length === 1 || !resItem)) {
+            const clean = sanitizeAttachmentUrl(req.body.selectedAttachmentUrl);
+            if (clean && !itemAttachmentUrls.includes(clean)) itemAttachmentUrls.push(clean);
+          }
+
+          if ((resItem?.useChatImage || useChatImage === true || useChatImage === 'true') && itemAttachmentUrls.length === 0) {
+            const imageMsg = await prisma.message.findFirst({
+              where: { ticket_id: existingTicket.id, attachment_url: { not: null } },
+              orderBy: { created_at: 'desc' }
+            });
+            if (imageMsg) itemAttachmentUrls.push(imageMsg.attachment_url);
+          }
+
+          finalMergedPicIds = itemMergedPicIds;
+
           try {
             await htsClientService.solveTicketHts(
               req.user.id,
               target.hts_ticket_id || target.hts_ticket_no,
               {
-                detil: htsSolution || summary.trim(),
-                pic_id: finalMergedPicIds[0],
-                pic_ids: finalMergedPicIds,
-                tglteknis: htsTglTeknis || new Date().toISOString().split('T')[0],
-                jam_problem: htsJamTeknis || new Date().toTimeString().split(' ')[0].substring(0, 5),
-                attachmentUrl: attachmentUrl,
-                attachmentUrls: attachmentUrls
+                detil: itemSolution,
+                pic_id: itemMergedPicIds[0],
+                pic_ids: itemMergedPicIds,
+                tglteknis: itemTgl,
+                jam_problem: itemJam,
+                attachmentUrl: itemAttachmentUrls[0] || null,
+                attachmentUrls: itemAttachmentUrls
               }
             );
             if (target.id) {
               await prisma.ticketHts.update({
                 where: { id: target.id },
-                data: { hts_ticket_status: 'SOLVED', solved_at: new Date() }
+                data: { 
+                  hts_ticket_status: 'SOLVED',
+                  solution: itemSolution,
+                  hts_pic_ids: JSON.stringify(itemMergedPicIds),
+                  attachment_urls: itemAttachmentUrls.length > 0 ? JSON.stringify(itemAttachmentUrls) : null,
+                  solved_at: new Date() 
+                }
               });
             }
             solvedNos.push(target.hts_ticket_no);
@@ -322,7 +377,13 @@ const closeTicket = async (req, res) => {
                 if (target.id) {
                   await prisma.ticketHts.update({
                     where: { id: target.id },
-                    data: { hts_ticket_status: 'SOLVED', solved_at: new Date() }
+                    data: { 
+                      hts_ticket_status: 'SOLVED',
+                      solution: itemSolution,
+                      hts_pic_ids: JSON.stringify(itemMergedPicIds),
+                      attachment_urls: itemAttachmentUrls.length > 0 ? JSON.stringify(itemAttachmentUrls) : null,
+                      solved_at: new Date() 
+                    }
                   });
                 }
                 solvedNos.push(target.hts_ticket_no);
@@ -338,7 +399,7 @@ const closeTicket = async (req, res) => {
           }
         }
 
-        // FIX 1: sukses hanya bila SELURUH target selesai. Gagal sebagianpun -> batalkan penutupan lokal.
+        // Sukses hanya bila SELURUH target selesai. Gagal sebagianpun -> batalkan penutupan lokal.
         if (failedItems.length > 0) {
           return res.status(400).json({
             error: `Gagal menyelesaikan tiket di portal HTS - ${failedItems.join('; ')}. Tiket lokal TIDAK ditutup agar percakapan tidak terputus. Silakan hubungkan ulang akun portal HTS lalu coba kembali.`
@@ -354,7 +415,6 @@ const closeTicket = async (req, res) => {
         htsCloseMessage = `[PORTAL HTS] Tiket HTS #${solvedNos.join(', #')} berhasil diselesaikan (SOLVED) di portal resmi HTS.`;
       } catch (htsErr) {
         console.error('[Chat API] Gagal submit teknis HTS saat closeTicket:', htsErr.message);
-        // Pilihan 2: Jika penutupan tiket di portal HTS gagal, batalkan penutupan tiket lokal
         return res.status(400).json({
           error: `Gagal menyelesaikan tiket di portal HTS: ${htsErr.message}. Tiket tetap terbuka agar percakapan tidak tertutup dan dapat diperiksa kembali.`
         });
@@ -875,8 +935,18 @@ const assignTicket = async (req, res) => {
       await Promise.allSettled(blastPromises);
     }
 
+    const updatedTicket = await prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: ticket.id }); // Trigger reload
+      req.io.emit('ticket_assigned', { ticketId: ticket.id, categories: newCategories });
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -889,6 +959,7 @@ const assignTicket = async (req, res) => {
     res.json({ 
       success: true, 
       message: `Tiket berhasil di-assign ke Tim: ${allActiveTeamNames}`,
+      ticket: updatedTicket,
       htsSyncSuccess,
       htsNoTrouble,
       htsError: htsSyncError
@@ -1013,8 +1084,17 @@ const resolveTicket = async (req, res) => {
       }
     });
 
+    const updatedTicket = await prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: ticket.id });
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -1130,8 +1210,17 @@ const returnTicket = async (req, res) => {
       }
     });
 
+    const updatedTicket = await prisma.ticket.findUnique({
+      where: { id: ticket.id },
+      include: {
+        customer: true,
+        categories: { include: { category: true } },
+        hts_tickets: { include: { category: true } }
+      }
+    });
+
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: ticket.id });
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -1531,9 +1620,8 @@ const syncTicketToHts = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id });
-      req.io.emit('hts_ticket_created', { ticketId: ticket.id });
-      req.io.emit('ticket_closed', { ticketId: ticket.id });
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: finalTicket });
+      req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticket: finalTicket });
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -1619,7 +1707,7 @@ const syncSolveHts = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: ticket.id });
+      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updated });
       req.io.emit('new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
@@ -1888,7 +1976,16 @@ const createTicketHts = async (req, res) => {
 // 3. Menyelesaikan tiket HTS spesifik secara mandiri (Per-Ticket Resolution V4)
 const solveTicketHtsSingle = async (req, res) => {
   const { ticketId, htsId } = req.params;
-  const { solution, picId, picIds } = req.body;
+  const { 
+    solution, 
+    picId, 
+    picIds, 
+    tglteknis, 
+    jam_problem, 
+    selectedAttachmentUrls, 
+    selectedAttachmentUrl, 
+    useChatImage 
+  } = req.body;
 
   try {
     const ticketHts = await prisma.ticketHts.findUnique({
@@ -1907,6 +2004,36 @@ const solveTicketHtsSingle = async (req, res) => {
 
     const finalSolution = solution || ticketHts.solution || 'Permasalahan telah selesai ditangani secara teknis.';
 
+    // Kumpulkan berkas lampiran (upload komputer / internal / chat WA)
+    const attachmentUrls = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(f => attachmentUrls.push(`/uploads/${f.filename}`));
+    } else if (req.file) {
+      attachmentUrls.push(`/uploads/${req.file.filename}`);
+    }
+
+    if (selectedAttachmentUrls) {
+      const parsedUrls = typeof selectedAttachmentUrls === 'string'
+        ? (selectedAttachmentUrls.startsWith('[') ? JSON.parse(selectedAttachmentUrls) : [selectedAttachmentUrls])
+        : selectedAttachmentUrls;
+      parsedUrls.forEach(u => {
+        const clean = sanitizeAttachmentUrl(u);
+        if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
+      });
+    } else if (selectedAttachmentUrl) {
+      const clean = sanitizeAttachmentUrl(selectedAttachmentUrl);
+      if (clean && !attachmentUrls.includes(clean)) attachmentUrls.push(clean);
+    }
+
+    if ((useChatImage === true || useChatImage === 'true') && attachmentUrls.length === 0) {
+      const imageMsg = await prisma.message.findFirst({
+        where: { ticket_id: parseInt(ticketId), attachment_url: { not: null } },
+        orderBy: { created_at: 'desc' }
+      });
+      if (imageMsg) attachmentUrls.push(imageMsg.attachment_url);
+    }
+    const attachmentUrl = attachmentUrls[0] || null;
+
     let htsResult;
     try {
       htsResult = await htsClientService.solveTicketHts(
@@ -1915,7 +2042,11 @@ const solveTicketHtsSingle = async (req, res) => {
         {
           detil: finalSolution,
           pic_id: finalMergedPicIds[0],
-          pic_ids: finalMergedPicIds
+          pic_ids: finalMergedPicIds,
+          tglteknis: tglteknis || new Date().toISOString().split('T')[0],
+          jam_problem: jam_problem || new Date().toTimeString().split(' ')[0].substring(0, 5),
+          attachmentUrl: attachmentUrl,
+          attachmentUrls: attachmentUrls
         }
       );
     } catch (err) {
@@ -1940,6 +2071,7 @@ const solveTicketHtsSingle = async (req, res) => {
         hts_ticket_status: 'SOLVED',
         solution: finalSolution,
         hts_pic_ids: JSON.stringify(finalMergedPicIds),
+        attachment_urls: attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null,
         solved_at: new Date()
       },
       include: { category: true }

@@ -89,7 +89,11 @@ Pada panel kanan obrolan, setiap tiket HTS ditampilkan dalam kartu mandiri denga
 2. **Jika Status `SOLVED`:**
    * Badge warna hijau (`bg-emerald-100 text-emerald-800 border-emerald-300`).
    * Menampilkan ringkasan singkat: Waktu selesai, PIC penangan, dan solusi ringkas.
-   * Tombol aksi: `[👁 Lihat Solusi]` (membuka drawer/popover detail penanganan).
+   * Tombol aksi: **`[👁 Lihat Detail Solusi]`**: Membuka modal/drawer ringkas yang memuat:
+     - Waktu penyelesaian resmi (`solved_at`).
+     - Daftar nama teknisi PIC penangan (hasil pemetaan `hts_pic_ids` ke Master Data PIC).
+     - Deskripsi solusi teknis (`solution`).
+     - **Foto Bukti Penanganan:** Galeri thumbnail foto bukti yang pernah diunggah/dipilih saat penyelesaian (tersimpan di `attachment_urls`), yang dapat diklik untuk memperbesar tampilan (preview lightbox).
 
 ---
 
@@ -176,33 +180,41 @@ Saat Helpdesk L1 menekan tombol utama **"Selesaikan"** di header obrolan untuk m
 ```
 
 #### Skenario 3.2: Masih Ada Tiket HTS yang Berstatus `PENDING`
-Jika masih ada tiket HTS yang belum diselesaikan secara mandiri, modal menampilkan **Accordion / Tab Penyelesaian Per-Tiket**:
+> **Aturan Bisnis Mutlak:** Sesi obrolan pelanggan **TIDAK DAPAT DITUTUP** jika masih ada tiket HTS yang berstatus `PENDING`. Seluruh tiket HTS yang terhubung wajib diselesaikan.
+
+Jika masih ada tiket HTS yang belum diselesaikan secara mandiri dari panel kanan, modal penutupan obrolan mewajibkan operator melengkapi penyelesaian seluruh tiket HTS tersebut melalui antarmuka **Tab / Accordion Penyelesaian Per-Tiket**:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Selesaikan Tiket Percakapan                            [✕]  │
 ├─────────────────────────────────────────────────────────────┤
 │ 🌐 Tiket Portal HTS Terkait (2)                             │
-│ Terdapat tiket HTS yang belum selesai di portal resmi:      │
+│ ⚠️ Seluruh tiket HTS wajib diselesaikan sebelum chat ditutup:│
 │                                                             │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ [Tab: #2054 (Network) ✓ SOLVED]  [Tab: #2055 (Server) ⚠️]│ │
 │ ├─────────────────────────────────────────────────────────┤ │
-│ │ Penyelesaian untuk #2055-TShoot-2026-jateng-10:          │ │
-│ │ ☑ Selesaikan tiket ini di portal HTS                      │ │
-│ │ Tanggal: [ 03/10/2026 ]   Jam: [ 16:50 ]                 │ │
-│ │ PIC: [ 1 PIC Terpilih v ]                                │ │
-│ │ Bukti: [ + Upload Foto / Dari Chat ]                     │ │
-│ │ Solusi Teknis HTS Server:                                │ │
+│ │ 🔒 Formulir Wajib HTS #2055-TShoot-2026-jateng-10:        │ │
+│ │ Tanggal Penanganan: [ 03/10/2026 📅 ] Jam: [ 16:50 🕒 ]   │ │
+│ │ PIC Penanganan:     [ 2 PIC Terpilih v ]                  │ │
+│ │                                                         │ │
+│ │ Bukti Lampiran / Foto Penanganan:                       │ │
+│ │ 📎 Upload File Komputer (Khusus Tiket Ini):              │ │
+│ │ [ + Pilih Berkas Foto... ]                              │ │
+│ │ 📸 Atau pilih dari Catatan Internal / Chat WA           │ │
+│ │                                                         │ │
+│ │ Solusi Teknis HTS Server (Min. 10 Karakter) *:          │ │
 │ │ [ Konfigurasi virtual host Apache telah diperbaiki...  ] │ │
 │ └─────────────────────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────┤
 │ KESIMPULAN AKHIR UNTUK PELANGGAN *                          │
 │ [ Masukkan rangkuman jawaban untuk customer WhatsApp...  ] │
 ├─────────────────────────────────────────────────────────────┤
-│ [ Batal ]                      [ Selesaikan & Tutup Semua ] │
+│ [ Batal ]            [ ✓ Selesaikan Semua HTS & Tutup Tiket]│
 └─────────────────────────────────────────────────────────────┘
 ```
+
+* **Validasi Tombol Submit:** Tombol `[✓ Selesaikan Semua HTS & Tutup Tiket]` akan melakukan validasi bahwa seluruh tab tiket HTS yang berstatus `PENDING` telah terisi lengkap (Tanggal, Jam, minimal 1 PIC, dan Solusi min. 10 karakter). Jika ada tab yang belum lengkap, sistem akan menandai tab terkait dan menampilkan pesan peringatan.
 
 ---
 
@@ -241,34 +253,85 @@ Jika masih ada tiket HTS yang belum diselesaikan secara mandiri, modal menampilk
   ```
 
 ### B. Endpoint Penutupan Utama Chat (`POST /api/chat/tickets/:ticketId/close`)
+* **Method & URL:** `POST /api/chat/tickets/:ticketId/close`
+* **Content-Type:** `multipart/form-data`
+* **Middleware:** `requireRole(['ADMIN', 'SPV', 'L1'])`, `upload.any()` (mendukung berkas unggahan per-HTS)
+* **Aturan Bisnis:** Backend **menolak penutupan tiket** (`400 Bad Request`) jika masih ada tiket HTS yang berstatus `PENDING` dan tidak berhasil diselesaikan. Seluruh tiket HTS wajib diselesaikan sebelum status tiket chat dapat berubah menjadi `CLOSED`.
 * **Dukungan Payload Multi-HTS Terpisah (`htsResolutions`):**
-  Operator dapat mengirimkan array data solusi untuk setiap tiket HTS yang masih pending:
-  ```json
-  {
-    "summary": "Kendala jaringan dan server terselesaikan...",
-    "categoryIds": [1, 2],
-    "closeHtsTicket": true,
-    "htsResolutions": [
-      {
-        "htsId": 12,
-        "htsTicketNo": "2054-TShoot-2026-jateng-10",
-        "solution": "Kabel FO diperbaiki",
-        "picIds": ["14", "22"],
-        "tglteknis": "2026-10-03",
-        "jam_problem": "15:30"
-      },
-      {
-        "htsId": 13,
-        "htsTicketNo": "2055-TShoot-2026-jateng-10",
-        "solution": "Restart daemon nginx",
-        "picIds": ["14", "35"],
-        "tglteknis": "2026-10-03",
-        "jam_problem": "16:15"
-      }
-    ]
+  Frontend mengirimkan `FormData` dengan struktur:
+  - `summary`: Teks rangkuman/kesimpulan akhir untuk pelanggan WhatsApp.
+  - `categoryIds`: Array ID kategori.
+  - `closeHtsTicket`: `true`
+  - `htsResolutions`: JSON string array berisi data resolusi per-HTS.
+  - Berkas komputer lokal per tiket HTS di-upload menggunakan key dinamis `attachment_${htsId}` (hingga 5 berkas per tiket).
+
+  ```typescript
+  interface HtsResolutionItem {
+    htsId: number;                        // ID record TicketHts
+    htsTicketNo: string;                  // Nomor tiket HTS
+    solution: string;                     // Solusi teknis (min. 10 karakter)
+    picIds: string[];                     // Array PIC teknis
+    tglteknis: string;                    // YYYY-MM-DD
+    jam_problem: string;                  // HH:mm
+    selectedAttachmentUrls?: string[];    // URL dari Catatan Internal / Chat WA
+    useChatImage?: boolean;               // Ambil gambar dari chat
   }
   ```
-* Jika `htsResolutions` dikirim, backend akan melakukan iterasi `solveTicketHts` sesuai dengan data masing-masing elemen array, bukan menimpa dengan data seragam.
+
+  *Contoh Payload JSON dalam `htsResolutions`:*
+  ```json
+  [
+    {
+      "htsId": 12,
+      "htsTicketNo": "2054-TShoot-2026-jateng-10",
+      "solution": "Kabel FO core 2 lantai 2 telah disambung kembali.",
+      "picIds": ["14", "22"],
+      "tglteknis": "2026-10-03",
+      "jam_problem": "15:30",
+      "selectedAttachmentUrls": ["/uploads/internal_patch_fo.jpg"]
+    },
+    {
+      "htsId": 13,
+      "htsTicketNo": "2055-TShoot-2026-jateng-10",
+      "solution": "Daemon NGINX direstart dan alokasi memory php-fpm dinaikkan.",
+      "picIds": ["14", "35"],
+      "tglteknis": "2026-10-03",
+      "jam_problem": "16:15"
+    }
+  ]
+  ```
+* **Mekanisme Eksekusi Backend:**
+  1. Backend memvalidasi setiap item dalam `htsResolutions` serta mencocokkannya dengan `pendingHtsList`.
+  2. Untuk masing-masing tiket HTS, ambil berkas yang cocok dari `req.files` (yang memiliki `fieldname === 'attachment_' + item.htsId` atau fallback `fieldname === 'attachment'`).
+  3. Panggil `htsClientService.solveTicketHts` untuk setiap tiket secara berurutan.
+  4. Simpan status `SOLVED`, `solution`, `hts_pic_ids`, `solved_at`, dan array foto bukti pada kolom `attachment_urls` di `TicketHts`.
+  5. Jika salah satu tiket HTS gagal diselesaikan (dan rekonsiliasi gagal), backend membatalkan penutupan tiket chat, mengembalikan error `400` dengan nama tiket yang gagal, dan tidak mengubah status tiket chat menjadi `CLOSED`.
+
+### C. Pembaruan Skema Database Prisma (`prisma/schema.prisma`)
+Menambahkan kolom `attachment_urls` pada model `TicketHts` untuk menyimpan riwayat URL foto bukti penyelesaian (agar dapat ditampilkan pada modal `[👁 Lihat Detail Solusi]`):
+```prisma
+model TicketHts {
+  id                Int          @id @default(autoincrement())
+  ticket_id         Int
+  ticket            Ticket       @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
+  category_id       Int?
+  category          Category?    @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  hts_ticket_id     String       // ID numerik trouble HTS (misal: "2025")
+  hts_ticket_no     String       // Nomor aduan resmi HTS (misal: "2025-TShoot-2026-jateng-09")
+  hts_ticket_status String       @default("PENDING") // PENDING | SOLVED
+  hts_kategori      String       @default("troubleshoot")
+  hts_sub_kategori  String?
+  hts_detil         String?      @db.Text
+  hts_pic_ids       String?      // JSON array ID PIC penerima & penanganan
+  solution          String?      @db.Text // Teks solusi penanganan teknis HTS
+  attachment_urls   String?      @db.Text // JSON array URL bukti foto penanganan (V4.3)
+  created_at        DateTime     @default(now())
+  solved_at         DateTime?
+
+  @@index([ticket_id])
+  @@index([hts_ticket_no])
+}
+```
 
 ---
 
@@ -276,33 +339,49 @@ Jika masih ada tiket HTS yang belum diselesaikan secara mandiri, modal menampilk
 
 Bagi pengembang (developer / AI) yang akan mengeksekusi fitur ini, ikuti urutan langkah berikut secara terstruktur:
 
-### Tahap 1: Pengayaan Controller Backend (`chatController.js`)
-1. **Perkaya fungsi `solveTicketHtsSingle` (sekitar baris 1889):**
-   - Tambahkan pembacaan `req.files`, `selectedAttachmentUrls`, `useChatImage`.
-   - Teruskan `attachmentUrl`, `attachmentUrls`, `tglteknis`, dan `jam_problem` ke `htsClientService.solveTicketHts`.
-   - Simpan `solution`, `hts_pic_ids`, dan `solved_at` pada model `prisma.ticketHts`.
-2. **Perkaya fungsi `closeTicket` (sekitar baris 290):**
-   - Dukung pembacaan payload `htsResolutions`. Jika tersedia, gunakan data solusi spesifik per `htsId`. Jika tidak tersedia (legacy), gunakan fallback data umum.
+### Tahap 1: Backend Database & Controller (`schema.prisma`, `routes/chat.js`, `chatController.js`)
+1. **Pembaruan Skema Prisma:**
+   - Tambahkan `attachment_urls String? @db.Text` pada model `TicketHts`.
+   - Jalankan sinkronisasi database (`npx prisma db push` atau migrasi) dan generate Prisma Client.
+2. **Pembaruan Rute API (`routes/chat.js`):**
+   - Ubah middleware `upload.array('attachment', 5)` pada `POST /tickets/:ticketId/close` menjadi `upload.any()` agar mendukung berkas dinamis `attachment_${htsId}`.
+3. **Pengayaan `solveTicketHtsSingle` (`chatController.js`):**
+   - Tangani pembacaan berkas `req.files`, `selectedAttachmentUrls`, `useChatImage`.
+   - Teruskan `tglteknis`, `jam_problem`, `attachmentUrls` ke `htsClientService.solveTicketHts`.
+   - Simpan `solution`, `hts_pic_ids`, `solved_at`, dan `attachment_urls` (JSON array string) ke `prisma.ticketHts`.
+4. **Pengayaan `closeTicket` (`chatController.js`):**
+   - Baca payload `htsResolutions`. Jika dikirim, iterasi per-tiket dengan berkas `attachment_${htsId}` masing-masing.
+   - Validasi ketat: jika ada tiket HTS pending yang gagal diselesaikan di HTS, gagalkan penutupan tiket chat dan kirim error responsif.
+   - Simpan `attachment_urls` ke masing-masing record `TicketHts`.
+   - Tetap pertahankan fallback kompatibilitas lama (legacy mode).
 
-### Tahap 2: Komponen Frontend — Tombol & Modal Mandiri di Panel Kanan (`App.jsx`)
+### Tahap 2: Frontend — Panel Kanan, Modal Mandiri, & Modal Detail Solusi (`App.jsx`)
 1. **State Management Baru:**
-   - `showSolveSingleHtsModal` (boolean)
-   - `selectedHtsToSolve` (objek TicketHts target)
+   - `showSolveSingleHtsModal` & `selectedHtsToSolve`
+   - `showDetailHtsModal` & `selectedHtsDetail`
    - State form mandiri: `singleHtsSolution`, `singleHtsPicIds`, `singleHtsTanggal`, `singleHtsJam`, `singleHtsFiles`, `singleHtsSelectedInternalUrls`.
-2. **Modifikasi Kartu HTS di Panel Kanan (sekitar baris 3100):**
-   - Tambahkan tombol aksi `[✓ Selesaikan]` jika `ht.hts_ticket_status !== 'SOLVED'`.
-   - Jika sudah `SOLVED`, tampilkan ringkasan solusi dan tombol detail.
-3. **Pembuatan Elemen UI `ModalSolveSingleHts`:**
-   - Render modal penyelesaian mandiri sesuai mockup pada **Layout 2**.
-   - Handler submit memanggil endpoint `POST /chat/tickets/:ticketId/hts/:htsId/solve`.
-   - Setelah sukses: refresh tiket via `loadTickets()`, muat ulang pesan, dan tampilkan notifikasi toast/alert sukses.
+2. **Modifikasi Kartu HTS di Panel Kanan:**
+   - Tombol `[✓ Selesaikan HTS]` jika `PENDING`.
+   - Tombol `[👁 Lihat Detail Solusi]` jika `SOLVED`.
+3. **Komponen `ModalDetailHts`:**
+   - Menampilkan modal detail: Nomor tiket, Kategori, Waktu selesai, Nama-nama teknisi PIC penangan, Solusi teknis, dan **Galeri Foto Bukti Penanganan** (dengan fitur preview klik gambar).
+4. **Komponen `ModalSolveSingleHts`:**
+   - Form modal penyelesaian mandiri sesuai **Layout 2**.
+   - Kirim `POST /tickets/:ticketId/hts/:htsId/solve` dengan multipart form data.
+   - Refresh state tiket & notifikasi toast sukses.
 
-### Tahap 3: Pembaruan Modal Utama "Selesaikan Tiket" (`App.jsx`)
-1. Periksa daftar `activeTicket.hts_tickets`.
-2. Jika seluruh tiket HTS sudah `SOLVED`, sembunyikan seluruh input teknis HTS dan tampilkan banner konfirmasi hijau (*clean UI*).
-3. Jika masih ada yang `PENDING`, berikan pilihan tab/accordion per tiket HTS pending agar operator dapat mengisi solusi yang berbeda sebelum obrolan ditutup secara resmi.
+### Tahap 3: Frontend — Pembaruan Modal Utama "Selesaikan Tiket" (`App.jsx`)
+1. **Pemeriksaan Status Seluruh HTS:**
+   - Jika **semua SOLVED**: Sembunyikan seluruh formulir teknis, tampilkan banner hijau konfirmasi, langsung input kesimpulan chat WhatsApp.
+   - Jika **masih ada PENDING**: Tampilkan tab per-tiket HTS yang pending.
+2. **Dukungan Form Mandiri & Upload File per-Tab HTS:**
+   - Setiap tab tiket HTS pending memiliki formulir mandiri: Tanggal, Jam, PIC, Solusi, dan Berkas Upload Komputer / Internal Catatan.
+   - Operator wajib mengisi seluruh tab pending (tidak bisa di-skip).
+3. **Payload Dispatcher pada `handleCloseTicket`:**
+   - Bentuk payload `htsResolutions` dan lampirkan file ke `FormData` dengan key `attachment_${htsId}`.
+   - Validasi kelengkapan form sebelum mengirim request.
 
 ### Tahap 4: Pengujian & Validasi Kualitas (QA)
-1. **Uji Kasus 1:** Tiket dengan 2 aduan HTS (#2054 & #2055). Klik selesaikan pada kartu #2054 dari panel kanan. Pastikan hanya #2054 yang berstatus `SOLVED` di HTS dan lokal, sementara #2055 tetap `PENDING`.
-2. **Uji Kasus 2:** Buka modal penutupan obrolan utama. Pastikan modal mengenali bahwa #2054 telah selesai dan hanya meminta penyelesaian untuk #2055.
-3. **Uji Kasus 3:** Selesaikan #2055, lalu tutup tiket. Pastikan kedua tiket HTS memiliki rekaman riwayat penyelesaian (PIC, foto, solusi) yang berbeda dan akurat di database.
+1. **Uji Kasus 1 (Penyelesaian Asinkron Mandiri):** Tiket dengan 2 aduan HTS (#2054 & #2055). Selesaikan #2054 dari panel kanan dengan upload foto kabel. Pastikan #2054 menjadi `SOLVED` lengkap dengan riwayat foto di `[👁 Lihat Detail Solusi]`, sedangkan #2055 tetap `PENDING`.
+2. **Uji Kasus 2 (Blokir Penutupan Chat Jika Belum Lengkap):** Buka modal tutup chat saat #2055 masih `PENDING`. Pastikan tombol tutup tidak dapat disubmit jika tab #2055 belum diisi.
+3. **Uji Kasus 3 (Penutupan Chat Berhasil & Data Tersimpan Akurat):** Isi solusi #2055 dengan upload foto server, lalu klik tutup. Pastikan kedua tiket HTS di database memiliki solusi, PIC, dan bukti foto yang berbeda sesuai input masing-masing.

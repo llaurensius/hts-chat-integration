@@ -47,7 +47,7 @@ router.get('/tickets/:ticketId/messages', requireRole(['ADMIN', 'SPV', 'L1', 'L2
 router.post('/send', requireRole(['ADMIN', 'SPV', 'L1']), sendReply);
 router.post('/sendMedia', requireRole(['ADMIN', 'SPV', 'L1']), upload.single('media'), sendMedia);
 router.get('/categories', requireRole(['ADMIN', 'SPV', 'L1', 'L2']), getCategorys);
-router.post('/tickets/:ticketId/close', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), closeTicket);
+router.post('/tickets/:ticketId/close', requireRole(['ADMIN', 'SPV', 'L1']), upload.any(), closeTicket);
 router.post('/tickets/:ticketId/assign', requireRole(['ADMIN', 'SPV', 'L1']), upload.array('attachment', 5), assignTicket);
 router.post('/tickets/:ticketId/resolve', requireRole(['ADMIN', 'SPV', 'L2']), resolveTicket);
 router.post('/tickets/:ticketId/return', requireRole(['ADMIN', 'SPV', 'L2']), returnTicket);
