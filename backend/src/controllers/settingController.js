@@ -1,5 +1,17 @@
 const prisma = require('../config/db');
 
+// Helper strictly parses booleans from request body (BUG-019)
+const parseStrictBoolean = (val, defaultVal = true) => {
+  if (val === undefined || val === null) return defaultVal;
+  if (typeof val === 'boolean') return val;
+  if (typeof val === 'string') {
+    const s = val.trim().toLowerCase();
+    if (s === 'false' || s === '0') return false;
+    if (s === 'true' || s === '1') return true;
+  }
+  return Boolean(val);
+};
+
 // Mengambil pengaturan Auto-Reply Bot
 const getAutoReplySetting = async (req, res) => {
   try {
@@ -34,16 +46,18 @@ const updateAutoReplySetting = async (req, res) => {
   }
 
   try {
+    const parsedActive = isActive !== undefined ? parseStrictBoolean(isActive) : undefined;
+
     const updated = await prisma.setting.upsert({
       where: { key: 'auto_reply' },
       update: {
         ...(message !== undefined && { value: message.trim() }),
-        ...(isActive !== undefined && { is_active: Boolean(isActive) })
+        ...(parsedActive !== undefined && { is_active: parsedActive })
       },
       create: {
         key: 'auto_reply',
         value: message && message.trim() ? message.trim() : 'Baik untuk aduan akan kami cek dahulu mohon ditunggu.',
-        is_active: isActive !== undefined ? Boolean(isActive) : true
+        is_active: parsedActive !== undefined ? parsedActive : true
       }
     });
 

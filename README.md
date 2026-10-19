@@ -103,6 +103,8 @@ flowchart TD
 ### 2. Menjalankan Layanan Database & Gateway (Docker)
 Pindahkan terminal ke direktori root repositori dan jalankan kontainer:
 ```bash
+export POSTGRES_PASSWORD="<KATA_SANDI_DATABASE>"
+export EVOLUTION_API_TOKEN="<TOKEN_EVOLUTION_API>"
 docker compose -f docker/docker-compose.yml up -d
 ```
 > ⚠️ **Catatan Port:** PostgreSQL pada docker-compose dipetakan ke port host **`5433`** (format `5433:5432`). Backend di mesin host wajib terhubung ke port **5433**.
@@ -117,16 +119,17 @@ npm install
 Salin atau buat berkas `.env` di dalam folder `backend/`:
 ```env
 PORT=3000
-DATABASE_URL="postgresql://helpdesk_user:SecretPassword123!@localhost:5433/wa_helpdesk?schema=public"
-JWT_SECRET="masukkan_string_acak_jwt_secret_minimal_32_karakter"
+DATABASE_URL="postgresql://helpdesk_user:<POSTGRES_PASSWORD>@localhost:5433/wa_helpdesk?schema=public"
+JWT_SECRET="<RANDOM_JWT_SECRET_32_CHARS_OR_MORE>"
+SESSION_ENCRYPTION_KEY="<RANDOM_SESSION_ENCRYPTION_KEY_32_CHARS_OR_MORE>"
 
 # Evolution API (WhatsApp Gateway)
 EVOLUTION_API_URL="http://localhost:8080"
-EVOLUTION_API_TOKEN="SecureTokenUntukBackend123"
+EVOLUTION_API_TOKEN="<RANDOM_EVOLUTION_API_TOKEN>"
 EVOLUTION_INSTANCE_NAME="helpdesk-wa"
 
 # Shared Secret untuk Autentikasi Webhook (SEC-01)
-WEBHOOK_SECRET="SecureTokenUntukBackend123"
+WEBHOOK_SECRET="<RANDOM_WEBHOOK_SECRET_DIFFERENT_FROM_EVOLUTION_TOKEN>"
 
 # URL Frontend (untuk kontrol CORS Socket.io)
 FRONTEND_URL="http://localhost:5200"
@@ -135,8 +138,13 @@ FRONTEND_URL="http://localhost:5200"
 Sinkronisasi Database dan Seeding data awal:
 ```bash
 npx prisma generate
-npx prisma db push
+npx prisma migrate deploy
 npm run prisma:seed
+```
+
+Jalankan pengujian otomatis (18 test suites komprehensif):
+```bash
+npm test
 ```
 
 Jalankan server backend:
@@ -165,6 +173,9 @@ Buka browser pada alamat: **`http://localhost:5200`** (atau via IP LAN: `http://
 ## 👥 Akun Bawaan untuk Pengujian (Default Credentials)
 
 Semua akun benih terdaftar menggunakan **Password:** `password123`
+
+> 🛡️ **Catatan Keamanan Produksi (SEC-016):**
+> Pada lingkungan produksi (`NODE_ENV=production`), seeder mewajibkan variabel lingkungan `SEED_DEFAULT_PASSWORD` berisi kata sandi kuat baru. Penggunaan kata sandi bawaan `password123` akan ditolak secara otomatis (*fail-closed*).
 
 | Role | Email | Nama Pengguna | Kategori / Hak Akses Utama |
 |---|---|---|---|

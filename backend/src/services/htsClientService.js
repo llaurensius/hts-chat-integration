@@ -2,9 +2,14 @@ const axios = require('axios');
 const crypto = require('crypto');
 const prisma = require('../config/db');
 const { getSafeUploadPath } = require('../utils/safePath');
+const { JWT_SECRET, SESSION_ENCRYPTION_KEY } = require('../config/env');
 
-const ENCRYPTION_KEY_RAW = process.env.SESSION_ENCRYPTION_KEY || process.env.JWT_SECRET || 'hts-session-secret-key-default-32-chars!!';
-const ENCRYPTION_KEY = crypto.createHash('sha256').update(ENCRYPTION_KEY_RAW).digest();
+// SEC-008: Cegah penggunaan fallback key hardcoded yang dapat ditebak di source code
+const ENCRYPTION_KEY_RAW = SESSION_ENCRYPTION_KEY || JWT_SECRET;
+if (!ENCRYPTION_KEY_RAW || typeof ENCRYPTION_KEY_RAW !== 'string' || ENCRYPTION_KEY_RAW.trim().length < 16) {
+  throw new Error('[Security Error - SEC-008] Kunci enkripsi sesi HTS (SESSION_ENCRYPTION_KEY / JWT_SECRET) wajib dikonfigurasi dengan panjang minimal 16 karakter!');
+}
+const ENCRYPTION_KEY = crypto.createHash('sha256').update(ENCRYPTION_KEY_RAW.trim()).digest();
 const ALGORITHM = 'aes-256-gcm';
 
 const encryptSessionData = (plainText) => {
@@ -17,16 +22,20 @@ const encryptSessionData = (plainText) => {
     const authTag = cipher.getAuthTag().toString('hex');
     return `${iv.toString('hex')}:${authTag}:${encrypted}`;
   } catch (err) {
+    // SEC-009: Jangan pernah mengembalikan plaintext jika enkripsi gagal
     console.error('[HTS Service] Encryption error:', err.message);
-    return plainText;
+    throw new Error(`[Security Error - SEC-009] Gagal mengenkripsi sesi HTS: ${err.message}`);
   }
 };
 
 const decryptSessionData = (cipherText) => {
   if (!cipherText) return '';
-  if (cipherText.startsWith('{') || cipherText.startsWith('[')) return cipherText;
+  const parts = cipherText.split(':');
+  if (parts.length !== 3) {
+    throw new Error('[Security Error - SEC-009] Format data sesi terenkripsi tidak valid.');
+  }
   try {
-    const [ivHex, authTagHex, encryptedHex] = cipherText.split(':');
+    const [ivHex, authTagHex, encryptedHex] = parts;
     if (!ivHex || !authTagHex || !encryptedHex) return cipherText;
     const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
     decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
@@ -34,8 +43,9 @@ const decryptSessionData = (cipherText) => {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (err) {
+    // SEC-009: Lempar error otentikasi data daripada mengembalikan ciphertext mentah
     console.error('[HTS Service] Decryption error:', err.message);
-    return cipherText;
+    throw new Error(`[Security Error - SEC-009] Gagal mendekripsi sesi HTS: ${err.message}`);
   }
 };
 
@@ -875,5 +885,7 @@ module.exports = {
   lookupTicketByNumber,
   completePicPipeline,
   formatCookieHeader,
-  parseCookies
+  parseCookies,
+  encryptSessionData,
+  decryptSessionData
 };

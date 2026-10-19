@@ -28,6 +28,7 @@ module.exports = {
   PORT: process.env.PORT || 3000,
   DATABASE_URL: process.env.DATABASE_URL,
   JWT_SECRET: process.env.JWT_SECRET,
+  SESSION_ENCRYPTION_KEY: process.env.SESSION_ENCRYPTION_KEY || process.env.JWT_SECRET,
   EVOLUTION_API_URL: process.env.EVOLUTION_API_URL || 'http://localhost:8080',
   EVOLUTION_API_TOKEN: process.env.EVOLUTION_API_TOKEN,
   EVOLUTION_INSTANCE_NAME: process.env.EVOLUTION_INSTANCE_NAME || 'helpdesk-wa',

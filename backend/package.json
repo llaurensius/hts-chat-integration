@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "test": "node src/scripts/runAllTests.js",
     "setup:evolution": "node src/scripts/setupEvolution.js",
     "prisma:seed": "node prisma/seed.js",
     "migrate:v4": "node src/scripts/migrateV4.js"

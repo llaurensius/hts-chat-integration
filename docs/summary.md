@@ -215,7 +215,7 @@ Pastikan konfigurasi memuat parameter berikut:
 PORT=3000
 
 # URL Koneksi PostgreSQL
-DATABASE_URL="postgresql://postgres:password_db_anda@localhost:5432/hts_chat_db?schema=public"
+DATABASE_URL="postgresql://<DB_USER>:<POSTGRES_PASSWORD>@localhost:<DB_PORT>/<DB_NAME>?schema=public"
 
 # Kunci Rahasia JWT (Wajib diisi string acak aman hasil generate)
 JWT_SECRET="masukkan_string_acak_hasil_openssl_disini"

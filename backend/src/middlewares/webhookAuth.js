@@ -13,8 +13,8 @@ const safeCompare = (a, b) => {
 
 /**
  * Middleware untuk validasi autentikasi webhook WhatsApp (Evolution API).
- * Memeriksa header 'apikey', 'x-api-key', 'authorization: Bearer <token>', atau query parameter 'token'.
- * Harus cocok dengan WEBHOOK_SECRET atau EVOLUTION_API_TOKEN.
+ * Memeriksa header 'apikey', 'x-api-key', atau 'authorization: Bearer <token>' (SEC-011).
+ * Query parameter '?token=' DITOLAK untuk mencegah kebocoran kredensial di log web/proxy.
  */
 const verifyWebhookAuth = (req, res, next) => {
   const validSecrets = [process.env.WEBHOOK_SECRET, process.env.EVOLUTION_API_TOKEN]
@@ -29,11 +29,11 @@ const verifyWebhookAuth = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
 
+  // SEC-011: Hanya izinkan autentikasi via header HTTP (tolak query token)
   const candidateKey = 
     req.headers['apikey'] || 
     req.headers['x-api-key'] || 
-    bearerToken || 
-    req.query?.token;
+    bearerToken;
 
   const isValid = candidateKey && validSecrets.some(sec => safeCompare(String(candidateKey).trim(), sec));
 

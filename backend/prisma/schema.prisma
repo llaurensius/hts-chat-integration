@@ -120,6 +120,7 @@ model TicketHts {
   created_at        DateTime     @default(now())
   solved_at         DateTime?
 
+  @@unique([ticket_id, hts_ticket_no])
   @@index([ticket_id])
   @@index([hts_ticket_no])
 }

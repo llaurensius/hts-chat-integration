@@ -5,10 +5,13 @@ const cors = require('cors');
 require('dotenv').config();
 require('./config/env'); // Validasi fail-fast variabel lingkungan rahasia (SEC-03)
 
+const prisma = require('./config/db');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('./config/env');
+const { requestIdMiddleware, errorHandler, createHealthHandler } = require('./utils/observability');
 
 const app = express();
+app.use(requestIdMiddleware);
 app.set('trust proxy', 1);
 const server = http.createServer(app);
 
@@ -39,8 +42,8 @@ const io = new Server(server, {
   },
 });
 
-// Middleware Handshake Auth Socket.io (SEC-05)
-io.use((socket, next) => {
+// Middleware Handshake Auth Socket.io (SEC-05 / SEC-007)
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token || 
                   (socket.handshake.headers?.authorization && socket.handshake.headers.authorization.replace(/^Bearer\s+/i, '')) ||
@@ -51,7 +54,26 @@ io.use((socket, next) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    socket.user = decoded;
+    if (!decoded || !decoded.id) {
+      return next(new Error('unauthorized'));
+    }
+
+    // Validasi akun aktif & ambil hak akses terkini dari database (SEC-007)
+    const liveUser = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, name: true, role: true, category_id: true }
+    });
+
+    if (!liveUser) {
+      return next(new Error('unauthorized'));
+    }
+
+    socket.user = {
+      id: liveUser.id,
+      name: liveUser.name,
+      role: liveUser.role,
+      category_id: liveUser.category_id
+    };
     next();
   } catch (err) {
     return next(new Error('unauthorized'));
@@ -121,35 +143,67 @@ app.use('/api/webhook', webhookRoutes);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
 const path = require('path');
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+const { getSafeUploadPath } = require('./utils/safePath');
+
+// Protected attachment streaming (SEC-002)
+app.get('/uploads/*splat', verifyToken, async (req, res, next) => {
+  try {
+    const rawSplat = req.params.splat;
+    const filename = Array.isArray(rawSplat) ? rawSplat.join('/') : String(rawSplat || '');
+    const safePath = getSafeUploadPath(`/uploads/${filename}`);
+    if (!safePath) {
+      return res.status(404).json({ error: 'Lampiran tidak ditemukan' });
+    }
+
+    const targetUrl = `/uploads/${path.basename(safePath)}`;
+    const matchingMessages = await prisma.message.findMany({
+      where: { attachment_url: targetUrl },
+      select: {
+        ticket_id: true,
+        ticket: {
+          select: {
+            id: true,
+            is_aduan: true,
+            categories: { select: { category_id: true } }
+          }
+        }
+      }
+    });
+
+    let isAuthorized = false;
+    if (['ADMIN', 'SPV', 'L1'].includes(req.user.role)) {
+      isAuthorized = true;
+    } else if (req.user.role === 'L2' && req.user.category_id) {
+      isAuthorized = matchingMessages.some((msg) => (
+        msg.ticket?.is_aduan &&
+        msg.ticket.categories?.some((cat) => cat.category_id === req.user.category_id)
+      ));
+    }
+
+    if (!isAuthorized) {
+      return res.status(404).json({ error: 'Lampiran tidak ditemukan' });
+    }
+
+    res.set('X-Content-Type-Options', 'nosniff');
+    return res.sendFile(safePath);
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // Register Routes Lainnya
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', verifyToken, chatRoutes); 
 app.use('/api/reports', verifyToken, reportRoutes); 
 app.use('/api/admin', verifyToken, requireRole(['ADMIN']), adminRoutes);
-app.use('/api/settings', settingRoutes);
+app.use('/api/settings', verifyToken, settingRoutes);
 app.use('/api/hts', verifyToken, htsRoutes);
 
-// Centralized Error Handler (Express)
-app.use((err, req, res, next) => {
-  console.error(`[Unhandled API Error] ${req.method} ${req.originalUrl}:`, err);
-  if (err.name === 'MulterError') {
-    return res.status(400).json({ error: `File upload error: ${err.message}` });
-  }
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' ? 'Terjadi kesalahan internal server' : err.message
-  });
-});
+// Enhanced Health check endpoint with database probe
+app.get('/api/health', createHealthHandler(prisma));
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'HTS Chat Integration API is running',
-    timestamp: new Date().toISOString(),
-  });
-});
+// Centralized, Classified & Safe Error Handler
+app.use(errorHandler);
 
 // Socket connection handler (SEC-05)
 io.on('connection', (socket) => {

@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const htsController = require('../controllers/htsController');
+const { requireRole } = require('../middlewares/authMiddleware');
+
+// Proteksi RBAC ketat (SEC-005): Hanya Dispatcher L1, Supervisor, dan Admin yang berwenang mengelola sesi portal HTS
+router.use(requireRole(['ADMIN', 'SPV', 'L1']));
 
 // Status koneksi HTS
 router.get('/status', htsController.getStatus);

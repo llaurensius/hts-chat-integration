@@ -96,6 +96,34 @@
 
 ---
 
+### 4.2 Rangkaian Pengujian Otomatis (`npm test`)
+
+Seluruh pengujian fungsionalitas, keamanan, integritas data, observabilitas, dan regresi kini dijalankan secara terpusat melalui script resmi:
+```bash
+cd backend && npm test
+```
+Rangkaian ini mengeksekusi 18 test suite otomatis secara sekuensial dengan hasil **18/18 PASS (100%)**:
+1. `testSec002.js` — Proteksi streaming berkas lampiran privat & anti-path traversal.
+2. `testSec003.js` — Kebijakan catatan internal & otorisasi riwayat pesan.
+3. `testSec004.js` — Partisi siaran Socket.IO ke room terotorisasi.
+4. `testSec005.js` — Otorisasi level objek & guard status tiket CLOSED.
+5. `testSec007.js` — Resolusi live user di database & invalidasi klaim JWT usang.
+6. `testSec008.js` — Enkripsi AES-256-GCM sesi HTS fail-closed & anti-tampering.
+7. `testSec010.js` — Proteksi Prototype Pollution & Formula Injection pada impor Excel/CSV.
+8. `testPhase3SecurityDeep.js` — Eliminasi token query webhook & validasi magic bytes.
+9. `testPhase4Ux.js` — Aksesibilitas keyboard tiket, label form & layout responsif mobile.
+10. `testPhase6Db.js` — Validasi DDL migrasi konsolidasi & eliminasi restart sequence.
+11. `testIntegrationReliability.js` — Acknowledgment webhook durable & upsert idempoten HTS.
+12. `testPhase9SlaWorkflow.js` — Akurasi metrik SLA FRT dan MTTR aktif tiket reopen.
+13. `testPhase10DataLifecycle.js` — Batching chunk impor kontak (100 chunk) & sanitasi ekstensi.
+14. `testPhase15Performance.js` — Bounding query take tiket (300 cap) & pemisahan chunk Rollup (< 210 kB).
+15. `testPhase16Observability.js` — Pelacakan Request ID (`X-Request-Id`), klasifikasi error & health probe DB.
+16. `testE2eAndEdgeCases.js` — Matriks transisi tiket, matriks RBAC peran & penanganan timeout gateway.
+17. `testFullSystemWorkflowValidation.js` — Checklist 5 modul validasi sistem menyeluruh end-to-end.
+18. `testUatV4.js` — Skenario pengujian UAT alur tiket, aduan, HTS multi-divisi & catatan internal.
+
+---
+
 ## 5. Audit Remediasi Kerentanan Sistem (Sprint 1–3 Hardening)
 
 Seluruh temuan audit keamanan dan integritas teknis terdahulu telah diselesaikan 100%:

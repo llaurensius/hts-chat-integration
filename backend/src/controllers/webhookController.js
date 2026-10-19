@@ -3,6 +3,7 @@ const evolutionService = require('../services/evolutionService');
 const fs = require('fs');
 const path = require('path');
 const { withLock } = require('../utils/perNumberLock');
+const { emitToAuthorizedRooms } = require('../utils/socketEmitter');
 
 const handleIncomingMessage = async (req, res) => {
   // Selalu balas 200 OK ke Evolution API dengan cepat agar webhook tidak timeout
@@ -94,13 +95,36 @@ const handleIncomingMessage = async (req, res) => {
 
       if (base64Data) {
         const buffer = Buffer.from(base64Data, 'base64');
-        const randomSuffix = Math.random().toString(36).substring(2, 8);
-        const filename = `img_${Date.now()}_${randomSuffix}.jpg`;
-        const uploadDir = path.join(__dirname, '../../uploads');
-        await fs.promises.mkdir(uploadDir, { recursive: true });
-        await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
-        attachmentUrl = `/uploads/${filename}`;
-        console.log(`[Webhook] Successfully saved image to ${attachmentUrl}`);
+        // SEC-014: Batasi ukuran file decoded maksimal 10MB
+        if (buffer.length > 0 && buffer.length <= 10 * 1024 * 1024) {
+          // BUG-021: Validasi signature / magic bytes berkas gambar
+          let ext = '.jpg';
+          const headerHex = buffer.subarray(0, 4).toString('hex').toLowerCase();
+          if (headerHex.startsWith('ffd8ff')) {
+            ext = '.jpg';
+          } else if (headerHex.startsWith('89504e47')) {
+            ext = '.png';
+          } else if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+            ext = '.webp';
+          } else if (headerHex.startsWith('47494638')) {
+            ext = '.gif';
+          } else {
+            console.warn('[Webhook Security - SEC-014] Berkas base64 bukan gambar yang valid. Simpan dibatalkan.');
+            ext = null;
+          }
+
+          if (ext) {
+            const randomSuffix = Math.random().toString(36).substring(2, 8);
+            const filename = `img_${Date.now()}_${randomSuffix}${ext}`;
+            const uploadDir = path.join(__dirname, '../../uploads');
+            await fs.promises.mkdir(uploadDir, { recursive: true });
+            await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+            attachmentUrl = `/uploads/${filename}`;
+            console.log(`[Webhook] Successfully saved image to ${attachmentUrl}`);
+          }
+        } else {
+          console.warn('[Webhook Security - SEC-014] Ukuran gambar melebihi batas 10MB atau kosong.');
+        }
       } else {
         console.log('[Webhook] Warning: Image detected but could not extract base64.');
       }
@@ -157,6 +181,7 @@ const handleIncomingMessage = async (req, res) => {
         customer_id: customer.id, 
         status: { in: ['OPEN', 'RESOLVED'] } 
       },
+      include: { categories: true },
       orderBy: { created_at: 'desc' }
     });
 
@@ -201,8 +226,10 @@ const handleIncomingMessage = async (req, res) => {
         // Jika request paralel lain baru saja membuat tiket di saat yang sama, ambil tiket tersebut
         const fallbackTicket = await prisma.ticket.findFirst({
           where: { customer_id: customer.id, status: { in: ['OPEN', 'RESOLVED'] } },
+          include: { categories: true },
           orderBy: { created_at: 'desc' }
         });
+        activeTicket = fallbackTicket;
         ticketId = fallbackTicket ? fallbackTicket.id : null;
         if (!ticketId) {
           console.error(`[Webhook] Fatal: Gagal membuat dan mengambil fallback tiket untuk customer ${customer.id}`);
@@ -250,9 +277,9 @@ const handleIncomingMessage = async (req, res) => {
       throw createErr;
     }
 
-    // 5. Broadcast notifikasi ke Socket.io
+    // 5. Broadcast notifikasi ke Socket.io dengan otorisasi room (SEC-004)
     if (req.io) {
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, activeTicket || { is_aduan: false }, 'new_message', {
         ticketId,
         waNumber,
         senderName: fromMe ? 'Helpdesk (HP)' : customer.name,

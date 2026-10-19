@@ -297,18 +297,24 @@ erDiagram
 Modul [`config/env.js`](../backend/src/config/env.js) memvalidasi seluruh variabel lingkungan esensial (`DATABASE_URL`, `JWT_SECRET`, `EVOLUTION_API_TOKEN`, `WEBHOOK_SECRET`) saat proses Node.js mulai berjalan. Server menolak menyala jika terdapat kredensial yang kosong atau menggunakan nilai *fallback default*.
 
 ### 5.2 Autentikasi Webhook Shared Secret (`SEC-01`)
-Endpoint penerimaan pesan `POST /api/webhook/whatsapp` dilindungi token rahasia bersama `WEBHOOK_SECRET` dengan verifikasi string waktu-konstan (`crypto.timingSafeEqual`) untuk menangkal eksploitasi serangan *timing attack*.
+Endpoint penerimaan pesan `POST /api/webhook/whatsapp` dilindungi token rahasia bersama `WEBHOOK_SECRET` dengan verifikasi string waktu-konstan (`crypto.timingSafeEqual`) untuk menangkal eksploitasi serangan *timing attack*. Autentikasi query parameter `?token=` dihapus sepenuhnya demi mencegah kebocoran secret di log web/proxy (SEC-011).
 
 ### 5.3 Server-Side RBAC & Isolasi Data Multi-Tenant (`SEC-02`)
-Hak akses pengguna diverifikasi di tingkat Express menggunakan middleware `verifyToken` dan `requireRole`. Teknisi L2 yang memiliki penugasan `category_id` secara ketat dibatasi hanya dapat membaca data antrean dan percakapan timnya sendiri.
+Hak akses pengguna diverifikasi di tingkat Express menggunakan middleware `verifyToken` dan `requireRole` dengan resolusi akun langsung ke basis data (*live DB resolution*) untuk menganulir token JWT usang seketika (SEC-007). Teknisi L2 yang memiliki penugasan `category_id` secara ketat dibatasi hanya dapat membaca data antrean dan percakapan timnya sendiri.
 
-### 5.4 Sanitasi Berkas Anti-Path Traversal (`SEC-04`)
-Seluruh jalur berkas lampiran yang akan dikirimkan ke portal HTS divalidasi oleh fungsi [`safePath.js`](../backend/src/utils/safePath.js). Jalur kanonikal berkas wajib berada di dalam subdirektori `/uploads`. Upaya eksploitasi direktori menggunakan `../` akan langsung ditolak peladen.
+### 5.4 Proteksi Aliran Lampiran Privat & Anti-Path Traversal (`SEC-002` & `SEC-04`)
+Direktori `/uploads` tidak lagi disajikan secara publik. Setiap permintaan akses lampiran wajib menyertakan token JWT dan melewati otorisasi berbasis tiket/kategori tim di sisi server (`backend/src/index.js`). Seluruh jalur berkas lampiran divalidasi oleh fungsi [`safePath.js`](../backend/src/utils/safePath.js) dengan proteksi anti-path traversal dan header `X-Content-Type-Options: nosniff`.
 
-### 5.5 Serialisasi Antirace & Deduplikasi Atomik (`DATA-01` & `DATA-02`)
+### 5.5 Isolasi Ruang Siaran Real-Time Socket.IO (`SEC-004`)
+Seluruh siaran pesan masuk, catatan internal, dan pembaruan tiket dialirkan secara terpartisi menggunakan `emitToAuthorizedRooms`. Percakapan biasa 100% terisolasi dari teknisi L2, dan tiket aduan teknis hanya disiarkan ke room tim yang ditugaskan (`category_${id}`).
+
+### 5.6 Serialisasi Antirace & Deduplikasi Atomik (`DATA-01` & `DATA-02`)
 Pesan masuk dari nomor WhatsApp yang sama diserialisasi secara *in-memory* menggunakan mutex [`perNumberLock.js`](../backend/src/utils/perNumberLock.js). Deduplikasi pesan diperkuat oleh batasan unik database (`Message.wa_message_id @unique`), memastikan tidak ada tiket atau gelembung pesan dobel yang tercipta akibat *network retry* dari WhatsApp gateway.
 
-### 5.6 Background Worker Terjadwal
+### 5.7 Observability & Pelacakan Request ID (`OBS-01`)
+Setiap request HTTP diberikan Correlation ID (`req.id`) yang disematkan pada header balasan `X-Request-Id`. Seluruh kegagalan sistem diklasifikasikan ke dalam kode mesin (`RESOURCE_ALREADY_EXISTS`, `RESOURCE_NOT_FOUND`, `FOREIGN_KEY_VIOLATION`, `MALFORMED_JSON_BODY`, dll) dan disanitasi dari string kredensial. Endpoint `/api/health` secara aktif menguji konektivitas PostgreSQL via `SELECT 1`.
+
+### 5.8 Background Worker Terjadwal
 1. **`htsKeepAliveService` (Interval 15 Menit):** Memelihara keaktifan sesi cookie PHP `ci_session` petugas helpdesk agar tidak terputus di tengah jam operasional.
 2. **`fileCleanupService` (Interval 24 Jam):** Menghapus berkas media fisik pada direktori `/uploads` untuk seluruh tiket yang telah berstatus `CLOSED` lebih dari 90 hari.
 

@@ -44,6 +44,9 @@ async function main() {
 
   // 2. Hash default password
   const seedPassword = process.env.SEED_DEFAULT_PASSWORD || 'password123';
+  if (process.env.NODE_ENV === 'production' && (!process.env.SEED_DEFAULT_PASSWORD || seedPassword === 'password123')) {
+    throw new Error('[Security Error - SEC-016] SEED_DEFAULT_PASSWORD wajib dikonfigurasi dengan kata sandi kuat pada lingkungan produksi!');
+  }
   const hashedPassword = await bcrypt.hash(seedPassword, 10);
 
   // 3. Seed Users (Admin, L1 Dispatcher & L2 Technicians)

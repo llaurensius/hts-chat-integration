@@ -3,16 +3,23 @@ const evolutionService = require('../services/evolutionService');
 const htsClientService = require('../services/htsClientService');
 const { EVOLUTION_API_URL, EVOLUTION_API_TOKEN, EVOLUTION_INSTANCE_NAME } = require('../config/env');
 const { sanitizeAttachmentUrl } = require('../utils/safePath');
+const { emitToAuthorizedRooms } = require('../utils/socketEmitter');
 
 // Mengambil semua tiket aktif beserta pesan terakhirnya
 const getTickets = async (req, res) => {
   try {
+    const { limit, status } = req.query;
+
     // Filter tiket berdasarkan peran
     // L1 / Admin / SPV melihat semua tiket (termasuk CLOSED agar tab "✓ Selesai"
     // dan tombol Re-Open di App.jsx:2310 punya sumber data).
     // L2 HANYA melihat tiket yang berstatus aduan (is_aduan = true) dan di-assign ke kategorinya.
     // Pemisahan tab aktif vs selesai dilakukan di frontend (App.jsx:2146-2150).
     let whereClause = {};
+
+    if (status) {
+      whereClause.status = status;
+    }
 
     if (req.user && req.user.role === 'L2') {
       if (!req.user.category_id) {
@@ -27,8 +34,12 @@ const getTickets = async (req, res) => {
       };
     }
 
+    // Batas aman pengambilan tiket (DB-012 & PERF-002) default 300, max 500
+    const take = limit ? Math.min(Math.max(parseInt(limit) || 100, 1), 500) : 300;
+
     const tickets = await prisma.ticket.findMany({
       where: whereClause,
+      take: take,
       include: {
         customer: true,
         categories: {
@@ -61,29 +72,37 @@ const getMessages = async (req, res) => {
   }
 
   try {
-    // Validasi hak akses untuk L2: hanya boleh melihat pesan pada tiket aduan yang ditugaskan ke timnya (AUTH-01)
+    // 1. Validasi keberadaan tiket (SEC-003)
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: parsedTicketId },
+      select: {
+        id: true,
+        is_aduan: true,
+        categories: { select: { category_id: true } }
+      }
+    });
+    if (!ticket) {
+      return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+    }
+
+    // 2. Validasi hak akses L2: hanya boleh pada tiket aduan yang ditugaskan ke timnya (AUTH-01 / SEC-003)
     if (req.user && req.user.role === 'L2') {
       if (!req.user.category_id) {
         return res.status(403).json({ error: 'Akses ditolak: Akun teknisi belum terhubung ke kategori tim' });
-      }
-      const ticket = await prisma.ticket.findUnique({
-        where: { id: parsedTicketId },
-        select: {
-          id: true,
-          is_aduan: true,
-          categories: { select: { category_id: true } }
-        }
-      });
-      if (!ticket) {
-        return res.status(404).json({ error: 'Tiket tidak ditemukan' });
       }
       if (!ticket.is_aduan || !ticket.categories.some(c => c.category_id === req.user.category_id)) {
         return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki akses ke percakapan tiket ini' });
       }
     }
 
+    // 3. Filter catatan internal jika diminta secara eksplisit (SEC-003)
+    const messageWhere = { ticket_id: parsedTicketId };
+    if (req.query.include_internal === 'false' || req.query.internal === 'false') {
+      messageWhere.is_internal = false;
+    }
+
     const messages = await prisma.message.findMany({
-      where: { ticket_id: parsedTicketId },
+      where: messageWhere,
       include: {
         sender: {
           select: {
@@ -118,14 +137,25 @@ const sendReply = async (req, res) => {
     return res.status(400).json({ error: 'ticketId dan text wajib diisi' });
   }
 
+  const parsedTicketId = parseInt(ticketId);
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
+
   try {
     // 1. Cari tiket dan wa_number pelapor
     const ticket = await prisma.ticket.findUnique({
-      where: { id: parseInt(ticketId) },
-      include: { customer: true }
+      where: { id: parsedTicketId },
+      include: { customer: true, categories: true }
     });
 
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    // State guard: Jangan kirim pesan ke tiket yang sudah CLOSED
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat mengirim pesan ke tiket yang sudah CLOSED. Silakan aktifkan kembali (Re-Open) tiket terlebih dahulu.' });
+    }
+
     const waNumber = ticket.customer.wa_number;
 
     // 2. Kirim balasan via Evolution API ke WhatsApp Pelapor
@@ -145,7 +175,7 @@ const sendReply = async (req, res) => {
 
     // 4. Broadcast via Socket.io agar UI Agen/SPV lain langsung terupdate
     if (req.io) {
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, ticket, 'new_message', {
         ticketId: ticket.id,
         waNumber: waNumber,
         senderName: 'Agent',
@@ -498,13 +528,13 @@ const closeTicket = async (req, res) => {
 
     // Blast Notifikasi via Socket.io (F4) - Kasih tahu semua klien bahwa tiket diclose/diupdate
     if (req.io) {
-      req.io.emit('ticket_closed', {
+      emitToAuthorizedRooms(req.io, updatedTicket, 'ticket_closed', {
         ticketId: updatedTicket.id,
         summary: updatedTicket.summary,
         categorys: categoryIds
       });
       if (htsCloseMessage) {
-        req.io.emit('new_message', {
+        emitToAuthorizedRooms(req.io, updatedTicket, 'new_message', {
           ticketId: updatedTicket.id,
           senderType: 'AGENT',
           text: htsCloseMessage,
@@ -539,12 +569,22 @@ const sendMedia = async (req, res) => {
       return res.status(400).json({ error: 'Ticket ID dan File gambar wajib dikirim' });
     }
 
+    const parsedTicketId = parseInt(ticketId);
+    if (isNaN(parsedTicketId)) {
+      return res.status(400).json({ error: 'ID tiket tidak valid' });
+    }
+
     const ticket = await prisma.ticket.findUnique({
-      where: { id: parseInt(ticketId) },
-      include: { customer: true }
+      where: { id: parsedTicketId },
+      include: { customer: true, categories: true }
     });
 
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    // State guard: Jangan kirim media ke tiket yang sudah CLOSED
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat mengirim media ke tiket yang sudah CLOSED. Silakan aktifkan kembali (Re-Open) tiket terlebih dahulu.' });
+    }
     
     const waNumber = ticket.customer.wa_number;
 
@@ -600,7 +640,7 @@ const sendMedia = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, ticket, 'new_message', {
         ticketId: ticket.id,
         waNumber: waNumber,
         senderName: 'Agent',
@@ -769,35 +809,38 @@ const assignTicket = async (req, res) => {
       ? serviceType 
       : (ticket.service_type && ticket.service_type !== 'GENERAL_CHAT' ? ticket.service_type : 'TROUBLESHOOTING');
       
-    await prisma.ticket.update({
-      where: { id: ticket.id },
-      data: {
-        service_type: serviceTypeStr,
-        is_aduan: true, // Otomatis dipromosikan jadi aduan teknis resmi saat ditugaskan ke L2
-        status: 'OPEN' // Reset ke OPEN jika sebelumnya RESOLVED
-      }
-    });
-
-    // Lepas hanya kategori yang di-uncheck
-    if (removedCatIds.length > 0) {
-      await prisma.ticketCategory.deleteMany({
-        where: {
-          ticket_id: ticket.id,
-          category_id: { in: removedCatIds }
+    // Atomicity guard (DB-013): Jalankan pembaruan tiket dan relasi kategori dalam satu transaksi
+    await prisma.$transaction(async (tx) => {
+      await tx.ticket.update({
+        where: { id: ticket.id },
+        data: {
+          service_type: serviceTypeStr,
+          is_aduan: true, // Otomatis dipromosikan jadi aduan teknis resmi saat ditugaskan ke L2
+          status: 'OPEN' // Reset ke OPEN jika sebelumnya RESOLVED
         }
       });
-    }
 
-    // Tambahkan hanya kategori baru (tim yang sudah ada sebelumnya status is_resolved-nya dipertahankan)
-    if (newCatIds.length > 0) {
-      await prisma.ticketCategory.createMany({
-        data: newCatIds.map(catId => ({
-          ticket_id: ticket.id,
-          category_id: catId,
-          is_resolved: false
-        }))
-      });
-    }
+      // Lepas hanya kategori yang di-uncheck
+      if (removedCatIds.length > 0) {
+        await tx.ticketCategory.deleteMany({
+          where: {
+            ticket_id: ticket.id,
+            category_id: { in: removedCatIds }
+          }
+        });
+      }
+
+      // Tambahkan hanya kategori baru (tim yang sudah ada sebelumnya status is_resolved-nya dipertahankan)
+      if (newCatIds.length > 0) {
+        await tx.ticketCategory.createMany({
+          data: newCatIds.map(catId => ({
+            ticket_id: ticket.id,
+            category_id: catId,
+            is_resolved: false
+          }))
+        });
+      }
+    });
 
     // Format nama tim untuk log & notifikasi
     const typeDisplay = serviceTypeStr === 'REQUEST_LAYANAN' ? 'Request Layanan' : 
@@ -979,9 +1022,9 @@ const assignTicket = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_assigned', { ticketId: ticket.id, categories: newCategories });
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updatedTicket, 'ticket_assigned', { ticketId: ticket.id, categories: newCategories });
+      emitToAuthorizedRooms(req.io, updatedTicket, 'ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
+      emitToAuthorizedRooms(req.io, updatedTicket, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -1051,28 +1094,30 @@ const resolveTicket = async (req, res) => {
         return res.status(403).json({ error: 'Tim Anda tidak ditugaskan pada tiket ini' });
       }
 
-      // Update status is_resolved dan simpan solution untuk kategori tim user ini
-      await prisma.ticketCategory.update({
-        where: {
-          ticket_id_category_id: {
-            ticket_id: ticket.id,
-            category_id: effectiveCategoryId
-          }
-        },
-        data: {
-          is_resolved: true,
-          solution: solution ? solution.trim() : null,
-          resolved_at: new Date()
-        }
-      });
-
       const catName = myCatRelation.category.name;
       noteText = `[SISTEM] Tim ${catName} telah menandai kendala di bagiannya selesai.`;
       if (solution && solution.trim()) {
         noteText += `\n📋 *Catatan Solusi / Penanganan Teknis:* ${solution.trim()}`;
-        // Simpan solusi teknis dari L2 sebagai draft rujukan pada tiket HTS tim ini yang belum SOLVED
-        try {
-          await prisma.ticketHts.updateMany({
+      }
+
+      // Atomicity guard (DB-013): Update status kategori tim dan tiket dalam satu transaksi
+      await prisma.$transaction(async (tx) => {
+        await tx.ticketCategory.update({
+          where: {
+            ticket_id_category_id: {
+              ticket_id: ticket.id,
+              category_id: effectiveCategoryId
+            }
+          },
+          data: {
+            is_resolved: true,
+            solution: solution ? solution.trim() : null,
+            resolved_at: new Date()
+          }
+        });
+
+        if (solution && solution.trim()) {
+          await tx.ticketHts.updateMany({
             where: {
               ticket_id: ticket.id,
               OR: [
@@ -1085,45 +1130,45 @@ const resolveTicket = async (req, res) => {
               solution: solution.trim()
             }
           });
-        } catch (e) {
-          console.warn('[resolveTicket] Gagal update draft solution ke TicketHts:', e.message);
         }
-      }
 
-      // Cek apakah SEMUA tim yang ditugaskan sudah is_resolved = true
-      const updatedCategories = await prisma.ticketCategory.findMany({
-        where: { ticket_id: ticket.id }
-      });
-
-      const allResolved = updatedCategories.every(c => c.is_resolved);
-      if (allResolved && updatedCategories.length > 0) {
-        await prisma.ticket.update({
-          where: { id: ticket.id },
-          data: { status: 'RESOLVED' }
+        const updatedCategories = await tx.ticketCategory.findMany({
+          where: { ticket_id: ticket.id }
         });
-        isFullyResolved = true;
-        noteText += `\nSeluruh tim telah selesai menangani. Tiket berstatus RESOLVED (siap ditutup resmi oleh L1).`;
-      }
-    } else {
-      // Jika Admin / SPV yang resolve langsung
-      await prisma.ticketCategory.updateMany({
-        where: { ticket_id: ticket.id },
-        data: {
-          is_resolved: true,
-          solution: solution ? solution.trim() : null,
-          resolved_at: new Date()
+
+        const allResolved = updatedCategories.every(c => c.is_resolved);
+        if (allResolved && updatedCategories.length > 0) {
+          await tx.ticket.update({
+            where: { id: ticket.id },
+            data: { status: 'RESOLVED' }
+          });
+          isFullyResolved = true;
+          noteText += `\nSeluruh tim telah selesai menangani. Tiket berstatus RESOLVED (siap ditutup resmi oleh L1).`;
         }
       });
-      await prisma.ticket.update({
-        where: { id: ticket.id },
-        data: { status: 'RESOLVED' }
-      });
+    } else {
       isFullyResolved = true;
       noteText = `[SISTEM] Tiket ditandai selesai langsung oleh ${user?.name || 'Admin'}. Menunggu penutupan resmi oleh L1.`;
       if (solution && solution.trim()) {
         noteText += `\n📋 *Catatan Solusi:* ${solution.trim()}`;
-        try {
-          await prisma.ticketHts.updateMany({
+      }
+
+      // Atomicity guard (DB-013): Transaksi resolusi langsung oleh Admin/SPV
+      await prisma.$transaction(async (tx) => {
+        await tx.ticketCategory.updateMany({
+          where: { ticket_id: ticket.id },
+          data: {
+            is_resolved: true,
+            solution: solution ? solution.trim() : null,
+            resolved_at: new Date()
+          }
+        });
+        await tx.ticket.update({
+          where: { id: ticket.id },
+          data: { status: 'RESOLVED' }
+        });
+        if (solution && solution.trim()) {
+          await tx.ticketHts.updateMany({
             where: {
               ticket_id: ticket.id,
               hts_ticket_status: { not: 'SOLVED' }
@@ -1132,10 +1177,8 @@ const resolveTicket = async (req, res) => {
               solution: solution.trim()
             }
           });
-        } catch (e) {
-          console.warn('[resolveTicket] Gagal update draft solution ke TicketHts:', e.message);
         }
-      }
+      });
     }
 
     // Catat internal note
@@ -1159,8 +1202,8 @@ const resolveTicket = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updatedTicket, 'ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
+      emitToAuthorizedRooms(req.io, updatedTicket, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -1218,48 +1261,50 @@ const returnTicket = async (req, res) => {
       }
 
       // Hapus hanya relasi tim user ini dari tiket
-      await prisma.ticketCategory.delete({
-        where: {
-          ticket_id_category_id: {
-            ticket_id: ticket.id,
-            category_id: user.category_id
-          }
-        }
-      });
-
       const catName = myCatRelation.category.name;
       noteText = `[SISTEM] Tim ${catName} melepas penugasan / mengembalikan ke L1. Catatan: "${returnReason}"`;
 
-      // Cek sisa tim yang masih ditugaskan pada tiket ini
-      const remainingCategories = await prisma.ticketCategory.findMany({
-        where: { ticket_id: ticket.id }
-      });
+      // Atomicity guard (DB-013): Penghapusan relasi tim dan pembaruan status tiket dalam satu transaksi
+      await prisma.$transaction(async (tx) => {
+        await tx.ticketCategory.delete({
+          where: {
+            ticket_id_category_id: {
+              ticket_id: ticket.id,
+              category_id: user.category_id
+            }
+          }
+        });
 
-      if (remainingCategories.length === 0) {
-        // Jika tidak ada tim tersisa sama sekali, tiket berstatus OPEN dan unassigned
-        await prisma.ticket.update({
+        const remainingCategories = await tx.ticketCategory.findMany({
+          where: { ticket_id: ticket.id }
+        });
+
+        if (remainingCategories.length === 0) {
+          await tx.ticket.update({
+            where: { id: ticket.id },
+            data: { status: 'OPEN' }
+          });
+          noteText += ` (Semua tim telah dilepas, tiket kembali berstatus Belum Ditugaskan).`;
+        } else {
+          const allRemainingResolved = remainingCategories.every(c => c.is_resolved);
+          if (allRemainingResolved) {
+            await tx.ticket.update({
+              where: { id: ticket.id },
+              data: { status: 'RESOLVED' }
+            });
+          }
+        }
+      });
+    } else {
+      // Jika Admin yang mereturn semua (DB-013 Transaksi)
+      await prisma.$transaction(async (tx) => {
+        await tx.ticketCategory.deleteMany({
+          where: { ticket_id: ticket.id }
+        });
+        await tx.ticket.update({
           where: { id: ticket.id },
           data: { status: 'OPEN' }
         });
-        noteText += ` (Semua tim telah dilepas, tiket kembali berstatus Belum Ditugaskan).`;
-      } else {
-        // Jika masih ada tim lain, periksa apakah sisa tim tersebut semuanya sudah selesai
-        const allRemainingResolved = remainingCategories.every(c => c.is_resolved);
-        if (allRemainingResolved) {
-          await prisma.ticket.update({
-            where: { id: ticket.id },
-            data: { status: 'RESOLVED' }
-          });
-        }
-      }
-    } else {
-      // Jika Admin yang mereturn semua
-      await prisma.ticketCategory.deleteMany({
-        where: { ticket_id: ticket.id }
-      });
-      await prisma.ticket.update({
-        where: { id: ticket.id },
-        data: { status: 'OPEN' }
       });
       noteText = `[SISTEM] Seluruh penugasan tim pada tiket ini telah dikembalikan ke L1 oleh ${user?.name || 'Admin'}. Catatan: "${returnReason}"`;
     }
@@ -1285,8 +1330,8 @@ const returnTicket = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updatedTicket, 'ticket_updated', { ticketId: ticket.id, ticket: updatedTicket });
+      emitToAuthorizedRooms(req.io, updatedTicket, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -1356,7 +1401,7 @@ const addInternalNote = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, ticket, 'new_message', {
         ticketId: parseInt(ticketId),
         senderType: 'AGENT',
         text: text.trim(),
@@ -1451,7 +1496,7 @@ const updateCustomer = async (req, res) => {
       });
 
       if (req.io) {
-        req.io.emit('new_message', {
+        emitToAuthorizedRooms(req.io, activeTicket, 'new_message', {
           ticketId: activeTicket.id,
           senderType: 'AGENT',
           text: noteMsg.message_text,
@@ -1462,7 +1507,7 @@ const updateCustomer = async (req, res) => {
     }
 
     if (req.io) {
-      req.io.emit('customer_updated', {
+      emitToAuthorizedRooms(req.io, activeTicket || { is_aduan: false }, 'customer_updated', {
         customerId: updatedCustomer.id,
         name: updatedCustomer.name,
         skpd_name: updatedCustomer.skpd_name,
@@ -1646,8 +1691,19 @@ const syncTicketToHts = async (req, res) => {
 
     // Simpan juga ke hub Multi-HTS (TicketHts - V4)
     try {
-      await prisma.ticketHts.create({
-        data: {
+      await prisma.ticketHts.upsert({
+        where: {
+          ticket_id_hts_ticket_no: {
+            ticket_id: ticket.id,
+            hts_ticket_no: htsResult.noTrouble
+          }
+        },
+        update: {
+          hts_ticket_id: String(htsResult.idTrouble || ''),
+          hts_ticket_status: htsResult.status || 'PENDING',
+          hts_pic_ids: JSON.stringify(htsResult.picIds || (chosenPicIds.length > 0 ? chosenPicIds : ['14']))
+        },
+        create: {
           ticket_id: ticket.id,
           category_id: ticket.categories?.[0]?.category_id || null,
           hts_ticket_id: String(htsResult.idTrouble || ''),
@@ -1660,7 +1716,7 @@ const syncTicketToHts = async (req, res) => {
         }
       });
     } catch (e) {
-      console.warn('[Chat API] Note on creating TicketHts:', e.message);
+      console.error('[Chat API] Error upserting TicketHts:', e.message);
     }
 
     const noteText = `[SISTEM] Tiket disinkronkan ke portal HTS oleh ${req.user?.name || 'Petugas'}: #${htsResult.noTrouble} (Status: Proses Penanganan)`;
@@ -1685,9 +1741,9 @@ const syncTicketToHts = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: finalTicket });
-      req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticket: finalTicket });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, finalTicket, 'ticket_updated', { ticketId: ticket.id, ticket: finalTicket });
+      emitToAuthorizedRooms(req.io, finalTicket, 'hts_ticket_created', { ticketId: ticket.id, ticket: finalTicket });
+      emitToAuthorizedRooms(req.io, finalTicket, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -1772,8 +1828,8 @@ const syncSolveHts = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updated });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updated, 'ticket_updated', { ticketId: ticket.id, ticket: updated });
+      emitToAuthorizedRooms(req.io, updated, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteMsg.message_text,
@@ -2056,12 +2112,13 @@ const createTicketHts = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id });
-      req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
+      const targetScope = { is_aduan: true, categories: [...(ticket.categories || []), resolvedCategoryId] };
+      emitToAuthorizedRooms(req.io, targetScope, 'ticket_updated', { ticketId: ticket.id });
+      emitToAuthorizedRooms(req.io, targetScope, 'hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
       if (newlyAssigned) {
-        req.io.emit('ticket_assigned', { ticketId: ticket.id });
+        emitToAuthorizedRooms(req.io, targetScope, 'ticket_assigned', { ticketId: ticket.id });
       }
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, targetScope, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -2196,9 +2253,10 @@ const solveTicketHtsSingle = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: parseInt(ticketId) });
-      req.io.emit('hts_ticket_solved', { ticketId: parseInt(ticketId), ticketHts: updated });
-      req.io.emit('new_message', {
+      const targetScope = ticketHts.ticket || { is_aduan: true, categoryIds: [ticketHts.category_id] };
+      emitToAuthorizedRooms(req.io, targetScope, 'ticket_updated', { ticketId: parseInt(ticketId) });
+      emitToAuthorizedRooms(req.io, targetScope, 'hts_ticket_solved', { ticketId: parseInt(ticketId), ticketHts: updated });
+      emitToAuthorizedRooms(req.io, targetScope, 'new_message', {
         ticketId: parseInt(ticketId),
         senderType: 'AGENT',
         text: noteMsg.message_text,
@@ -2221,15 +2279,32 @@ const solveTicketHtsSingle = async (req, res) => {
 // 4. Toggle manual status Percakapan Biasa <-> Aduan Teknis
 const toggleAduan = async (req, res) => {
   const { ticketId } = req.params;
+  const parsedTicketId = parseInt(ticketId);
+  if (isNaN(parsedTicketId)) {
+    return res.status(400).json({ error: 'ID tiket tidak valid' });
+  }
   const { is_aduan, service_type } = req.body;
+
+  // Validasi enum service_type yang sah (BUG-018)
+  const VALID_SERVICE_TYPES = ['TROUBLESHOOTING', 'REQUEST_LAYANAN', 'MONITORING', 'GENERAL_CHAT'];
+  if (service_type && !VALID_SERVICE_TYPES.includes(service_type)) {
+    return res.status(400).json({
+      error: `Jenis layanan tidak valid. Nilai yang diizinkan: ${VALID_SERVICE_TYPES.join(', ')}`
+    });
+  }
 
   try {
     const ticket = await prisma.ticket.findUnique({
-      where: { id: parseInt(ticketId) },
-      include: { hts_tickets: true }
+      where: { id: parsedTicketId },
+      include: { hts_tickets: true, categories: true }
     });
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    // State guard (SEC-005): Tiket CLOSED tidak dapat diubah status aduannya
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat mengubah klasifikasi tiket yang sudah berstatus CLOSED' });
+    }
 
     // Proteksi: Jika ingin switch ke false tapi sudah ada tiket HTS aktif, cegah
     if (is_aduan === false && ticket.hts_tickets && ticket.hts_tickets.length > 0) {
@@ -2239,7 +2314,14 @@ const toggleAduan = async (req, res) => {
     }
 
     const nextIsAduan = is_aduan !== undefined ? is_aduan : !ticket.is_aduan;
-    const nextServiceType = service_type || (nextIsAduan ? (ticket.service_type === 'GENERAL_CHAT' ? 'TROUBLESHOOTING' : ticket.service_type) : 'GENERAL_CHAT');
+    let nextServiceType;
+    if (!nextIsAduan) {
+      nextServiceType = 'GENERAL_CHAT';
+    } else {
+      nextServiceType = (service_type && service_type !== 'GENERAL_CHAT')
+        ? service_type
+        : (ticket.service_type && ticket.service_type !== 'GENERAL_CHAT' ? ticket.service_type : 'TROUBLESHOOTING');
+    }
 
     const updated = await prisma.ticket.update({
       where: { id: ticket.id },
@@ -2255,7 +2337,7 @@ const toggleAduan = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updated });
+      emitToAuthorizedRooms(req.io, updated, 'ticket_updated', { ticketId: ticket.id, ticket: updated });
     }
 
     res.json({
@@ -2317,8 +2399,8 @@ const closeGeneralChat = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: ticket.id, ticket: updated });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, { is_aduan: false }, 'ticket_closed', { ticketId: ticket.id, ticket: updated });
+      emitToAuthorizedRooms(req.io, { is_aduan: false }, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: closeMsg.message_text,
@@ -2406,7 +2488,7 @@ const sendInternalMedia = async (req, res) => {
 
     // Siarkan via Socket.io khusus ke klien dashboard web
     if (req.io) {
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, ticket, 'new_message', {
         ticketId: ticket.id,
         senderName: savedMessage.sender?.name || req.user?.name || 'Petugas',
         text: savedMessage.message_text,
@@ -2481,16 +2563,25 @@ const getInternalMediaList = async (req, res) => {
 // 1. Mengambil riwayat tiket tertutup (closed tickets) milik customer beserta seluruh pesannya
 const getCustomerHistoryMessages = async (req, res) => {
   const { customerId } = req.params;
-  const { excludeTicketId } = req.query;
+  const { excludeTicketId, include_internal } = req.query;
+  const parsedCustomerId = parseInt(customerId);
+  if (isNaN(parsedCustomerId)) {
+    return res.status(400).json({ error: 'ID pelanggan tidak valid' });
+  }
 
   try {
     const whereClause = {
-      customer_id: parseInt(customerId),
+      customer_id: parsedCustomerId,
       status: 'CLOSED'
     };
 
     if (excludeTicketId) {
       whereClause.id = { not: parseInt(excludeTicketId) };
+    }
+
+    const msgWhere = {};
+    if (include_internal === 'false' || req.query.internal === 'false') {
+      msgWhere.is_internal = false;
     }
 
     const closedTickets = await prisma.ticket.findMany({
@@ -2499,6 +2590,7 @@ const getCustomerHistoryMessages = async (req, res) => {
         categories: { include: { category: true } },
         hts_tickets: { include: { category: true } },
         messages: {
+          where: Object.keys(msgWhere).length > 0 ? msgWhere : undefined,
           include: {
             sender: { select: { id: true, name: true, role: true, category: true } }
           },
@@ -2852,8 +2944,8 @@ const unlinkHtsTicket = async (req, res) => {
 
     // 5. Broadcast Socket.io
     if (req.io) {
-      req.io.emit('hts_ticket_deleted', { ticketId: parseInt(ticketId), htsTicketId: parseInt(htsTicketId) });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updatedTicket, 'hts_ticket_deleted', { ticketId: parseInt(ticketId), htsTicketId: parseInt(htsTicketId) });
+      emitToAuthorizedRooms(req.io, updatedTicket, 'new_message', {
         ticketId: parseInt(ticketId),
         senderType: 'AGENT',
         text: noteText,
@@ -2957,8 +3049,8 @@ const reopenTicket = async (req, res) => {
 
     // Broadcast Socket.io
     if (req.io) {
-      req.io.emit('ticket_updated', { ticketId: ticket.id, ticket: updated });
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updated, 'ticket_updated', { ticketId: ticket.id, ticket: updated });
+      emitToAuthorizedRooms(req.io, updated, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -3128,20 +3220,37 @@ const startNewChat = async (req, res) => {
 
     let isNewTicket = false;
     if (!activeTicket) {
-      activeTicket = await prisma.ticket.create({
-        data: {
-          customer_id: customer.id,
-          status: 'OPEN',
-          is_aduan: Boolean(isAduan),
-          service_type: serviceType || (isAduan ? 'TROUBLESHOOTING' : 'GENERAL_CHAT')
-        },
-        include: {
-          customer: true,
-          categories: { include: { category: true } },
-          hts_tickets: { include: { category: true } }
-        }
-      });
-      isNewTicket = true;
+      try {
+        activeTicket = await prisma.ticket.create({
+          data: {
+            customer_id: customer.id,
+            status: 'OPEN',
+            is_aduan: Boolean(isAduan),
+            service_type: serviceType || (isAduan ? 'TROUBLESHOOTING' : 'GENERAL_CHAT')
+          },
+          include: {
+            customer: true,
+            categories: { include: { category: true } },
+            hts_tickets: { include: { category: true } }
+          }
+        });
+        isNewTicket = true;
+      } catch (raceErr) {
+        // Tangani bentrok konkurensi tiket aktif (DB-004 unique_active_ticket_per_customer)
+        activeTicket = await prisma.ticket.findFirst({
+          where: {
+            customer_id: customer.id,
+            status: { in: ['OPEN', 'RESOLVED'] }
+          },
+          include: {
+            customer: true,
+            categories: { include: { category: true } },
+            hts_tickets: { include: { category: true } }
+          },
+          orderBy: { created_at: 'desc' }
+        });
+        if (!activeTicket) throw raceErr;
+      }
     }
 
     let savedMsg = null;
@@ -3163,7 +3272,7 @@ const startNewChat = async (req, res) => {
 
       // 5. Broadcast Socket.io ke dashboard
       if (req.io) {
-        req.io.emit('new_message', {
+        emitToAuthorizedRooms(req.io, activeTicket, 'new_message', {
           ticketId: activeTicket.id,
           waNumber: cleanNumber,
           senderName: req.user?.name || 'Helpdesk',
@@ -3386,11 +3495,11 @@ const linkHtsTicket = async (req, res) => {
 
     // 7. Siarkan notifikasi Socket.io ke dashboard
     if (req.io) {
-      req.io.emit('hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
+      emitToAuthorizedRooms(req.io, updatedTicket, 'hts_ticket_created', { ticketId: ticket.id, ticketHts: newTicketHts });
       if (assignedCategoryName) {
-        req.io.emit('ticket_assigned', { ticketId: ticket.id });
+        emitToAuthorizedRooms(req.io, updatedTicket, 'ticket_assigned', { ticketId: ticket.id });
       }
-      req.io.emit('new_message', {
+      emitToAuthorizedRooms(req.io, updatedTicket, 'new_message', {
         ticketId: ticket.id,
         senderType: 'AGENT',
         text: noteText,
@@ -3414,16 +3523,25 @@ const linkHtsTicket = async (req, res) => {
 // Melengkapi penugasan PIC untuk tiket HTS gantung (status INPUT_PIC)
 const completeHtsPic = async (req, res) => {
   const { ticketId, htsTicketId } = req.params;
+  const parsedTicketId = parseInt(ticketId);
+  const parsedHtsId = parseInt(htsTicketId);
+  if (isNaN(parsedTicketId) || isNaN(parsedHtsId)) {
+    return res.status(400).json({ error: 'ID tiket atau ID HTS tidak valid' });
+  }
   const { pic_ids } = req.body;
 
   try {
     const ticketHts = await prisma.ticketHts.findUnique({
-      where: { id: parseInt(htsTicketId) },
-      include: { category: true }
+      where: { id: parsedHtsId },
+      include: { category: true, ticket: true }
     });
 
-    if (!ticketHts || ticketHts.ticket_id !== parseInt(ticketId)) {
+    if (!ticketHts || ticketHts.ticket_id !== parsedTicketId) {
       return res.status(404).json({ error: 'Tiket HTS tidak ditemukan pada percakapan ini' });
+    }
+
+    if (ticketHts.ticket && ticketHts.ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat melengkapi PIC untuk tiket HTS pada percakapan yang sudah berstatus CLOSED' });
     }
 
     const chosenPicIds = pic_ids && pic_ids.length > 0 ? pic_ids : parsePicIds(ticketHts.hts_pic_ids);
@@ -3450,8 +3568,9 @@ const completeHtsPic = async (req, res) => {
     });
 
     if (req.io) {
-      req.io.emit('hts_ticket_updated', { ticketId: parseInt(ticketId), ticketHts: updated });
-      req.io.emit('new_message', {
+      const targetScope = ticketHts.ticket || { is_aduan: true, categoryIds: [ticketHts.category_id] };
+      emitToAuthorizedRooms(req.io, targetScope, 'hts_ticket_updated', { ticketId: parseInt(ticketId), ticketHts: updated });
+      emitToAuthorizedRooms(req.io, targetScope, 'new_message', {
         ticketId: parseInt(ticketId),
         senderType: 'AGENT',
         text: noteText,

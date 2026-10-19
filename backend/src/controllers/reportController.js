@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const { emitGlobalStaff } = require('../utils/socketEmitter');
 
 // Mengambil data rekap tiket untuk laporan
 const getTicketReports = async (req, res) => {
@@ -156,25 +157,22 @@ const deleteTicketReports = async (req, res) => {
 
   try {
     if (all === true) {
-      // Hapus SEMUA data testing: Message -> TicketCategory -> Ticket -> Customer
-      // Dan reset sequence auto-increment ID kembali ke angka 1
+      // Hapus seluruh data pengujian: Message -> TicketHts -> TicketCategory -> Ticket -> Customer
       await prisma.$transaction(async (tx) => {
+        await tx.ticketHts.deleteMany();
         await tx.message.deleteMany();
         await tx.ticketCategory.deleteMany();
         await tx.ticket.deleteMany();
         await tx.customer.deleteMany();
-        await tx.$executeRawUnsafe(`ALTER SEQUENCE "Ticket_id_seq" RESTART WITH 1`);
-        await tx.$executeRawUnsafe(`ALTER SEQUENCE "Message_id_seq" RESTART WITH 1`);
-        await tx.$executeRawUnsafe(`ALTER SEQUENCE "Customer_id_seq" RESTART WITH 1`);
       });
 
       if (req.io) {
-        req.io.emit('ticket_closed', { ticketId: 'all' });
+        emitGlobalStaff(req.io, 'ticket_closed', { ticketId: 'all' });
       }
 
       return res.json({
         success: true,
-        message: 'Seluruh data aduan, pesan, dan kontak pelanggan berhasil dihapus bersih, dan nomor ID di-reset kembali ke 1.'
+        message: 'Seluruh data aduan, pesan, dan kontak pelanggan berhasil dihapus bersih.'
       });
     }
 
@@ -198,7 +196,7 @@ const deleteTicketReports = async (req, res) => {
     ]);
 
     if (req.io) {
-      req.io.emit('ticket_closed', { ticketId: 'batch' });
+      emitGlobalStaff(req.io, 'ticket_closed', { ticketId: 'batch' });
     }
 
     res.json({

@@ -7,5 +7,16 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5200
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          icons: ['lucide-react'],
+          network: ['axios', 'socket.io-client', 'date-fns']
+        }
+      }
+    }
   }
 })

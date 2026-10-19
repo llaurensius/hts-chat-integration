@@ -1,5 +1,6 @@
 const prisma = require('../config/db');
 const bcrypt = require('bcryptjs');
+const { emitGlobalStaff } = require('../utils/socketEmitter');
 
 // Mengambil semua user beserta kategorinya
 const getUsers = async (req, res) => {
@@ -266,21 +267,18 @@ const clearAllCustomerContacts = async (req, res) => {
         await tx.message.deleteMany();
         await tx.ticketCategory.deleteMany();
         await tx.ticket.deleteMany();
-        await tx.$executeRawUnsafe('ALTER SEQUENCE "Ticket_id_seq" RESTART WITH 1');
-        await tx.$executeRawUnsafe('ALTER SEQUENCE "Message_id_seq" RESTART WITH 1');
       }
       await tx.customer.deleteMany();
-      await tx.$executeRawUnsafe('ALTER SEQUENCE "Customer_id_seq" RESTART WITH 1');
     });
 
     if (req.io) {
-      req.io.emit('customer_updated', { customerId: 'all' });
-      req.io.emit('ticket_closed', { ticketId: 'all' });
+      emitGlobalStaff(req.io, 'customer_updated', { customerId: 'all' });
+      emitGlobalStaff(req.io, 'ticket_closed', { ticketId: 'all' });
     }
 
     res.json({
       success: true,
-      message: 'Seluruh data master kontak pelanggan berhasil dihapus bersih dan ID di-reset ke 1.'
+      message: 'Seluruh data master kontak pelanggan berhasil dihapus bersih.'
     });
   } catch (error) {
     console.error('[Admin API] Error clearing customer contacts:', error);
@@ -314,6 +312,61 @@ const parseVcfToRows = (text) => {
   return rows;
 };
 
+// Parser CSV mandiri dan aman tanpa library pihak ketiga (SEC-010)
+const parseCsvToRows = (text) => {
+  if (!text || typeof text !== 'string') return [];
+  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (lines.length < 2) return [];
+
+  const firstLine = lines[0];
+  const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+
+  const parseLine = (line) => {
+    const fields = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        fields.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    fields.push(current.trim());
+    return fields;
+  };
+
+  const headers = parseLine(lines[0]).map(h => h.replace(/^["']|["']$/g, '').trim());
+  const rows = [];
+  const maxRows = Math.min(lines.length, 5001); // Batas aman 5000 baris
+
+  for (let i = 1; i < maxRows; i++) {
+    const values = parseLine(lines[i]);
+    const row = Object.create(null);
+    for (let j = 0; j < headers.length; j++) {
+      const key = headers[j];
+      if (key && key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
+        let val = values[j] !== undefined ? values[j].replace(/^["']|["']$/g, '').trim() : '';
+        if (val.startsWith('=') || val.startsWith('+') || val.startsWith('-') || val.startsWith('@')) {
+          val = val.replace(/^[=+\-@]+/, '');
+        }
+        row[key] = val;
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+};
+
 // Import Master Data Kontak Pelanggan / OPD (Khusus ADMIN - Prioritas Utama)
 const importCustomerContacts = async (req, res) => {
   if (!req.file) {
@@ -325,14 +378,48 @@ const importCustomerContacts = async (req, res) => {
     const buffer = req.file.buffer;
     const isVcf = originalName.endsWith('.vcf') || originalName.endsWith('.vcard') ||
       (buffer && buffer.slice(0, 40).toString('utf8').trimStart().toUpperCase().startsWith('BEGIN:VCARD'));
+    const isCsv = originalName.endsWith('.csv');
 
     let rows;
     if (isVcf) {
       rows = parseVcfToRows(buffer ? buffer.toString('utf8') : '');
+    } else if (isCsv) {
+      rows = parseCsvToRows(buffer ? buffer.toString('utf8') : '');
     } else {
-      const workbook = xlsx.read(buffer || req.file.path, { type: buffer ? 'buffer' : 'file' });
+      // SEC-013: Validasi magic bytes biner untuk file Excel (.xlsx = ZIP PK\x03\x04, .xls = OLE2 \xd0\xcf\x11\xe0)
+      if (buffer && buffer.length >= 4) {
+        const magicHex = buffer.subarray(0, 4).toString('hex').toLowerCase();
+        const isZip = magicHex === '504b0304';
+        const isOle = magicHex === 'd0cf11e0';
+        if (!isZip && !isOle) {
+          return res.status(400).json({ error: 'Format berkas Excel tidak valid atau rusak (header tidak cocok).' });
+        }
+      }
+
+      // Sandbox & Hardening SheetJS (SEC-010): nonaktifkan formula & HTML parsing untuk mencegah ReDoS & Prototype Pollution
+      const workbook = xlsx.read(buffer || req.file.path, {
+        type: buffer ? 'buffer' : 'file',
+        cellFormula: false,
+        cellHTML: false,
+        cellText: true,
+        sheetRows: 5000
+      });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+      const rawRows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+      rows = (rawRows || []).slice(0, 5000).map(r => {
+        const clean = Object.create(null);
+        for (const [k, v] of Object.entries(r)) {
+          const cleanK = String(k).trim();
+          if (cleanK !== '__proto__' && cleanK !== 'constructor' && cleanK !== 'prototype') {
+            let cleanV = typeof v === 'string' ? v.trim() : String(v ?? '');
+            if (cleanV.startsWith('=') || cleanV.startsWith('+') || cleanV.startsWith('-') || cleanV.startsWith('@')) {
+              cleanV = cleanV.replace(/^[=+\-@]+/, '');
+            }
+            clean[cleanK] = cleanV;
+          }
+        }
+        return clean;
+      });
     }
 
     if (!rows || rows.length === 0) {
@@ -343,10 +430,11 @@ const importCustomerContacts = async (req, res) => {
     let updatedCount = 0;
     const errors = [];
 
+    // Normalisasi dan deduplikasi in-memory terlebih dahulu untuk mencegah N+1 bottleneck (DB-010)
+    const validContactsMap = new Map();
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      // Dukungan Fleksibel: Format Standar, Excel Kustom, dan Format Resmi Google Contacts CSV
-      // 1. Nama: Prioritaskan Name, lalu Given Name + Family Name (Google Contacts)
       let rawName = row['nama'] || row['Nama'] || row['NAME'] || row['name'] || row['kontak'] || row['Kontak'] || row['Name'] || '';
       if (!rawName && (row['Given Name'] || row['Family Name'])) {
         rawName = `${row['Given Name'] || ''} ${row['Family Name'] || ''}`.trim();
@@ -355,12 +443,10 @@ const importCustomerContacts = async (req, res) => {
         rawName = `${row['First Name'] || ''} ${row['Middle Name'] || ''} ${row['Last Name'] || ''}`.trim();
       }
 
-      // 2. Nomor WhatsApp: Prioritaskan Phone 1 - Value (Google Contacts), nomor_wa, phone, dll.
       let rawNumber = row['Phone 1 - Value'] || row['Phone 2 - Value'] || row['Phone 1'] || 
                         row['nomor_wa'] || row['nomor'] || row['wa'] || row['no_hp'] || 
                         row['phone'] || row['Phone'] || row['WA'] || row['No WA'] || row['Mobile'] || '';
 
-      // 3. Instansi / OPD: Prioritaskan Organization 1 - Name (Google Contacts), instansi, opd, skpd
       let rawSkpd = row['Organization 1 - Name'] || row['Organization Name'] || row['Department'] || row['Organization 1 - Department'] ||
                     row['Organization Department'] || row['Organization Title'] ||
                     row['instansi'] || row['Instansi'] || row['opd'] || row['OPD'] || row['skpd'] || row['SKPD'] || '';
@@ -370,7 +456,6 @@ const importCustomerContacts = async (req, res) => {
         continue;
       }
 
-      // Bersihkan nomor WhatsApp (ganti 08xxx -> 628xxx)
       let cleanNum = String(rawNumber).replace(/\D/g, '');
       if (cleanNum.startsWith('0')) {
         cleanNum = '62' + cleanNum.substring(1);
@@ -386,31 +471,55 @@ const importCustomerContacts = async (req, res) => {
       const officialName = rawName ? String(rawName).trim() : cleanNum;
       const officialSkpd = rawSkpd ? String(rawSkpd).trim() : null;
 
-      // Upsert ke Customer dengan flag is_imported_contact = true
-      const existing = await prisma.customer.findUnique({ where: { wa_number: cleanNum } });
-      if (existing) {
-        await prisma.customer.update({
-          where: { id: existing.id },
-          data: {
-            name: officialName,
-            skpd_name: officialSkpd || existing.skpd_name,
-            is_imported_contact: true, // Prioritas Utama
-            is_custom_name: true
+      validContactsMap.set(cleanNum, {
+        wa_number: cleanNum,
+        name: officialName,
+        skpd_name: officialSkpd
+      });
+    }
+
+    const uniqueContacts = Array.from(validContactsMap.values());
+    const BATCH_SIZE = 100;
+
+    // Proses batch upsert untuk performa optimal (DB-010)
+    for (let i = 0; i < uniqueContacts.length; i += BATCH_SIZE) {
+      const batch = uniqueContacts.slice(i, i + BATCH_SIZE);
+      const batchNumbers = batch.map(c => c.wa_number);
+
+      const existingCustomers = await prisma.customer.findMany({
+        where: { wa_number: { in: batchNumbers } },
+        select: { id: true, wa_number: true, skpd_name: true }
+      });
+      const existingMap = new Map(existingCustomers.map(c => [c.wa_number, c]));
+
+      await prisma.$transaction(
+        batch.map(contact => {
+          const existing = existingMap.get(contact.wa_number);
+          if (existing) {
+            updatedCount++;
+            return prisma.customer.update({
+              where: { wa_number: contact.wa_number },
+              data: {
+                name: contact.name,
+                skpd_name: contact.skpd_name || existing.skpd_name,
+                is_imported_contact: true,
+                is_custom_name: true
+              }
+            });
+          } else {
+            importedCount++;
+            return prisma.customer.create({
+              data: {
+                wa_number: contact.wa_number,
+                name: contact.name,
+                skpd_name: contact.skpd_name,
+                is_imported_contact: true,
+                is_custom_name: true
+              }
+            });
           }
-        });
-        updatedCount++;
-      } else {
-        await prisma.customer.create({
-          data: {
-            wa_number: cleanNum,
-            name: officialName,
-            skpd_name: officialSkpd,
-            is_imported_contact: true, // Prioritas Utama
-            is_custom_name: true
-          }
-        });
-        importedCount++;
-      }
+        })
+      );
     }
 
     res.json({

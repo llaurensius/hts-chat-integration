@@ -113,6 +113,7 @@ erDiagram
 | `created_at` | `DateTime` | Default `now()` | Waktu pesan pertama tiba dari pelanggan |
 | `closed_at` | `DateTime?`| Nullable | Waktu penutupan resmi tiket |
 | **Indeks** | `@@index([customer_id])`<br/>`@@index([status])`<br/>`@@index([is_aduan])`<br/>`@@index([customer_id, status])`<br/>`@@index([status, is_aduan, created_at(sort: Desc)])` | | Indeks komposit performa query antrean L1/L2 |
+| **Constraint Unik** | `unique_active_ticket_per_customer` (Partial Index) | | Membatasi tepat 1 tiket aktif (`OPEN` / `RESOLVED`) per pelanggan untuk mencegah duplikasi konkurensi (DB-004) |
 
 ### 2.8 `TicketHts` (Hub Multi-HTS — One-to-Many Relasi Tiket Portal)
 | Kolom | Tipe Data | Atribut | Keterangan |
@@ -130,7 +131,7 @@ erDiagram
 | `solution` | `String? @db.Text`| Nullable | Uraian solusi perbaikan penanganan portal HTS |
 | `created_at` | `DateTime` | Default `now()` | Waktu penerbitan/penautan tiket HTS |
 | `solved_at` | `DateTime?`| Nullable | Waktu penutupan tiket di portal HTS |
-| **Indeks** | `@@index([ticket_id])`, `@@index([hts_ticket_no])` | | Indeks lookup cepat status Multi-HTS |
+| **Indeks & Unik** | `@@unique([ticket_id, hts_ticket_no])`<br/>`@@index([ticket_id])`<br/>`@@index([hts_ticket_no])` | | Mencegah penautan nomor HTS ganda pada percakapan yang sama (DB-005) |
 
 ### 2.9 `TicketCategory` (Relasi Penugasan Many-to-Many Tim L2)
 | Kolom | Tipe Data | Atribut | Keterangan |
@@ -258,13 +259,19 @@ erDiagram
 
 ### 3.7 Laporan & Ekspor Data (`/api/reports`)
 * **`GET /api/reports/tickets`** (ADMIN, SPV, L1) — Rekapitulasi tiket dengan filter tanggal, kategori, dan status disertai metrik durasi FRT dan MTTR murni.
-* **`DELETE /api/reports/tickets`** (ADMIN) — Menghapus data tiket aduan (pilihan ID `{ "ids": [...] }` atau pembersihan seluruh data testing `{ "all": true }` yang me-reset sequence `Ticket_id_seq`).
+* **`DELETE /api/reports/tickets`** (ADMIN) — Menghapus data tiket aduan (pilihan ID `{ "ids": [...] }` atau pembersihan seluruh data testing `{ "all": true }` secara transaksional).
 
 ### 3.8 Administrasi Pengguna & Kontak Tim (`/api/admin`)
 * **`CRUD /api/admin/users`** (ADMIN) — Pengelolaan akun staf: pembuatan akun, pembaruan profil/password, dan penonaktifan akun.
 * **`CRUD /api/admin/categories/:id/contacts`** (ADMIN) — Pengelolaan nomor WhatsApp personal atau ID grup WA blast pilar tim L2 (`Network`, `Server`, `M&E`).
 * **`POST /api/admin/contacts/import`** (ADMIN) — Unggah berkas Master Data Kontak (`multipart/form-data` file Excel `.xlsx/.xls`, CSV Google Contacts, atau vCard `.vcf`).
-* **`DELETE /api/admin/contacts/clear-all`** (ADMIN) — Menghapus seluruh data master kontak dan me-reset auto-increment sequence `Customer_id_seq` ke angka 1 (`{ "force": true }`).
+* **`DELETE /api/admin/contacts/clear-all`** (ADMIN) — Menghapus seluruh data master kontak secara transaksional bersih (`{ "force": true }`).
+
+### 3.9 Berkas Lampiran Terproteksi (`/uploads/*`)
+* **`GET /uploads/:filename`** (Semua peran terotentikasi sesuai wewenang)
+  * Endpoint streaming lampiran privat berotentikasi token JWT (SEC-002).
+  * Otorisasi: `ADMIN`, `SPV`, `L1` berhak mengakses seluruh berkas; `L2` hanya berhak mengakses jika tiket bertipe aduan teknis (`is_aduan: true`) dan terdaftar dalam kategori tim teknisi bersangkutan. Akses anonim ditolak `401/403`.
+  * Dilengkapi proteksi path traversal `getSafeUploadPath` dan header `X-Content-Type-Options: nosniff`.
 
 ---
 

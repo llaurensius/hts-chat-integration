@@ -26,6 +26,8 @@ Dokumen ini membagi instruksi instalasi dan penerapan sistem ke dalam 3 jalur te
 ### 1.2 Konfigurasi & Menjalankan Docker Stack (Database & WhatsApp Gateway)
 Dari direktori root repositori, nyalakan kontainer pendukung:
 ```bash
+export POSTGRES_PASSWORD="<KATA_SANDI_DATABASE>"
+export EVOLUTION_API_TOKEN="<TOKEN_EVOLUTION_API>"
 docker compose -f docker/docker-compose.yml up -d
 docker ps
 ```
@@ -43,16 +45,17 @@ Pastikan ketiga kontainer (`hts_postgres`, `hts_redis`, dan `hts_evolution_api`)
 2. Buat atau sesuaikan berkas `.env` di dalam folder `backend/`:
    ```env
    PORT=3000
-   DATABASE_URL="postgresql://helpdesk_user:SecretPassword123!@localhost:5433/wa_helpdesk?schema=public"
-   JWT_SECRET="masukkan_string_acak_rahasia_minimal_32_karakter"
+   DATABASE_URL="postgresql://helpdesk_user:<POSTGRES_PASSWORD>@localhost:5433/wa_helpdesk?schema=public"
+   JWT_SECRET="<RANDOM_JWT_SECRET_32_CHARS_OR_MORE>"
+   SESSION_ENCRYPTION_KEY="<RANDOM_SESSION_ENCRYPTION_KEY_32_CHARS_OR_MORE>"
 
    # Evolution API (WhatsApp Gateway)
    EVOLUTION_API_URL="http://localhost:8080"
-   EVOLUTION_API_TOKEN="SecureTokenUntukBackend123"
+   EVOLUTION_API_TOKEN="<RANDOM_EVOLUTION_API_TOKEN>"
    EVOLUTION_INSTANCE_NAME="helpdesk-wa"
 
    # Shared Secret Autentikasi Webhook (SEC-01)
-   WEBHOOK_SECRET="SecureTokenUntukBackend123"
+   WEBHOOK_SECRET="<RANDOM_WEBHOOK_SECRET_DIFFERENT_FROM_EVOLUTION_TOKEN>"
 
    # URL Frontend untuk CORS Socket.io Lokal
    FRONTEND_URL="http://localhost:5200"
@@ -60,8 +63,9 @@ Pastikan ketiga kontainer (`hts_postgres`, `hts_redis`, dan `hts_evolution_api`)
 3. Sinkronisasi skema basis data dan inisialisasi data awal (seeding):
    ```bash
    npx prisma generate
-   npx prisma db push
+   npx prisma migrate deploy
    npm run prisma:seed
+   npm test
    ```
 4. Jalankan backend dalam mode pengembangan:
    ```bash

@@ -1,26 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Radio, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, Zap, Bell, BellRing, Volume2, VolumeX, Sparkles, Link as LinkIcon, Eye, Copy } from 'lucide-react';
-import { format, isToday, isYesterday } from 'date-fns';
-
-const formatChatTimestamp = (timestamp) => {
-  if (!timestamp) return '';
-  try {
-    const d = new Date(timestamp);
-    if (isNaN(d.getTime())) return '';
-    if (isToday(d)) {
-      return format(d, 'HH:mm');
-    }
-    if (isYesterday(d)) {
-      return 'Kemarin';
-    }
-    return format(d, 'dd/MM/yy');
-  } catch {
-    return '';
-  }
-};
+import { Search, Send, User, UserPlus, Clock, Phone, AlertCircle, MessageSquare, FileText, Download, Lock, LogOut, Paperclip, CheckCircle, Users, Bot, Trash2, Plus, PhoneCall, Sliders, Edit2, Check, X, Globe, Key, ShieldCheck, RefreshCw, ExternalLink, Calendar, Image as ImageIcon, History, ChevronDown, ChevronUp, ChevronLeft, Zap, Bell, BellRing, Volume2, VolumeX, Link as LinkIcon, Eye, Copy } from 'lucide-react';
+import { format } from 'date-fns';
 
 const BASE_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : `${window.location.protocol}//${window.location.hostname}:3000`;
 const API_URL = `${BASE_URL}/api`;
@@ -41,6 +24,73 @@ axios.interceptors.request.use((config) => {
   }
   return config;
 });
+
+const AuthenticatedImage = ({ src, alt = 'Attachment', className = '', style = {}, onClick }) => {
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [isFailed, setIsFailed] = useState(false);
+
+  useEffect(() => {
+    if (!src) {
+      setBlobUrl(null);
+      setIsFailed(false);
+      return undefined;
+    }
+
+    let isSubscribed = true;
+    let objectUrl = null;
+    const targetUrl = src.startsWith('http') || src.startsWith('blob:') ? src : `${BASE_URL}${src}`;
+
+    if (targetUrl.startsWith('blob:')) {
+      setBlobUrl(targetUrl);
+      setIsFailed(false);
+      return undefined;
+    }
+
+    axios.get(targetUrl, { responseType: 'blob' })
+      .then((res) => {
+        if (!isSubscribed) return;
+        objectUrl = URL.createObjectURL(res.data);
+        setBlobUrl(objectUrl);
+        setIsFailed(false);
+      })
+      .catch(() => {
+        if (!isSubscribed) return;
+        setBlobUrl(null);
+        setIsFailed(true);
+      });
+
+    return () => {
+      isSubscribed = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [src]);
+
+  if (isFailed) {
+    return (
+      <div className={`flex items-center justify-center bg-slate-100 text-slate-400 text-xs rounded-md ${className}`} style={style}>
+        Lampiran tidak tersedia
+      </div>
+    );
+  }
+
+  if (!blobUrl) {
+    return (
+      <div className={`animate-pulse bg-slate-100 rounded-md ${className}`} style={style} />
+    );
+  }
+
+  return (
+    <img
+      src={blobUrl}
+      alt={alt}
+      className={className}
+      style={style}
+      onClick={onClick ? () => onClick(blobUrl) : undefined}
+    />
+  );
+};
 
 // ==========================================
 // 1. KOMPONEN LOGIN
@@ -70,8 +120,8 @@ function Login() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 items-center justify-center font-sans">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-[400px]">
+    <div className="flex min-h-screen bg-slate-100 items-center justify-center font-sans p-4">
+      <div className="w-full max-w-[400px] bg-white p-8 rounded-2xl shadow-xl">
         <div className="flex justify-center mb-6">
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
             <Lock className="text-white w-8 h-8" />
@@ -84,10 +134,12 @@ function Login() {
         
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
+            <label htmlFor="login-email" className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
             <input 
+              id="login-email"
               type="email" 
               required
+              autoComplete="username"
               value={email}
               onChange={e => setEmail(e.target.value)}
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
@@ -95,10 +147,12 @@ function Login() {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-semibold text-gray-700 mb-1">Password</label>
             <input 
+              id="login-password"
               type="password" 
               required
+              autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
@@ -147,6 +201,12 @@ function Dashboard() {
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const [isTogglingAduan, setIsTogglingAduan] = useState(false);
   const [isClosingGeneral, setIsClosingGeneral] = useState(false);
+
+  // UX-004 & UX-007 State enhancements
+  const [isLoadingTickets, setIsLoadingTickets] = useState(false);
+  const [ticketLoadError, setTicketLoadError] = useState('');
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [isSendingInternalNote, setIsSendingInternalNote] = useState(false);
 
   // --- STATE & HELPER FASE 5 (QUICK REPLIES, AUDIO & SLA) ---
   const [quickReplies, setQuickReplies] = useState([]);
@@ -614,7 +674,9 @@ Tetap tautkan tiket ini?`)) {
     try {
       const parsed = JSON.parse(ticket.hts_pic_ids);
       if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch (e) {}
+    } catch {
+      // Fallback ke string comma-separated
+    }
     if (typeof ticket.hts_pic_ids === 'string') {
       return ticket.hts_pic_ids.split(',').map(s => s.trim()).filter(Boolean);
     }
@@ -1373,6 +1435,8 @@ Tetap tautkan tiket ini?`)) {
   }, [navigate]);
 
   const loadTickets = async () => {
+    setIsLoadingTickets(true);
+    setTicketLoadError('');
     try {
       const res = await axios.get(`${API_URL}/chat/tickets`);
       setTickets(res.data);
@@ -1384,6 +1448,9 @@ Tetap tautkan tiket ini?`)) {
       }
     } catch (error) {
       if (error.response?.status === 401 || error.response?.status === 403) navigate('/login');
+      else setTicketLoadError('Gagal memuat antrean tiket. Periksa koneksi jaringan Anda.');
+    } finally {
+      setIsLoadingTickets(false);
     }
   };
 
@@ -1812,8 +1879,10 @@ Tetap tautkan tiket ini?`)) {
 
   const handleSend = async (e) => {
     e.preventDefault();
+    if (isSendingReply) return;
     if (!replyText.trim() && !selectedFile) return;
     if (!activeTicket) return;
+    setIsSendingReply(true);
 
     try {
       // Fase 3: Kirim Media
@@ -1837,14 +1906,18 @@ Tetap tautkan tiket ini?`)) {
       }
       setReplyText(''); 
     } catch (error) {
-      alert('Gagal mengirim pesan');
+      alert(error.response?.data?.error || 'Gagal mengirim pesan');
+    } finally {
+      setIsSendingReply(false);
     }
   };
 
   // Kirim Catatan Internal (Teks atau Gambar/Media) - 100% Rahasia (Fase 2 V4)
   const handleSendInternalNote = async (e) => {
     e.preventDefault();
+    if (isSendingInternalNote) return;
     if (!internalNoteText.trim() && !selectedInternalFile) return;
+    setIsSendingInternalNote(true);
     try {
       if (selectedInternalFile) {
         const formData = new FormData();
@@ -1863,7 +1936,9 @@ Tetap tautkan tiket ini?`)) {
       setInternalNoteText('');
     } catch (error) {
       console.error('Error sending internal note:', error);
-      alert('Gagal mengirim catatan internal');
+      alert(error.response?.data?.error || 'Gagal mengirim catatan internal');
+    } finally {
+      setIsSendingInternalNote(false);
     }
   };
 
@@ -2141,19 +2216,72 @@ Tetap tautkan tiket ini?`)) {
     }
   };
 
+  // UX-002: Escape key listener to close modals
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (previewImageUrl) return setPreviewImageUrl(null);
+        if (showQuickRepliesPopup) return setShowQuickRepliesPopup(false);
+        if (showQuickRepliesModal) return setShowQuickRepliesModal(false);
+        if (showNewChatModal) return setShowNewChatModal(false);
+        if (showSyncHtsModal) return setShowSyncHtsModal(false);
+        if (showResolveModal) return setShowResolveModal(false);
+        if (showCloseModal) return setShowCloseModal(false);
+        if (showEditCustomerModal) return setShowEditCustomerModal(false);
+        if (showHtsModal) return setShowHtsModal(false);
+        if (showDetailHtsModal) return setShowDetailHtsModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    previewImageUrl,
+    showQuickRepliesPopup,
+    showQuickRepliesModal,
+    showNewChatModal,
+    showSyncHtsModal,
+    showResolveModal,
+    showCloseModal,
+    showEditCustomerModal,
+    showHtsModal,
+    showDetailHtsModal
+  ]);
+
   if (!currentUser) return null;
 
   
   const isL1 = isAdmin || currentUser.role === 'L1' || currentUser.role === 'SPV';
   const isL2 = isAdmin || currentUser.role === 'L2';
 
+  // Pre-filter tickets for queue (UX-006)
+  const filteredTickets = tickets
+    .filter(ticket => {
+      const q = searchTicketQuery.trim().toLowerCase();
+      const matchSearch = !q ||
+        (ticket.customer?.name && ticket.customer.name.toLowerCase().includes(q)) ||
+        (ticket.customer?.skpd_name && ticket.customer.skpd_name.toLowerCase().includes(q)) ||
+        (ticket.customer?.wa_number && ticket.customer.wa_number.includes(q)) ||
+        (ticket.hts_ticket_no && String(ticket.hts_ticket_no).includes(q));
+      if (!matchSearch) return false;
+
+      if (ticketFilterTab === 'closed') return ticket.status === 'CLOSED';
+      if (ticketFilterTab === 'aduan') return ticket.is_aduan && ticket.status !== 'CLOSED';
+      if (ticketFilterTab === 'biasa') return !ticket.is_aduan && ticket.status !== 'CLOSED';
+      if (ticketFilterTab === 'pending_hts') return ticket.is_aduan && !ticket.hts_ticket_no && ticket.status !== 'CLOSED';
+      return ticket.status !== 'CLOSED';
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.messages?.[0]?.created_at || a.created_at).getTime();
+      const timeB = new Date(b.messages?.[0]?.created_at || b.created_at).getTime();
+      return timeB - timeA;
+    });
 
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       
       {/* NAVIGASI UTAMA (KIRI) */}
-      <div className="w-16 bg-blue-900 flex flex-col items-center py-6 space-y-8 z-20 shadow-lg justify-between">
+      <nav aria-label="Navigasi Utama" className="w-16 shrink-0 bg-blue-900 flex flex-col items-center py-6 space-y-8 z-20 shadow-lg justify-between">
         <div className="flex flex-col items-center space-y-8 w-full px-2">
           <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-900 text-xl shadow-sm">
             H
@@ -2163,16 +2291,23 @@ Tetap tautkan tiket ini?`)) {
               onClick={() => setCurrentTab('chat')}
               className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'chat' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
               title="Live Chat"
+              aria-label="Live Chat Antrean"
+              aria-current={currentTab === 'chat' ? 'page' : undefined}
             >
               <MessageSquare className="w-6 h-6" />
             </button>
+            {/* UX-014: Tombol Laporan hanya ditampilkan untuk peran yang berhak (L1, SPV, ADMIN) */}
+            {isL1 && (
             <button 
               onClick={() => setCurrentTab('report')}
               className={`w-full p-3 rounded-xl flex items-center justify-center transition-all ${currentTab === 'report' ? 'bg-blue-800 text-white shadow-inner' : 'text-blue-300 hover:bg-blue-800 hover:text-white'}`}
               title="Laporan & Rekap"
+              aria-label="Laporan dan Rekapitulasi SLA"
+              aria-current={currentTab === 'report' ? 'page' : undefined}
             >
               <FileText className="w-6 h-6" />
             </button>
+            )}
             {isAdmin && (
               <button 
                 onClick={() => setCurrentTab('users')}
@@ -2254,12 +2389,12 @@ Tetap tautkan tiket ini?`)) {
             <LogOut className="w-6 h-6" />
           </button>
         </div>
-      </div>
+      </nav>
 
       {currentTab === 'chat' && (
         <>
-          {/* PANEL KIRI: Antrean */}
-          <div className="w-[30%] bg-white border-r border-gray-200 flex flex-col">
+          {/* PANEL KIRI: Antrean (UX-005 Responsif: w-full di HP, w-[360px] di Desktop) */}
+          <div className={`w-full md:w-[320px] lg:w-[360px] xl:w-[380px] shrink-0 bg-white border-r border-gray-200 flex flex-col ${activeTicket ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-4 bg-gray-50 border-b border-gray-200 space-y-2.5">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
@@ -2331,35 +2466,54 @@ Tetap tautkan tiket ini?`)) {
               </div>
             </div>
             
-            <div className="flex-1 overflow-y-auto">
-              {tickets
-                .filter(ticket => {
-                  const q = searchTicketQuery.trim().toLowerCase();
-                  const matchSearch = !q || 
-                    (ticket.customer?.name && ticket.customer.name.toLowerCase().includes(q)) ||
-                    (ticket.customer?.skpd_name && ticket.customer.skpd_name.toLowerCase().includes(q)) ||
-                    (ticket.customer?.wa_number && ticket.customer.wa_number.includes(q)) ||
-                    (ticket.hts_ticket_no && String(ticket.hts_ticket_no).includes(q));
-                  if (!matchSearch) return false;
-
-                  if (ticketFilterTab === 'closed') return ticket.status === 'CLOSED';
-                  if (ticketFilterTab === 'aduan') return ticket.is_aduan && ticket.status !== 'CLOSED';
-                  if (ticketFilterTab === 'biasa') return !ticket.is_aduan && ticket.status !== 'CLOSED';
-                  if (ticketFilterTab === 'pending_hts') return ticket.is_aduan && !ticket.hts_ticket_no && ticket.status !== 'CLOSED';
-                  return ticket.status !== 'CLOSED';
-                })
-                .sort((a, b) => {
-                  const timeA = new Date(a.messages?.[0]?.created_at || a.created_at).getTime();
-                  const timeB = new Date(b.messages?.[0]?.created_at || b.created_at).getTime();
-                  return timeB - timeA;
-                })
-                .map(ticket => {
+            <div className="flex-1 overflow-y-auto" role="region" aria-label="Daftar Antrean Tiket">
+              {isLoadingTickets && tickets.length === 0 && (
+                <div className="p-6 text-center text-xs text-gray-400 animate-pulse">
+                  Memuat antrean percakapan...
+                </div>
+              )}
+              {ticketLoadError && (
+                <div className="p-4 m-3 bg-red-50 text-red-600 rounded-xl text-xs text-center border border-red-200">
+                  <p className="mb-2">{ticketLoadError}</p>
+                  <button
+                    type="button"
+                    onClick={loadTickets}
+                    className="px-3 py-1 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition"
+                  >
+                    Coba Lagi
+                  </button>
+                </div>
+              )}
+              {!isLoadingTickets && filteredTickets.length === 0 && (
+                <div className="p-6 text-center text-xs text-gray-400">
+                  <p>{tickets.length === 0 ? 'Belum ada antrean percakapan' : 'Tidak ada percakapan yang cocok dengan filter atau kata kunci.'}</p>
+                  {tickets.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setTicketFilterTab('all'); setSearchTicketQuery(''); }}
+                      className="mt-2 inline-block text-blue-600 hover:underline font-semibold"
+                    >
+                      Reset Filter & Pencarian
+                    </button>
+                  )}
+                </div>
+              )}
+              {filteredTickets.map(ticket => {
                   const lastMsg = ticket.messages?.[0];
                   return (
                     <div 
                       key={ticket.id} 
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setActiveTicket(ticket)} 
-                      className={`p-3.5 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setActiveTicket(ticket);
+                        }
+                      }}
+                      aria-label={`Tiket nomor ${ticket.id} dari ${ticket.customer?.name || 'Pelanggan'}`}
+                      className={`p-3.5 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset ${
                         activeTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-blue-500 shadow-2xs' : ''
                       }`}
                     >
@@ -2436,21 +2590,26 @@ Tetap tautkan tiket ini?`)) {
                     </div>
                   );
                 })}
-              {tickets.length === 0 && (
-                <div className="p-6 text-center text-xs text-gray-400">
-                  Belum ada antrean percakapan
-                </div>
-              )}
             </div>
           </div>
 
-          {/* PANEL TENGAH: Chat Room */}
-          <div className="flex-1 flex flex-col bg-slate-50 relative">
+          {/* PANEL TENGAH: Chat Room (UX-005 Responsif: w-full di HP saat tiket aktif dipilih) */}
+          <div className={`flex-1 flex flex-col bg-slate-50 relative ${!activeTicket ? 'hidden md:flex' : 'flex'}`}>
             {activeTicket ? (
               <>
                 {/* Header Chat */}
                 <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm z-10">
                   <div className="flex items-center">
+                    {/* Tombol kembali ke antrean untuk layar mobile (UX-005) */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTicket(null)}
+                      className="md:hidden mr-2 p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg flex items-center gap-0.5 text-xs font-semibold"
+                      title="Kembali ke Antrean"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span>Antrean</span>
+                    </button>
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold mr-3">
                       {activeTicket.customer?.name.charAt(0).toUpperCase()}
                     </div>
@@ -2796,8 +2955,8 @@ Tetap tautkan tiket ini?`)) {
                                     </div>
                                     {pmsg.attachment_url && (
                                       <div className="mb-2">
-                                        <img 
-                                          src={pmsg.attachment_url.startsWith('http') ? pmsg.attachment_url : `${BASE_URL}${pmsg.attachment_url}`} 
+                                        <AuthenticatedImage
+                                          src={pmsg.attachment_url}
                                           alt="Lampiran Lampau" 
                                           className="max-w-[200px] max-h-[140px] object-cover rounded-lg border border-black/10 cursor-pointer"
                                           onClick={() => setPreviewImageUrl(pmsg.attachment_url)}
@@ -2864,8 +3023,8 @@ Tetap tautkan tiket ini?`)) {
                             </div>
                             {msg.attachment_url && (
                               <div className="my-2">
-                                <img
-                                  src={`${BASE_URL}${msg.attachment_url}`}
+                                <AuthenticatedImage
+                                  src={msg.attachment_url}
                                   alt="Lampiran Internal"
                                   onClick={() => setPreviewImageUrl(`${BASE_URL}${msg.attachment_url}`)}
                                   className="max-h-60 rounded-lg cursor-pointer hover:opacity-90 border border-yellow-300 shadow-sm transition-all object-contain bg-white/80"
@@ -2894,7 +3053,13 @@ Tetap tautkan tiket ini?`)) {
                         }`}>
                           {/* Render Attachment Fase 3 */}
                           {msg.attachment_url && (
-                            <img src={`${BASE_URL}${msg.attachment_url}`} alt="Attachment" className="max-w-full rounded-md mb-2 object-contain bg-white" style={{maxHeight: '200px'}} />
+                            <AuthenticatedImage
+                              src={msg.attachment_url}
+                              alt="Attachment"
+                              className="max-w-full rounded-md mb-2 object-contain bg-white cursor-pointer"
+                              style={{maxHeight: '200px'}}
+                              onClick={() => setPreviewImageUrl(`${BASE_URL}${msg.attachment_url}`)}
+                            />
                           )}
                           <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message_text}</p>
                           <span className={`text-[10px] mt-1 block text-right ${isCustomer ? 'text-gray-400' : 'text-blue-200'}`}>
@@ -3022,10 +3187,10 @@ Tetap tautkan tiket ini?`)) {
                           />
                           <button 
                             type="submit" 
-                            disabled={!replyText.trim() && !selectedFile} 
+                            disabled={(!replyText.trim() && !selectedFile) || isSendingReply}
                             className="px-4 py-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-md flex items-center gap-1.5 text-sm font-semibold"
                           >
-                            <span>Kirim</span>
+                            <span>{isSendingReply ? 'Mengirim...' : 'Kirim'}</span>
                             <Send className="w-4 h-4" />
                           </button>
                         </form>
@@ -3086,11 +3251,11 @@ Tetap tautkan tiket ini?`)) {
                           />
                           <button 
                             type="submit" 
-                            disabled={!internalNoteText.trim() && !selectedInternalFile} 
+                            disabled={(!internalNoteText.trim() && !selectedInternalFile) || isSendingInternalNote}
                             className="px-4 py-2.5 bg-amber-600 text-white rounded-full hover:bg-amber-700 disabled:opacity-50 transition-colors shadow-sm text-sm font-semibold flex items-center gap-1.5 whitespace-nowrap"
                           >
                             <Lock className="w-3.5 h-3.5" />
-                            <span>Kirim Catatan</span>
+                            <span>{isSendingInternalNote ? 'Menyimpan...' : 'Kirim Catatan'}</span>
                           </button>
                         </form>
                       </div>
@@ -3145,8 +3310,8 @@ Tetap tautkan tiket ini?`)) {
                         placeholder={selectedInternalFile ? `Kirim foto ${selectedInternalFile.name}...` : `Ketik progres penanganan ${currentUser.category ? `(Tim ${typeof currentUser.category === 'object' ? currentUser.category?.name : currentUser.category})` : ''}...`}
                         className="flex-1 py-2.5 px-4 border border-yellow-300 rounded-full focus:outline-none focus:border-yellow-500 bg-white text-sm"
                       />
-                      <button type="submit" disabled={!internalNoteText.trim() && !selectedInternalFile} className="px-4 py-2.5 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 disabled:opacity-50 transition-colors shadow-sm text-sm font-semibold whitespace-nowrap">
-                        Simpan Catatan
+                      <button type="submit" disabled={(!internalNoteText.trim() && !selectedInternalFile) || isSendingInternalNote} className="px-4 py-2.5 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 disabled:opacity-50 transition-colors shadow-sm text-sm font-semibold whitespace-nowrap">
+                        {isSendingInternalNote ? 'Menyimpan...' : 'Simpan Catatan'}
                       </button>
                     </form>
                   </div>
@@ -3164,7 +3329,7 @@ Tetap tautkan tiket ini?`)) {
 
           {/* PANEL KANAN: Pusat Kendali Adaptif (Bisa Di-collapse untuk Laptop 1366x768) */}
           {!isRightPanelCollapsed && (
-            <div className="w-[24%] 2xl:w-[20%] bg-white border-l border-gray-200 p-4 overflow-y-auto animate-in fade-in duration-150">
+            <div className="w-full lg:w-[280px] xl:w-[320px] 2xl:w-[340px] shrink-0 bg-white border-l border-gray-200 p-4 overflow-y-auto animate-in fade-in duration-150">
               <div className="flex justify-between items-center mb-3 pb-2 border-b">
                 <h3 className="font-bold text-gray-800 text-sm">Pusat Kendali</h3>
                 <button
@@ -5643,7 +5808,6 @@ Tetap tautkan tiket ini?`)) {
                     </div>
                     <div className="flex gap-2 overflow-x-auto py-1">
                       {messages.filter(m => m.is_internal && m.attachment_url).map(m => {
-                        const fullUrl = m.attachment_url.startsWith('http') ? m.attachment_url : `${BASE_URL}${m.attachment_url}`;
                         const isSelected = singleHtsSelectedInternalUrls.includes(m.attachment_url);
                         return (
                           <div
@@ -5659,7 +5823,7 @@ Tetap tautkan tiket ini?`)) {
                               isSelected ? 'border-amber-600 ring-2 ring-amber-300' : 'border-amber-200 hover:border-amber-400 bg-white'
                             }`}
                           >
-                            <img src={fullUrl} alt="Internal Media" className="w-12 h-12 object-cover rounded-md" />
+                            <AuthenticatedImage src={m.attachment_url} alt="Internal Media" className="w-12 h-12 object-cover rounded-md" />
                             {isSelected && (
                               <span className="absolute top-1 right-1 bg-amber-600 text-white rounded-full p-0.5">
                                 <Check className="w-2.5 h-2.5" />
@@ -5876,7 +6040,7 @@ Tetap tautkan tiket ini?`)) {
                             className="group relative rounded-xl overflow-hidden border border-gray-200 hover:border-blue-400 cursor-pointer shadow-2xs transition"
                             title="Klik untuk memperbesar gambar"
                           >
-                            <img src={fullUrl} alt={`Bukti ${idx + 1}`} className="w-full h-20 object-cover group-hover:scale-105 transition duration-150" />
+                            <AuthenticatedImage src={url} alt={`Bukti ${idx + 1}`} className="w-full h-20 object-cover group-hover:scale-105 transition duration-150" />
                             <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
                               <Eye className="w-4 h-4" />
                             </div>
@@ -6244,7 +6408,6 @@ Tetap tautkan tiket ini?`)) {
                               </p>
                               <div className="flex gap-2 overflow-x-auto py-1">
                                 {messages.filter(m => m.is_internal && m.attachment_url).map(m => {
-                                  const fullUrl = m.attachment_url.startsWith('http') ? m.attachment_url : `${BASE_URL}${m.attachment_url}`;
                                   const isSelected = (curForm.selectedInternalUrls || []).includes(m.attachment_url);
                                   return (
                                     <div
@@ -6263,7 +6426,7 @@ Tetap tautkan tiket ini?`)) {
                                       }`}
                                       title="Klik untuk memilih foto ini"
                                     >
-                                      <img src={fullUrl} alt="Internal Media" className="w-14 h-14 object-cover rounded-md" />
+                                      <AuthenticatedImage src={m.attachment_url} alt="Internal Media" className="w-14 h-14 object-cover rounded-md" />
                                       {isSelected && (
                                         <span className="absolute top-1 right-1 bg-amber-600 text-white rounded-full p-0.5 shadow-xs">
                                           <Check className="w-3 h-3" />
@@ -6902,6 +7065,9 @@ Tetap tautkan tiket ini?`)) {
       {/* Lightbox Modal untuk Preview Foto / Media Catatan Internal */}
       {previewImageUrl && (
         <div 
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pratinjau Lampiran Gambar"
           className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center z-50 p-4 transition-all duration-200 animate-in fade-in"
           onClick={() => setPreviewImageUrl(null)}
         >
@@ -6910,15 +7076,6 @@ Tetap tautkan tiket ini?`)) {
             onClick={e => e.stopPropagation()}
           >
             <div className="absolute -top-10 right-0 flex items-center gap-3">
-              <a 
-                href={previewImageUrl.startsWith('http') ? previewImageUrl : `${BASE_URL}${previewImageUrl}`} 
-                target="_blank" 
-                rel="noreferrer"
-                className="text-white/90 hover:text-white bg-black/50 hover:bg-black/70 px-2.5 py-1 rounded-lg text-xs flex items-center gap-1.5 transition border border-white/20"
-                title="Buka gambar di tab baru"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Buka Tab Baru
-              </a>
               <button 
                 onClick={() => setPreviewImageUrl(null)}
                 className="text-white/90 hover:text-white bg-black/50 hover:bg-black/70 p-1.5 rounded-lg transition border border-white/20"
@@ -6927,8 +7084,8 @@ Tetap tautkan tiket ini?`)) {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <img 
-              src={previewImageUrl.startsWith('http') ? previewImageUrl : `${BASE_URL}${previewImageUrl}`} 
+            <AuthenticatedImage
+              src={previewImageUrl}
               alt="Preview Catatan Internal" 
               className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border border-white/10"
             />
