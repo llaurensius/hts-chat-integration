@@ -6,18 +6,19 @@ const { withLock } = require('../utils/perNumberLock');
 const { emitToAuthorizedRooms } = require('../utils/socketEmitter');
 
 const handleIncomingMessage = async (req, res) => {
-  // Selalu balas 200 OK ke Evolution API dengan cepat agar webhook tidak timeout
-  res.status(200).json({ status: 'success' });
-
   try {
     const payload = req.body;
     
     // Pastikan ini adalah event pesan masuk (messages.upsert)
-    if (payload.event !== 'messages.upsert') return;
+    if (payload.event !== 'messages.upsert') {
+      return res.status(200).json({ status: 'ignored', reason: 'unsupported_event' });
+    }
     
     const messageData = payload.data;
 
-    if (!messageData || !messageData.message) return;
+    if (!messageData || !messageData.message) {
+      return res.status(200).json({ status: 'ignored', reason: 'no_message_data' });
+    }
 
     // 1. Abaikan pesan dari grup WhatsApp
     const remoteJid = messageData.key.remoteJid;
@@ -25,7 +26,9 @@ const handleIncomingMessage = async (req, res) => {
     const fromMe = Boolean(messageData.key.fromMe);
     const waMessageId = messageData.key.id || null;
 
-    if (!remoteJid || remoteJid.includes('@g.us')) return;
+    if (!remoteJid || remoteJid.includes('@g.us')) {
+      return res.status(200).json({ status: 'ignored', reason: 'group_message' });
+    }
 
     // Nomor WA target / lawan bicara (prioritas: remoteJidAlt jika remoteJid adalah LID)
     let targetJid = remoteJid;
@@ -33,17 +36,19 @@ const handleIncomingMessage = async (req, res) => {
       targetJid = remoteJidAlt;
     }
     const waNumber = targetJid.split('@')[0];
-    if (!waNumber) return;
+    if (!waNumber) {
+      return res.status(200).json({ status: 'ignored', reason: 'invalid_wa_number' });
+    }
 
     // DATA-01: Serialisasi pemrosesan per nomor WA dengan lock untuk mencegah race-condition tiket aktif ganda
-    await withLock(`wa:${waNumber}`, async () => {
+    const result = await withLock(`wa:${waNumber}`, async () => {
       // 2. Cegah duplikasi jika waMessageId sudah ada di database (pesan terkirim via Web Dashboard)
       if (waMessageId) {
         const existingMsg = await prisma.message.findFirst({
           where: { wa_message_id: waMessageId }
         });
         if (existingMsg) {
-          return;
+          return { duplicate: true };
         }
       }
 
@@ -252,7 +257,7 @@ const handleIncomingMessage = async (req, res) => {
         }
       });
       if (recentDup) {
-        return;
+        return { duplicate: true };
       }
     }
 
@@ -272,7 +277,7 @@ const handleIncomingMessage = async (req, res) => {
     } catch (createErr) {
       if (createErr.code === 'P2002' && (createErr.meta?.target?.includes('wa_message_id') || createErr.message?.includes('wa_message_id'))) {
         console.log(`[Webhook] Duplikasi pesan wa_message_id ${waMessageId} dicegah secara atomik oleh constraint DB (P2002).`);
-        return;
+        return { duplicate: true };
       }
       throw createErr;
     }
@@ -289,10 +294,19 @@ const handleIncomingMessage = async (req, res) => {
         senderType: senderType
       });
     }
+      return { success: true, messageId: savedMessage?.id };
     }); // Akhir dari withLock (`wa:${waNumber}`)
 
+    if (result?.duplicate) {
+      return res.status(200).json({ status: 'duplicate_ignored' });
+    }
+
+    return res.status(200).json({ status: 'success', messageId: result?.messageId });
   } catch (error) {
     console.error('[Webhook] Error processing incoming message:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
   }
 };
 

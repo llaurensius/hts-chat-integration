@@ -61,6 +61,9 @@ const getMe = async (req, res) => {
       where: { id: req.user.id },
       select: { id: true, name: true, email: true, role: true, category_id: true, category: true }
     });
+    if (!user) {
+      return res.status(401).json({ error: 'Pengguna tidak ditemukan atau telah dihapus' });
+    }
     res.json({
       id: user.id,
       name: user.name,

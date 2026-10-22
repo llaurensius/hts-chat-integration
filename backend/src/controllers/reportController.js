@@ -184,6 +184,9 @@ const deleteTicketReports = async (req, res) => {
 
     // Hapus tiket-tiket terpilih secara aman
     await prisma.$transaction([
+      prisma.ticketHts.deleteMany({
+        where: { ticket_id: { in: ticketIds } }
+      }),
       prisma.message.deleteMany({
         where: { ticket_id: { in: ticketIds } }
       }),

@@ -785,6 +785,11 @@ const assignTicket = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
+    // State guard: Tiket CLOSED tidak dapat ditugaskan kembali tanpa Re-Open eksplisit
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat menugaskan tiket yang sudah CLOSED. Buka kembali (Re-Open) tiket terlebih dahulu.' });
+    }
+
     const categories = await prisma.category.findMany({
       where: { id: { in: targetIds } },
       include: { contacts: true }
@@ -1065,6 +1070,11 @@ const resolveTicket = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
+    // State guard: Tiket CLOSED tidak dapat ditandai selesai
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat menyelesaikan tiket yang sudah CLOSED. Buka kembali (Re-Open) tiket terlebih dahulu.' });
+    }
+
     // Hak akses ketat: Hanya L2, ADMIN, atau SPV yang dapat menandai solusi teknis selesai (SEC-02)
     if (user && user.role === 'L1') {
       return res.status(403).json({ error: 'Akses ditolak: Petugas L1 tidak berwenang menandai solusi teknis selesai' });
@@ -1240,6 +1250,11 @@ const returnTicket = async (req, res) => {
     });
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
+
+    // State guard: Tiket CLOSED tidak dapat dikembalikan penugasannya
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat mengembalikan penugasan pada tiket yang sudah CLOSED. Buka kembali (Re-Open) tiket terlebih dahulu.' });
+    }
 
     // Hak akses ketat: Hanya L2, ADMIN, atau SPV yang dapat mengembalikan penugasan tim L2 (SEC-02)
     if (user && user.role === 'L1') {
@@ -2364,6 +2379,14 @@ const closeGeneralChat = async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: 'Tiket tidak ditemukan' });
 
+    if (ticket.status === 'CLOSED') {
+      return res.status(409).json({ error: 'Tiket sudah dalam status CLOSED' });
+    }
+
+    if (ticket.is_aduan) {
+      return res.status(400).json({ error: 'Tiket ini adalah aduan teknis resmi. Gunakan alur penutupan tiket aduan.' });
+    }
+
     const finalSummary = (summary && summary.trim()) || 'Percakapan biasa selesai';
 
     const updated = await prisma.ticket.update({
@@ -2887,6 +2910,14 @@ const unlinkHtsTicket = async (req, res) => {
       return res.status(404).json({ error: 'Tiket tidak ditemukan' });
     }
 
+    if (currentTicket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat melepas tautan tiket HTS pada percakapan yang sudah berstatus CLOSED. Buka kembali (Re-Open) tiket terlebih dahulu.' });
+    }
+
+    if (ticketHts && ticketHts.ticket_id !== currentTicket.id) {
+      return res.status(403).json({ error: 'Tiket HTS tidak terdaftar pada percakapan ini' });
+    }
+
     if (!ticketHts && !currentTicket.hts_ticket_no && !currentTicket.hts_ticket_id) {
       return res.status(404).json({ error: 'Tiket HTS tidak ditemukan pada percakapan ini' });
     }
@@ -3324,6 +3355,10 @@ const linkHtsTicket = async (req, res) => {
 
     if (!ticket) {
       return res.status(404).json({ error: 'Tiket Helpdesk tidak ditemukan' });
+    }
+
+    if (ticket.status === 'CLOSED') {
+      return res.status(400).json({ error: 'Tidak dapat menautkan tiket HTS pada percakapan yang sudah berstatus CLOSED. Buka kembali (Re-Open) tiket terlebih dahulu.' });
     }
 
     // 1. Validasi: Jangan izinkan menautkan nomor HTS yang sama berulang kali di percakapan yang sama

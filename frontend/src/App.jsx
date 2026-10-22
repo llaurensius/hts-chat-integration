@@ -248,7 +248,7 @@ function Dashboard() {
 
       osc.start();
       osc.stop(ctx.currentTime + 0.35);
-    } catch (e) {
+    } catch {
       // Audio autoplay policy notice
     }
   };
@@ -694,16 +694,13 @@ Tetap tautkan tiket ini?`)) {
 
   // State Dual-Close HTS (Fase 3 & 4 + Revisi Spec)
   const [closeHtsTicket, setCloseHtsTicket] = useState(true);
-  const [closeHtsPicId, setCloseHtsPicId] = useState('');
   const [closeHtsPicIds, setCloseHtsPicIds] = useState([]);
-  const [closeHtsPicSearch, setCloseHtsPicSearch] = useState('');
   const [closeHtsSolution, setCloseHtsSolution] = useState('');
   const [closeHtsTanggal, setCloseHtsTanggal] = useState(getTodayDate());
   const [closeHtsJam, setCloseHtsJam] = useState(getCurrentTime());
   const [closeHtsFile, setCloseHtsFile] = useState(null);
   const [closeHtsUseChatImage, setCloseHtsUseChatImage] = useState(false);
   const [closeHtsChatImagePreview, setCloseHtsChatImagePreview] = useState(null);
-  const [closeHtsSelectedInternalUrl, setCloseHtsSelectedInternalUrl] = useState(null);
   const [closeHtsSelectedInternalUrls, setCloseHtsSelectedInternalUrls] = useState([]);
   const [closeHtsTabActive, setCloseHtsTabActive] = useState(null);
   const [closeHtsFormData, setCloseHtsFormData] = useState({});
@@ -913,23 +910,7 @@ Tetap tautkan tiket ini?`)) {
     subKategori: [],
     pics: []
   });
-  const [createHtsTicket, setCreateHtsTicket] = useState(false);
   const [autoOpenHtsAfterAssign, setAutoOpenHtsAfterAssign] = useState(false);
-  const [assignHtsCust, setAssignHtsCust] = useState('');
-  const [assignHtsOpd, setAssignHtsOpd] = useState('');
-  const [assignIndukOpdId, setAssignIndukOpdId] = useState('');
-  const [assignHtsTanggal, setAssignHtsTanggal] = useState(getTodayDate());
-  const [assignHtsJam, setAssignHtsJam] = useState(getCurrentTime());
-  const [assignHtsKategori, setAssignHtsKategori] = useState('troubleshoot');
-  const [assignHtsSubKategori, setAssignHtsSubKategori] = useState('DISTRIBUTION NETWORK');
-  const [assignHtsDetil, setAssignHtsDetil] = useState('');
-  const [assignHtsPicId, setAssignHtsPicId] = useState('');
-  const [assignHtsPicIds, setAssignHtsPicIds] = useState([]);
-  const [assignHtsPicSearch, setAssignHtsPicSearch] = useState('');
-  const [assignHtsFile, setAssignHtsFile] = useState(null);
-  const [assignHtsUseChatImage, setAssignHtsUseChatImage] = useState(false);
-  const [assignHtsChatImagePreview, setAssignHtsChatImagePreview] = useState(null);
-  const [opdSearchTerm, setOpdSearchTerm] = useState('');
   const [isSubmittingAssign, setIsSubmittingAssign] = useState(false);
 
   // State Standalone Sync Modal HTS (Fase 2 V3 + Revisi Spec)
@@ -979,7 +960,6 @@ Tetap tautkan tiket ini?`)) {
   const [syncHtsKategori, setSyncHtsKategori] = useState('troubleshoot');
   const [syncHtsSubKategori, setSyncHtsSubKategori] = useState('DISTRIBUTION NETWORK');
   const [syncHtsDetil, setSyncHtsDetil] = useState('');
-  const [syncHtsPicId, setSyncHtsPicId] = useState('');
   const [syncHtsPicIds, setSyncHtsPicIds] = useState([]);
   const [syncHtsPicSearch, setSyncHtsPicSearch] = useState('');
   const [syncHtsFile, setSyncHtsFile] = useState(null);
@@ -1006,25 +986,6 @@ Tetap tautkan tiket ini?`)) {
       }
     } catch (err) {
       console.warn('Gagal memuat master data HTS:', err.message);
-    }
-  };
-
-  const handleAssignOpdSearch = (term) => {
-    setOpdSearchTerm(term);
-    if (!term.trim()) {
-      setAssignIndukOpdId('');
-      return;
-    }
-    const filtered = (htsMasterData.indukOpd || []).filter(o => 
-      o.name.toLowerCase().includes(term.toLowerCase())
-    );
-    if (filtered.length > 0) {
-      const alreadyInFiltered = filtered.some(o => String(o.id) === String(assignIndukOpdId));
-      if (!alreadyInFiltered) {
-        setAssignIndukOpdId(String(filtered[0].id));
-      }
-    } else {
-      setAssignIndukOpdId('');
     }
   };
 
@@ -1114,16 +1075,6 @@ Tetap tautkan tiket ini?`)) {
 
   const handleServiceTypeChange = (newType) => {
     setAssignServiceType(newType);
-    if (newType === 'TROUBLESHOOTING') setAssignHtsKategori('troubleshoot');
-    else if (newType === 'REQUEST_LAYANAN') setAssignHtsKategori('request');
-    else if (newType === 'MONITORING') setAssignHtsKategori('monitoring');
-  };
-
-  const handleAssignHtsKategoriChange = (newCat) => {
-    setAssignHtsKategori(newCat);
-    if (newCat === 'troubleshoot') setAssignServiceType('TROUBLESHOOTING');
-    else if (newCat === 'request') setAssignServiceType('REQUEST_LAYANAN');
-    else if (newCat === 'monitoring') setAssignServiceType('MONITORING');
   };
 
   const handleOpenAssignModal = () => {
@@ -1200,12 +1151,9 @@ Tetap tautkan tiket ini?`)) {
       setCloseHtsTabActive(null);
     }
 
-    setCloseHtsPicId(fallbackPic[0] || '');
     setCloseHtsPicIds(fallbackPic);
-    setCloseHtsPicSearch('');
     setCloseHtsTanggal(getTodayDate());
     setCloseHtsJam(getCurrentTime());
-    setCloseHtsSelectedInternalUrl(null);
     setCloseHtsSelectedInternalUrls([]);
     setCloseHtsFile(null);
     setCloseHtsFiles([]);
@@ -1299,7 +1247,6 @@ Tetap tautkan tiket ini?`)) {
     setSyncHtsSubKategori('DISTRIBUTION NETWORK');
     
     // PIC (Multi-PIC - default tidak auto ceklist)
-    setSyncHtsPicId('');
     setSyncHtsPicIds([]);
     setSyncHtsPicSearch('');
 
@@ -1395,34 +1342,6 @@ Tetap tautkan tiket ini?`)) {
     }
   };
 
-  const [isSyncingSolveHts, setIsSyncingSolveHts] = useState(false);
-
-  const handleSyncSolveHts = async () => {
-    if (!activeTicket || !activeTicket.hts_ticket_no) return;
-    if (!htsStatus?.isLoggedIn) {
-      alert('Silakan hubungkan akun HTS Diskomdigi Anda terlebih dahulu di panel kanan.');
-      setShowHtsModal(true);
-      return;
-    }
-
-    const confirmSolve = window.confirm(`Apakah Anda yakin ingin menyelesaikan status tiket #${activeTicket.hts_ticket_no} di portal HTS?`);
-    if (!confirmSolve) return;
-
-    setIsSyncingSolveHts(true);
-    try {
-      const res = await axios.post(`${API_URL}/chat/tickets/${activeTicket.id}/sync-solve-hts`, {
-        solution: activeTicket.summary || ''
-      });
-
-      alert(res.data?.message || 'Tiket berhasil diselesaikan di portal HTS!');
-      loadTickets();
-      if (activeTicket) loadMessages(activeTicket.id);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Gagal menyelesaikan tiket di portal HTS');
-    } finally {
-      setIsSyncingSolveHts(false);
-    }
-  };
   // Authentication Check
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -1458,7 +1377,7 @@ Tetap tautkan tiket ini?`)) {
     try {
       const res = await axios.get(`${API_URL}/chat/tickets/${ticketId}/messages`);
       setMessages(res.data);
-    } catch (error) {
+    } catch {
       console.error('Failed to load messages');
     }
   };
@@ -1467,7 +1386,7 @@ Tetap tautkan tiket ini?`)) {
     try {
       const res = await axios.get(`${API_URL}/chat/categories`);
       setCategories(res.data);
-    } catch (error) {
+    } catch {
       console.error('Failed to load categories');
     }
   };
@@ -1476,7 +1395,7 @@ Tetap tautkan tiket ini?`)) {
     try {
       const res = await axios.get(`${API_URL}/reports/tickets`);
       setReportTickets(res.data);
-    } catch (error) {
+    } catch {
       console.error('Failed to load reports');
     }
   };
@@ -1844,6 +1763,7 @@ Tetap tautkan tiket ini?`)) {
       socket.off('hts_ticket_updated', handleHtsEvent);
       socket.off('hts_ticket_deleted', handleHtsEvent);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]); 
 
   useEffect(() => {
@@ -1864,7 +1784,8 @@ Tetap tautkan tiket ini?`)) {
     if (currentTab === 'users' && isAdmin) loadAdminUsers();
     if (currentTab === 'teams' && isAdmin) loadTeamCategories();
     if (currentTab === 'bot' && currentUser?.role === 'L1') loadBotSetting();
-  }, [currentTab, currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTab, currentUser]); 
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -6015,7 +5936,7 @@ Tetap tautkan tiket ini?`)) {
                       urls = typeof selectedHtsDetail.attachment_urls === 'string'
                         ? JSON.parse(selectedHtsDetail.attachment_urls)
                         : selectedHtsDetail.attachment_urls;
-                    } catch (e) {
+                    } catch {
                       urls = [selectedHtsDetail.attachment_urls];
                     }
                   }
